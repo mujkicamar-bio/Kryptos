@@ -3,14 +3,21 @@ from snakemake.utils import validate
 configfile: "config/config.yaml"
 validate(config, "../config/schemas/config.schema.yaml")
 
+import yaml
+cascade = yaml.safe_load(open("config/cascade.yaml"))
+validate(cascade, "../config/schemas/cascade.schema.yaml")
+
 OUT = config["outdir"]
 SHARDS = [f"{i:04d}" for i in range(config["n_shards"])]
 
 
 rule all:
     input:
-        f"{OUT}/s2/unique_proteins.faa",
-        f"{OUT}/s2/protein_map.tsv",
+        f"{OUT}/s4/plasmid_annotation.tsv",
+
+
+include: "rules/common.smk"
+include: "rules/s3_cascade.smk"
 
 
 rule analysis_set:
