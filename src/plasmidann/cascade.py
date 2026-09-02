@@ -27,13 +27,17 @@ def classify(hits):
     """
     if not hits:
         return {"annot_tier": None, "annot_label": None, "functional_class": "NONE",
-                "homology_depth": None}
+                "homology_depth": None, "annot_qcov": None, "annot_tcov": None,
+                "annot_evalue": None}
     best = min(hits, key=lambda h: (_RANK[_class_of(h)], TIERS.index(h["tier"])))
     return {
         "annot_tier": best["tier"],
         "annot_label": best["label"],
         "functional_class": _class_of(best),
         "homology_depth": TIERS.index(best["tier"]) + 1,
+        "annot_qcov": best["coverage"],
+        "annot_tcov": best.get("target_coverage"),
+        "annot_evalue": best.get("evalue"),
     }
 
 

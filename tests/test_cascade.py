@@ -46,3 +46,20 @@ def test_a_deep_real_name_beats_a_shallow_uninformative_one():
 
     assert r["functional_class"] == "FUNCTIONAL"
     assert r["annot_tier"] == "T6"
+
+
+def test_the_winning_hits_coverages_and_evalue_are_preserved():
+    """Coverage decides the class AND must survive into the table, for stratification."""
+    hits = [{"tier": "T4", "label": "relaxase MobA", "coverage": 0.91,
+             "target_coverage": 0.42, "evalue": "1e-40"}]
+
+    r = classify(hits)
+
+    assert r["annot_qcov"] == 0.91
+    assert r["annot_tcov"] == 0.42
+    assert r["annot_evalue"] == "1e-40"
+
+
+def test_unresolved_proteins_carry_no_coverage():
+    r = classify([])
+    assert r["annot_qcov"] is None and r["annot_tcov"] is None

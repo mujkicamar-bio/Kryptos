@@ -7,10 +7,12 @@ for f in snakemake.input.hits:
     with open(f, newline="") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
             r["coverage"] = float(r["coverage"])
+            r["target_coverage"] = float(r["target_coverage"]) if r["target_coverage"] else None
             by_query[r["query"]].append(r)
 
 seq_ids = [l[1:].split()[0] for l in open(snakemake.input.faa) if l[0] == ">"]
-cols = ["seq_id", "annot_tier", "annot_label", "functional_class", "homology_depth"]
+cols = ["seq_id", "annot_tier", "annot_label", "functional_class", "homology_depth",
+        "annot_qcov", "annot_tcov", "annot_evalue"]
 with open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
