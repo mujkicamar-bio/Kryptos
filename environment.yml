@@ -1,0 +1,38 @@
+# Phase 0.1 environment index.
+#
+# This project uses FOUR separate micromamba environments rather than one shared
+# environment, because mob_suite, PlasAnn, and SegMantX each need pandas/python pins
+# that conflict with each other and with an unconstrained "latest" solve (see
+# tools/README.md "Two recurring gotchas" and per-tool sections for the exact
+# incompatibilities found and fixed). Each environment's exact resolved spec
+# (as captured by `micromamba env export`) is reproducible from the files below.
+#
+# Build root: envs/.micromamba_root/ (project-local; $HOME has a disk quota too
+# small for these environments, see tools/README.md).
+#
+# To rebuild from scratch:
+#   ~/bin/micromamba (or any micromamba 2.x) +
+#   export MAMBA_ROOT_PREFIX=$(pwd)/envs/.micromamba_root
+#   micromamba env create -n plasmid_phase0 -f envs/plasmid_phase0.environment.yml --no-rc
+#   micromamba env create -n mob_suite_env  -f envs/mob_suite_env.environment.yml  --no-rc
+#   micromamba env create -n plasann_env    -f envs/plasann_env.environment.yml    --no-rc
+#   micromamba env create -n segmantx_env   -f envs/segmantx_env.environment.yml   --no-rc
+#   (then: git clone https://github.com/DMH-biodatasci/SegMantX.git tools/SegMantX --
+#    SegMantX is run from the cloned repo, not installed as a package; see tools/README.md)
+#
+# Always invoke tools with PYTHONNOUSERSITE=1 and the target env's bin/ prepended to
+# PATH (tools/README.md explains why both are required every time).
+
+environments:
+  - name: plasmid_phase0
+    spec: envs/plasmid_phase0.environment.yml
+    purpose: general analysis (seqkit, csvtk, prodigal, hmmer, blast, mmseqs2, pandas/scipy/statsmodels/networkx/seaborn/biopython)
+  - name: mob_suite_env
+    spec: envs/mob_suite_env.environment.yml
+    purpose: MOB-suite (mob_typer) replicon/relaxase/mobility typing -- isolated, pandas<2 pin required
+  - name: plasann_env
+    spec: envs/plasann_env.environment.yml
+    purpose: PlasAnn plasmid annotation pipeline (bioconda) + prodigal/blast/infernal deps
+  - name: segmantx_env
+    spec: envs/segmantx_env.environment.yml
+    purpose: dependencies for tools/SegMantX (cloned from source) -- pandas<2.2, python<3.13 pin required

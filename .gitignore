@@ -1,0 +1,22 @@
+# ---- Large data trees: regenerable or too big for git ----
+data/
+envs/
+
+# ---- Vendored tool binaries (keep the README) ----
+tools/*
+!tools/README.md
+
+# ---- Auxiliary reference databases ----
+orit_db_folder/
+transposon_db_folder/
+refs/
+
+# ---- Python / Jupyter cruft ----
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# ---- Scratch ----
+*.tmp
+*.swp
+slurm-*.out

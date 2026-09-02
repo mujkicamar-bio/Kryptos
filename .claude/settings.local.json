@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone *)",
+      "Bash(ls ~/.claude/skills/)",
+      "Read(//gorilla/home/amujkic/.claude/skills/**)",
+      "WebSearch",
+      "WebFetch(domain:www.biorxiv.org)",
+      "WebFetch(domain:genome.jgi.doe.gov)",
+      "WebFetch(domain:pmc.ncbi.nlm.nih.gov)",
+      "mcp__claude_ai_bioRxiv__get_preprint",
+      "Bash(rm -f jgi_probe.xml && echo \"cleaned temp probe\")",
+      "Bash(cd /gorilla/proj/h-mel-phylo/h-mel-phylo/private/amar/plasmid_analyis *)",
+      "Bash(scancel 6263766)",
+      "Bash(chmod +x /tmp/plasann_debug.sh)",
+      "Bash(srun -A uppmax2025-2-42 -p pelle -n1 -t 00:15:00 -J dbg bash /tmp/plasann_debug.sh)"
+    ],
+    "additionalDirectories": [
+      "/gorilla/proj/h-mel-phylo/h-mel-phylo/private/amar/plasmid_analyis"
+    ]
+  }
+}
