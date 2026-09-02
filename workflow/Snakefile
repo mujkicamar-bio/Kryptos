@@ -1,0 +1,87 @@
+from snakemake.utils import validate
+
+configfile: "config/config.yaml"
+validate(config, "../config/schemas/config.schema.yaml")
+
+OUT = config["outdir"]
+SHARDS = [f"{i:04d}" for i in range(config["n_shards"])]
+
+
+rule all:
+    input:
+        f"{OUT}/s2/unique_proteins.faa",
+        f"{OUT}/s2/protein_map.tsv",
+
+
+rule analysis_set:
+    """Plasmids that survive the locked artifact exclusion."""
+    input:
+        config["master_table"],
+    output:
+        f"{OUT}/s0/analysis_set.txt",
+    params:
+        exclude=config["exclude_hab_top"],
+    log:
+        f"{OUT}/logs/analysis_set.log",
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/analysis_set.py"
+
+
+rule shard_fasta:
+    input:
+        fasta=config["working_set_fasta"],
+        ids=f"{OUT}/s0/analysis_set.txt",
+    output:
+        expand(f"{OUT}/s1/shards/{{shard}}.fna", shard=SHARDS),
+    log:
+        f"{OUT}/logs/shard_fasta.log",
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/shard_fasta.py"
+
+
+rule orf_call:
+    input:
+        f"{OUT}/s1/shards/{{shard}}.fna",
+    output:
+        faa=f"{OUT}/s1/orfs/{{shard}}.faa",
+        tsv=f"{OUT}/s1/orfs/{{shard}}.tsv",
+    conda:
+        "envs/pyrodigal.yaml"
+    log:
+        f"{OUT}/logs/orf_call/{{shard}}.log",
+    script:
+        "scripts/orf_call.py"
+
+
+rule orf_index:
+    """Assign orf_id once, over the complete ORF set. Never recomputed downstream."""
+    input:
+        expand(f"{OUT}/s1/orfs/{{shard}}.tsv", shard=SHARDS),
+    output:
+        f"{OUT}/s1/orf_index.tsv",
+    log:
+        f"{OUT}/logs/orf_index.log",
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/orf_index.py"
+
+
+rule dereplicate:
+    """Exact-identity collapse. Lossless: asserted, not assumed."""
+    input:
+        index=f"{OUT}/s1/orf_index.tsv",
+        faa=expand(f"{OUT}/s1/orfs/{{shard}}.faa", shard=SHARDS),
+    output:
+        faa=f"{OUT}/s2/unique_proteins.faa",
+        map=f"{OUT}/s2/protein_map.tsv",
+    log:
+        f"{OUT}/logs/dereplicate.log",
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/dereplicate.py"

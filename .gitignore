@@ -20,3 +20,8 @@ __pycache__/
 *.tmp
 *.swp
 slurm-*.out
+
+# ---- Pipeline ----
+.venv/
+results*/
+.snakemake/

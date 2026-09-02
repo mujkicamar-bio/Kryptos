@@ -1,0 +1,5 @@
+working_set_fasta: data/plasmidscope_primary/working_set.fna.gz
+master_table: data/plasmidscope_primary/plasmid_metadata_master.tsv
+outdir: results
+n_shards: 600
+exclude_hab_top: [Simulated-artifact, Lab-artifact]
