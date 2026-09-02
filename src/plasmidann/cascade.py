@@ -47,3 +47,21 @@ def narrow(all_ids, hit_ids):
     if unknown:
         raise ValueError(f"hits for {len(unknown)} id(s) not in the query set, e.g. {sorted(unknown)[:3]}")
     return [i for i in all_ids if i not in hit_ids]
+
+
+def explained_fraction(length, intervals):
+    """Fraction of a protein covered by the union of its domain hits.
+
+    Overlapping domains are merged, not summed: a protein hit twice by the same family
+    at 8-337 and 263-387 is 97% explained, not 168%. This is the metric that finds dark
+    regions inside otherwise-annotated proteins.
+    """
+    if not intervals or not length:
+        return 0.0
+    covered, end = 0, 0
+    for s, e in sorted(intervals):
+        s, e = max(s, end + 1), max(e, end)
+        if e >= s:
+            covered += e - s + 1
+            end = e
+    return round(covered / length, 4)
