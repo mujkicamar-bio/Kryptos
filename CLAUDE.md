@@ -46,3 +46,11 @@ For multi-step tasks, state a brief plan:
 2. [Step] → verify: [check]
 3. [Step] → verify: [check]
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+5. Language
+Use standard international English.
+
+Avoid slang, regional dialects, texting abbreviations, excessive idioms, and informal internet
+language. Use clear, grammatically correct wording and conventional English vocabulary.
+
+This applies to everything: conversational replies, report text, code comments, docstrings and
+commit messages. The audience is international and the wording is reused in manuscripts.
