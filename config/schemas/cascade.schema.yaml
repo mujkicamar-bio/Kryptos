@@ -9,7 +9,7 @@ properties:
       type: object
       properties:
         id: {type: string, pattern: "^T[0-9]+$"}
-        method: {type: string, enum: [hmmer, mmseqs]}
+        method: {type: string, enum: [hmmer, diamond, hhblits, foldseek, eggnogmapper]}
         db: {type: string}
         args: {type: string}
         note: {type: string}

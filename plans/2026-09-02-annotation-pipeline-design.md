@@ -437,6 +437,11 @@ raw spread. Raw lineage spread alone is never reported — it was the statistic 
 All tiers draw from one ranked table; they differ only in filter profile. No assay-specific logic is
 hardcoded, per the decision to keep assay options open.
 
+**`dark_evidence` is a WEAK signal, by explicit decision (2026-09-03).** It is a low-weight
+ranking feature, never a gate. A `PREDICTED_ONLY` protein is not excluded from screening, and a
+`CURATED_FAMILY` protein is arguably *less* novel because Pfam already recognised the family. The
+ladder measures only the risk that there is no protein there at all, not how interesting it is.
+
 **Shared ranking features** (each a column, weights in config):
 
 ```

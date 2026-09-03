@@ -1,14 +1,14 @@
-# Keep searching a protein until this much of it is explained.
+# Keep searching a protein until this much of it is explained by an INFORMATIVE hit.
+# A "hypothetical protein" hit explains nothing however well it aligns, so it never
+# satisfies this threshold - the protein continues to every remaining tier, and the
+# uninformative label is recorded rather than discarded.
 min_explained: 0.5
 
-# Tier order IS authority order. Each tier sees only what the previous could not name.
+# Tier order IS authority order. Native tool per tier; mmseqs2 is reserved for S6.
 # Thresholds are pre-registered here and written into every output row (design P5).
 tiers:
-  - {id: T1, method: hmmer,  db: data/refs/pfam/Pfam-A.hmm, args: "--cut_ga",  note: "Pfam-A 38.2 curated gathering thresholds"}
-  - {id: T2, method: hmmer,  db: data/refs/pfam/Pfam-A.hmm, args: "-E 1e-5",   note: "sub-GA Pfam homology"}
-  - {id: T3, method: mmseqs, db: /sw/data/MMseqs2_data/latest/rackham/VOGDB,    args: "-s 5.7 -e 1e-3", note: "viral orthologous groups"}
-  - {id: T4, method: mmseqs, db: /sw/data/MMseqs2_data/latest/rackham/UniRef90, args: "-s 5.7 -e 1e-3", note: "close sequence homology"}
-  - {id: T5, method: mmseqs, db: /sw/data/MMseqs2_data/latest/rackham/UniRef50, args: "-s 7.5 -e 1e-3", note: "mid-range homology"}
-  - {id: T6, method: mmseqs, db: /sw/data/MMseqs2_data/latest/rackham/eggNOG,   args: "-s 7.5 -e 1e-3", note: "orthology"}
-  - {id: T7, method: mmseqs, db: /sw/data/MMseqs2_data/latest/rackham/NR,       args: "-s 7.5 -e 1e-3", note: "exhaustive sequence"}
-  - {id: T8, method: mmseqs, db: /sw/data/MMseqs2_data/latest/rackham/PDB70,    args: "-s 7.5 -e 1e-3", note: "structural profile"}
+  - {id: T1, method: hmmer,   db: data/refs/pfam/Pfam-A.hmm, args: "--cut_ga", note: "Pfam-A 38.2 curated gathering thresholds"}
+  - {id: T2, method: hmmer,   db: data/refs/pfam/Pfam-A.hmm, args: "-E 1e-5",  note: "sub-GA Pfam homology"}
+  - {id: T3, method: diamond, db: /sw/data/diamond_databases/Blast/latest/swissprot.dmnd, args: "--very-sensitive", note: "Swiss-Prot, 264 MB - highest label quality, nearly free"}
+  - {id: T4, method: diamond, db: /sw/data/diamond_databases/UniRef90/2025_01/uniref90.dmnd, args: "--sensitive", note: "UniRef90 2025_01, 92 GB"}
+  - {id: T5, method: diamond, db: /sw/data/diamond_databases/Blast/latest/nr.dmnd, args: "--very-sensitive", note: "NCBI nr, 350 GB - reaches environmental sequence UniRef lacks"}

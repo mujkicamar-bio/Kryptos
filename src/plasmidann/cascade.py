@@ -108,3 +108,57 @@ def narrow_by_explained(all_ids, explained, threshold):
         raise ValueError(f"explained fractions for {len(unknown)} id(s) never queried, "
                          f"e.g. {sorted(unknown)[:3]}")
     return [i for i in all_ids if explained.get(i, 0.0) < threshold]
+
+
+def is_informative(label):
+    """True when a label names a function, rather than recording that someone saw it."""
+    return not UNINFORMATIVE.search(label or "")
+
+
+def informative_spans(hits):
+    """Alignment intervals from hits that actually name a function.
+
+    A 'hypothetical protein' hit explains nothing, however well it aligns, so it must
+    not count toward explained_fraction and must not stop the cascade. Another database
+    may still name the protein.
+    """
+    return [(h["start"], h["end"]) for h in hits if is_informative(h.get("label"))]
+
+
+def uninformative_hits(hits):
+    """Hits that record only that someone else has seen this protein.
+
+    Kept rather than discarded: a protein called 'hypothetical' by several independent
+    databases is real, widespread and genuinely uncharacterised - which is evidence for
+    it being a screening target, not against.
+    """
+    return [h for h in hits if not is_informative(h.get("label"))]
+
+
+# How strongly the databases support this being a real protein, kept separate from the
+# fact that its function is unknown. Every rung means "function unknown"; they differ
+# only in the risk that there is no protein there at all.
+#
+# WEAK SIGNAL ONLY. This is a low-weight ranking feature at S9, never a gate: a
+# PREDICTED_ONLY protein is not excluded from screening, and a CURATED_FAMILY protein is
+# arguably less novel, since Pfam already recognised the family.
+_EVIDENCE_RUNGS = [
+    ("CURATED_FAMILY", re.compile(r"\bDUF\d*\b|\bUPF\d+", re.I)),
+    ("MULTISPECIES",   re.compile(r"^\s*MULTISPECIES\s*:", re.I)),
+    ("CONSERVED",      re.compile(r"\bconserved\b", re.I)),
+    ("PREDICTED_ONLY", re.compile(r".")),
+]
+
+
+def dark_evidence(labels):
+    """Strongest evidence rung across every uninformative label a protein collected.
+
+    A protein called 'hypothetical protein' at one tier and 'DUF1234' at another is a
+    DUF protein: the strongest rung any tier reached wins.
+    """
+    if not labels:
+        return "NONE"
+    for rung, pattern in _EVIDENCE_RUNGS:
+        if any(pattern.search(l or "") for l in labels):
+            return rung
+    return "NONE"

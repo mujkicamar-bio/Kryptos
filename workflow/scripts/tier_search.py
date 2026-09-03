@@ -1,12 +1,13 @@
 import _ctx  # noqa: F401
 import csv, subprocess, tempfile, pathlib
-from plasmidann.cascade import explained_fraction, narrow_by_explained
+from plasmidann.cascade import explained_fraction, narrow_by_explained, is_informative
 
 spec = snakemake.params.spec
 faa = snakemake.input.faa
 ids = [l[1:].split()[0] for l in open(faa) if l[0] == ">"]
 
-# carry forward what earlier tiers already explained
+# spans carried forward hold ONLY informative alignments: a hypothetical hit explains
+# nothing and must never satisfy the narrowing threshold.
 spans, qlen = {}, {}
 prev = snakemake.input.spans
 for f in ([prev] if isinstance(prev, str) else list(prev)):
@@ -16,7 +17,24 @@ for f in ([prev] if isinstance(prev, str) else list(prev)):
             spans[r["seq_id"]] = [tuple(map(int, iv.split("-")))
                                   for iv in filter(None, r["intervals"].split(";"))]
 
-hits = {}
+best = {}     # best informative hit per query
+unnamed = {}  # every uninformative hit, kept as evidence someone else has seen it
+
+
+def record(q, label, qcov, tcov, ev, start, end, tlen):
+    qlen[q] = tlen
+    if is_informative(label):
+        spans.setdefault(q, []).append((start, end))
+        if q not in best or qcov > best[q]["coverage"]:
+            best[q] = {"query": q, "label": label, "coverage": round(qcov, 4),
+                       "target_coverage": round(tcov, 4), "evalue": ev,
+                       "informative": True}
+    else:
+        unnamed.setdefault(q, []).append(
+            {"query": q, "label": label, "coverage": round(qcov, 4),
+             "target_coverage": round(tcov, 4), "evalue": ev, "informative": False})
+
+
 if ids:
     tmp = tempfile.mkdtemp(dir=pathlib.Path(snakemake.output.hits).parent)
     if spec["method"] == "hmmer":
@@ -28,44 +46,36 @@ if ids:
             if line.startswith("#"):
                 continue
             f = line.split()
-            q, label = f[0], f[3]
             tlen, hlen = int(f[2]), int(f[5])
-            qcov = (int(f[18]) - int(f[17]) + 1) / tlen if tlen else 0.0
-            tcov = (int(f[16]) - int(f[15]) + 1) / hlen if hlen else 0.0
-            spans.setdefault(q, []).append((int(f[17]), int(f[18])))
-            qlen[q] = tlen
-            if q not in hits or qcov > hits[q]["coverage"]:
-                hits[q] = {"query": q, "label": label, "coverage": round(qcov, 4),
-                           "target_coverage": round(tcov, 4), "evalue": f[6]}
+            a, b = int(f[17]), int(f[18])
+            record(f[0], f[3], (b - a + 1) / tlen if tlen else 0.0,
+                   (int(f[16]) - int(f[15]) + 1) / hlen if hlen else 0.0, f[6], a, b, tlen)
     else:
         raw = f"{tmp}/res.m8"
-        subprocess.run(f"mmseqs easy-search {faa} {spec['db']} {raw} {tmp}/ms "
-                       f"{spec['args']} --threads {snakemake.threads} --max-seqs 5 "
-                       f"--format-output query,theader,qcov,tcov,evalue,qstart,qend,qlen -v 1",
-                       shell=True, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(f"diamond blastp -q {faa} -d {spec['db']} -o {raw} "
+                       f"{spec['args']} --threads {snakemake.threads} --max-target-seqs 5 "
+                       f"--outfmt 6 qseqid stitle qcovhsp scovhsp evalue qstart qend qlen "
+                       f"--quiet", shell=True, check=True)
         for line in open(raw):
-            q, header, qcov, tcov, ev, qs, qe, ql = line.rstrip("\n").split("\t")
-            label = header.split(None, 1)[1] if " " in header else header
-            spans.setdefault(q, []).append((int(qs), int(qe)))
-            qlen[q] = int(ql)
-            if q not in hits:
-                hits[q] = {"query": q, "label": label, "coverage": float(qcov),
-                           "target_coverage": float(tcov), "evalue": ev}
+            q, title, qc, tc, ev, qs, qe, ql = line.rstrip("\n").split("\t")
+            record(q, title, float(qc) / 100, float(tc) / 100, ev,
+                   int(qs), int(qe), int(ql))
 
-cols = ["query", "label", "coverage", "target_coverage", "evalue", "tier", "threshold"]
+cols = ["query", "label", "coverage", "target_coverage", "evalue", "informative",
+        "tier", "threshold"]
 with open(snakemake.output.hits, "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
-    for h in hits.values():
+    for h in list(best.values()) + [x for v in unnamed.values() for x in v]:
         w.writerow({**h, "tier": spec["id"], "threshold": spec["args"]})
 
-# cumulative explained fraction decides who keeps going
-explained = {q: explained_fraction(qlen.get(q, 0), spans.get(q, [])) for q in spans}
+explained = {q: explained_fraction(qlen.get(q, 0), spans.get(q, [])) for q in qlen}
 with open(snakemake.output.spans, "w", newline="") as out:
     w = csv.writer(out, delimiter="\t")
     w.writerow(["seq_id", "qlen", "intervals", "explained_fraction"])
-    for q, iv in spans.items():
-        w.writerow([q, qlen.get(q, 0), ";".join(f"{a}-{b}" for a, b in iv), explained[q]])
+    for q in qlen:
+        w.writerow([q, qlen[q], ";".join(f"{a}-{b}" for a, b in spans.get(q, [])),
+                    explained.get(q, 0.0)])
 
 keep = set(narrow_by_explained(ids, {k: v for k, v in explained.items() if k in set(ids)},
                                snakemake.params.min_explained))

@@ -23,6 +23,7 @@ rule cascade_resolve:
     """Assign functional_class per protein from all tier hits (design 6.1-6.3)."""
     input:
         hits=expand(f"{OUT}/s3/{{tier}}/hits.tsv", tier=TIER_IDS),
+        spans=f"{OUT}/s3/{TIER_IDS[-1]}/spans.tsv",
         faa=f"{OUT}/s2/unique_proteins.faa",
     output:
         f"{OUT}/s3/protein_annotation.tsv",
