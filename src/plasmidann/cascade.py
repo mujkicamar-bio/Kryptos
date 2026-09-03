@@ -1,8 +1,23 @@
 import re
 
+# A hit to one of these is a HOMOLOG, not an ANNOTATION. Recall matters more than
+# precision here: a missed pattern silently promotes an unknown protein to FUNCTIONAL
+# and removes it from the screening set. Recall is measured in
+# tests/test_uninformative_labels.py and CI fails if it drops.
 UNINFORMATIVE = re.compile(
-    r"hypothetical|uncharacteri[sz]ed|\bDUF\d+|unknown function|^ORF$|putative protein",
-    re.I,
+    r"""
+      hypothetical
+    | uncharacteri[sz]ed
+    | \bDUF\d*\b                 # DUF1234, and bare 'DUF domain-containing'
+    | \bUPF\d+                    # UniProt uncharacterized protein family
+    | unknown\ function
+    | unnamed\ protein
+    | predicted\ protein
+    | conserved\ protein
+    | ^ORF$
+    | putative\ protein
+    """,
+    re.I | re.X,
 )
 MIN_COVERAGE = 0.5
 TIERS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
