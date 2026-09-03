@@ -9,3 +9,11 @@ def tier_query(wc):
     if i == 0:
         return f"{OUT}/s2/unique_proteins.faa"
     return f"{OUT}/s3/{TIER_IDS[i - 1]}/unresolved.faa"
+
+
+def tier_spans(wc):
+    """Cumulative explained spans from the previous tier; empty for the first."""
+    i = TIER_IDS.index(wc.tier)
+    if i == 0:
+        return []
+    return f"{OUT}/s3/{TIER_IDS[i - 1]}/spans.tsv"

@@ -1,6 +1,6 @@
 import _ctx  # noqa: F401
 import csv, collections
-from plasmidann.cascade import classify, explained_fraction
+from plasmidann.cascade import classify, explained_fraction, completeness
 
 by_query = collections.defaultdict(list)
 spans = collections.defaultdict(list)
@@ -19,11 +19,11 @@ for f in snakemake.input.hits:
 
 seq_ids = [l[1:].split()[0] for l in open(snakemake.input.faa) if l[0] == ">"]
 cols = ["seq_id", "annot_tier", "annot_label", "functional_class", "homology_depth",
-        "annot_qcov", "annot_tcov", "annot_evalue", "explained_fraction"]
+        "annot_qcov", "annot_tcov", "annot_evalue", "explained_fraction", "annot_completeness"]
 with open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
     for sid in seq_ids:
+        ef = explained_fraction(lengths.get(sid, 0), spans.get(sid, []))
         w.writerow({"seq_id": sid, **classify(by_query.get(sid, [])),
-                    "explained_fraction": explained_fraction(lengths.get(sid, 0),
-                                                             spans.get(sid, []))})
+                    "explained_fraction": ef, "annot_completeness": completeness(ef)})

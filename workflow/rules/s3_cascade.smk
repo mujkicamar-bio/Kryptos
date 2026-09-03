@@ -2,11 +2,14 @@ rule tier_search:
     """Search one tier, then hand the next tier only what stayed unnamed."""
     input:
         faa=tier_query,
+        spans=tier_spans,
     output:
         hits=f"{OUT}/s3/{{tier}}/hits.tsv",
         unresolved=f"{OUT}/s3/{{tier}}/unresolved.faa",
+        spans=f"{OUT}/s3/{{tier}}/spans.tsv",
     params:
         spec=lambda wc: TIER_BY_ID[wc.tier],
+        min_explained=cascade["min_explained"],
     threads: 16
     conda:
         "../envs/search.yaml"

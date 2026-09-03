@@ -1,3 +1,6 @@
+# Keep searching a protein until this much of it is explained.
+min_explained: 0.5
+
 # Tier order IS authority order. Each tier sees only what the previous could not name.
 # Thresholds are pre-registered here and written into every output row (design P5).
 tiers:

@@ -65,3 +65,31 @@ def explained_fraction(length, intervals):
             covered += e - s + 1
             end = e
     return round(covered / length, 4)
+
+
+FULL_AT = 0.8
+PARTIAL_AT = 0.5
+
+
+def completeness(fraction):
+    """How much of a protein anything can name. A 0.51 explanation is not a 0.99 one."""
+    if fraction >= FULL_AT:
+        return "FULL"
+    if fraction >= PARTIAL_AT:
+        return "PARTIAL"
+    if fraction > 0:
+        return "FRAGMENT"
+    return "NONE"
+
+
+def narrow_by_explained(all_ids, explained, threshold):
+    """Ids still worth searching: those the cascade has not yet explained past `threshold`.
+
+    Narrowing on explained fraction rather than on 'got any hit' is what stops a 15%
+    domain match from terminating the search over the other 85% of a protein.
+    """
+    unknown = set(explained) - set(all_ids)
+    if unknown:
+        raise ValueError(f"explained fractions for {len(unknown)} id(s) never queried, "
+                         f"e.g. {sorted(unknown)[:3]}")
+    return [i for i in all_ids if explained.get(i, 0.0) < threshold]

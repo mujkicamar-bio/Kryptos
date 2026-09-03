@@ -12,7 +12,7 @@ for line in open(snakemake.input.map):
 
 cols = ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
         "annot_tier", "annot_label", "functional_class", "homology_depth",
-        "annot_qcov", "annot_tcov", "annot_evalue", "explained_fraction"]
+        "annot_qcov", "annot_tcov", "annot_evalue", "explained_fraction", "annot_completeness"]
 n = 0
 with open(snakemake.input.index, newline="") as fh, open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
