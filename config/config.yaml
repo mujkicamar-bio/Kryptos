@@ -3,3 +3,4 @@ master_table: data/plasmidscope_primary/plasmid_metadata_master.tsv
 outdir: results
 n_shards: 600
 exclude_hab_top: [Simulated-artifact, Lab-artifact]
+min_orf_aa: 20

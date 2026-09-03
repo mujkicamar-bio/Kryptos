@@ -2,7 +2,9 @@ import _ctx  # noqa: F401
 import csv
 import pyrodigal
 
-gf = pyrodigal.GeneFinder(meta=True)
+aa = snakemake.params.min_orf_aa
+gf = pyrodigal.GeneFinder(meta=True, min_gene=aa * 3,
+                          min_edge_gene=min(aa * 3, 60))
 with open(snakemake.output.faa, "w") as faa, open(snakemake.output.tsv, "w") as tsv:
     w = csv.writer(tsv, delimiter="\t")
     w.writerow(["plasmid_id", "start", "end", "strand", "partial", "seq"])

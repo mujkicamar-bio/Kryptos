@@ -6,7 +6,8 @@ properties:
   master_table: {type: string}
   outdir: {type: string}
   n_shards: {type: integer, minimum: 1}
+  min_orf_aa: {type: integer, minimum: 1}
   exclude_hab_top:
     type: array
     items: {type: string}
-required: [working_set_fasta, master_table, outdir, n_shards, exclude_hab_top]
+required: [working_set_fasta, master_table, outdir, n_shards, exclude_hab_top, min_orf_aa]
