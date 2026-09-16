@@ -57,10 +57,19 @@ MAX_OVERLAP_BP = 5000
 # circular molecule that an assembler resolved and reported linearly; measured, those
 # records have their repeats already trimmed (0.9% intra-plasmid duplicate rate against
 # 32.2% for 'circular', which is genuine multi-copy IS biology).
+#
+# 'inverted terminal repeat' is deliberately NOT here. An ITR is the signature of a
+# genuinely linear replicon with hairpin or protein-capped telomeres - the Borrelia and
+# Streptomyces linear plasmids, phi29, adenovirus - so joining its ends would fabricate a
+# gene across a junction that does not exist in the cell.
+#
+# Anything not listed, including a missing or unrecognised value, is treated as linear. The
+# two errors are not symmetric: calling a circular molecule linear loses the ~1.7% of genes
+# that cross the origin, while calling a linear molecule circular invents genes outright.
+# Losing real data is recoverable; inventing it is not.
 CIRCULAR_TOPOLOGIES = frozenset({
     "circular",
     "direct terminal repeat",
-    "inverted terminal repeat",
 })
 
 

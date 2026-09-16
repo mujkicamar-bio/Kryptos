@@ -62,3 +62,29 @@ def test_rotation_invariance_on_a_random_sequence():
     baseline = circular.rotate(sequence, 0)
     for offset in (1, 137, 1_500, 2_999):
         assert sorted(circular.rotate(sequence, offset)) == sorted(baseline)
+
+
+# --- topology is biology, not a formatting detail ------------------------------------
+
+
+def test_inverted_terminal_repeat_is_linear():
+    """An inverted terminal repeat is the signature of a genuinely LINEAR replicon with
+    hairpin or protein-capped telomeres - Borrelia and Streptomyces linear plasmids, phi29,
+    adenovirus. Joining its ends would invent a gene across a junction that does not exist
+    in the cell. The dataset holds 30 such records.
+
+    'direct terminal repeat' is different and stays circular: measured on this collection,
+    those records have their repeats already trimmed (0.9% intra-plasmid duplicate rate
+    against 32.2% for 'circular', which is genuine multi-copy IS biology).
+    """
+    assert not circular.is_circular("inverted terminal repeat")
+    assert circular.is_circular("direct terminal repeat")
+
+
+def test_an_unknown_topology_is_treated_as_linear():
+    """The two errors are not symmetric. Treating a circular molecule as linear loses the
+    ~1.7% of genes that cross the origin; treating a linear molecule as circular fabricates
+    a chimeric gene that was never there. When topology is unknown, lose data rather than
+    invent it."""
+    for unknown in ("", "NA", "unknown", None):
+        assert not circular.is_circular(unknown)
