@@ -4,7 +4,7 @@
 
 **Goal:** Build the data foundation and the first three pipeline stages — plasmid ingest, ORF prediction with circular-origin handling, ORF QC/artifact screening, and dereplication — producing a validated `proteins` table that every later stage consumes.
 
-**Architecture:** A Snakemake workflow over a DuckDB/Parquet relational store. Python logic lives in importable, unit-tested modules under `src/darkorf/`; `workflow/scripts/*.py` are thin wrappers that read `snakemake.input/output/params` and call those modules. Every table is Parquet; the wide occurrence-level table of §67 is a DuckDB *view*, never materialized into pandas. Stages shard over plasmids (Stage 1–2) and over proteins (Stage 3 onward) so a failure costs one shard, not the stage.
+**Architecture:** A Snakemake workflow over a DuckDB/Parquet relational store. Python logic lives in importable, unit-tested modules under `src/darkorf/`; `workflow/scripts/*.py` are thin wrappers that read `snakemake.input/output/params` and call those modules. Every table is Parquet; the wide occurrence-level table of §67 is a DuckDB *view*, never materialized into pandas. Stages shard over plasmids (Stage 1) and over proteins (Stage 2 onward) so a failure costs one shard, not the stage. Dereplication is Stage 2, before all per-protein work, so AntiFam and every cascade tier sees ~3.5M unique sequences rather than ~9.3M occurrences.
 
 **Tech Stack:** Python 3.11, Snakemake 8, pyrodigal 3.7, pyhmmer 0.12 / HMMER 3.4, DuckDB, PyArrow, pytest.
 
@@ -47,8 +47,8 @@
 | `workflow/Snakefile` | Targets, config load, shard definitions |
 | `workflow/rules/s0_input.smk` | Stage 0: plasmids table, manifest, preflight |
 | `workflow/rules/s1_orf.smk` | Stage 1: sharded ORF prediction |
-| `workflow/rules/s2_qc.smk` | Stage 2: AntiFam, overlap QC, eligibility |
-| `workflow/rules/s3_derep.smk` | Stage 3: dereplication |
+| `workflow/rules/s2_derep.smk` | Stage 2: dereplication, run first so every later stage is cheaper |
+| `workflow/rules/s3_qc.smk` | Stage 3: AntiFam over unique proteins, overlap QC, eligibility |
 | `workflow/envs/darkorf.yaml` | Conda environment specification |
 | `tests/` | One test module per source module |
 
@@ -1085,8 +1085,8 @@ PROTEIN_SHARDS = [f"{i:04d}" for i in range(config["shards"]["protein"])]
 include: "rules/common.smk"
 include: "rules/s0_input.smk"
 include: "rules/s1_orf.smk"
-include: "rules/s2_qc.smk"
-include: "rules/s3_derep.smk"
+include: "rules/s2_derep.smk"
+include: "rules/s3_qc.smk"
 
 
 rule all:
@@ -1204,13 +1204,20 @@ SOURCE_COLUMNS = {
     "source_database": "sources",
     "length": "size_bp",
     "topology": "topology",
-    "host": "host_name",
-    "host_taxonomy": "host_taxid",
+    # Verified against the real header of analysis_set.tsv. There is no host_name,
+    # host_taxid or bioproject column: plsdb_species is the best available host identity and
+    # mob_host_range the best available breadth. BioProject is absent entirely, so the
+    # provenance-aware recurrence of spec §34.2 cannot use it and must say so rather than
+    # silently counting accessions instead.
+    "host": "plsdb_species",
+    "host_taxonomy": "mob_host_range",
+    # hab_sub, never hab_top: the standing rule is that compartments are built from hab_sub
+    # plus is_clinical.
     "habitat": "hab_sub",
     "mob_class": "mob_mobility",
     "mob_cluster": "mob_cluster",
+    # mob_typer replicon types, never the pf_* columns.
     "plasmid_type": "mob_rep_types",
-    "bioproject": "bioproject",
 }
 
 rows = {name: [] for name in schemas.columns("plasmids")}
@@ -1218,6 +1225,9 @@ with open(snakemake.input.master, newline="") as handle:
     for record in csv.DictReader(handle, delimiter="\t"):
         for target, source in SOURCE_COLUMNS.items():
             rows[target].append(record.get(source) or "NA")
+        # Not carried by the master table at all; recorded as NA rather than omitted, so the
+        # column exists and its absence is visible instead of implicit.
+        rows["bioproject"].append("NA")
         # Real plasmids; controls are appended by the controls rule in Task 10.
         rows["record_class"].append("observed")
 
@@ -1470,35 +1480,281 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 8: Stage 2 — QC, AntiFam and discovery eligibility
+### Task 8: Stage 2 — dereplication
+
+Dereplication runs **before** every other per-protein stage. A protein sequence occurring on
+400 plasmids is then screened, searched and annotated once rather than 400 times: the
+collection's 9.3 million ORF occurrences collapse to roughly 3.5 million unique sequences, so
+everything downstream of this stage costs about 2.7 times less. The constraint that makes it
+safe is that the occurrence mapping stays lossless (spec §13).
 
 **Files:**
-- Create: `src/darkorf/qc.py`, `workflow/rules/s2_qc.smk`, `workflow/scripts/antifam_search.py`, `workflow/scripts/apply_qc.py`
+- Create: `src/darkorf/derep.py`, `workflow/rules/s2_derep.smk`, `workflow/scripts/dereplicate.py`
+- Test: `tests/test_derep.py`
+
+**Interfaces:**
+- Consumes: Stage 1 shard output (`results/s1/orfs/{shard}.parquet`), `ids.protein_id`.
+- Produces:
+  - `derep.dereplicate(occurrences) -> tuple[list[dict], dict[str, list[str]]]` — protein core records plus `protein_id -> [occurrence_id]`. Each protein record has keys `protein_id`, `protein_sequence`, `protein_length`, `occurrence_count`, `plasmid_count`, `has_complete_occurrence`.
+  - `results/tables/protein_occurrences.parquet` — the lossless mapping
+  - `results/s2/protein_core.parquet` — protein universe without QC columns
+  - `results/s2/proteins/{pshard}.faa` — unique proteins sharded for every later search
+
+Note on what this task does **not** produce: the declared `proteins` table. `discovery_eligible`
+and the AntiFam columns are only known after Stage 3, so Stage 3 assembles the final table.
+Writing a `proteins` table here and rewriting it later would leave a window in which two
+different files both claim to be the protein table.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# tests/test_derep.py
+"""Stage 2 dereplication (spec §13).
+
+The one rule: dereplication changes computation, never biological occurrence counts. If a
+protein occurs on 400 plasmids, every later stage must still be able to see 400 occurrences.
+"""
+from darkorf import derep, ids
+
+
+def _occurrence(plasmid, sequence, complete=True, occurrence_id=None):
+    return {
+        "orf_occurrence_id": occurrence_id or f"{plasmid}:1-99:+",
+        "plasmid_id": plasmid,
+        "protein_id": ids.protein_id(sequence),
+        "protein_sequence": sequence,
+        "protein_length": len(sequence),
+        "partial": not complete,
+    }
+
+
+def test_identical_sequences_collapse_to_one_protein():
+    proteins, mapping = derep.dereplicate([
+        _occurrence("p1", "MKV"), _occurrence("p2", "MKV"),
+    ])
+    assert len(proteins) == 1
+    assert proteins[0]["occurrence_count"] == 2
+    assert proteins[0]["plasmid_count"] == 2
+
+
+def test_the_occurrence_mapping_is_lossless():
+    """The invariant that makes dereplication safe: every input occurrence must be
+    recoverable through the mapping."""
+    occurrences = [_occurrence("p1", "MKV"), _occurrence("p2", "MKV"), _occurrence("p3", "MKW")]
+    proteins, mapping = derep.dereplicate(occurrences)
+    recovered = {occ for occs in mapping.values() for occ in occs}
+    assert recovered == {o["orf_occurrence_id"] for o in occurrences}
+
+
+def test_a_protein_is_complete_if_any_occurrence_is_complete():
+    """Spec §12: one partial occurrence does not make the protein globally incomplete."""
+    proteins, _ = derep.dereplicate([
+        _occurrence("p1", "MKV", complete=False),
+        _occurrence("p2", "MKV", complete=True),
+    ])
+    assert proteins[0]["has_complete_occurrence"] is True
+
+
+def test_a_protein_seen_only_as_partial_is_not_complete():
+    proteins, _ = derep.dereplicate([_occurrence("p1", "MKV", complete=False)])
+    assert proteins[0]["has_complete_occurrence"] is False
+
+
+def test_the_same_protein_twice_on_one_plasmid_counts_two_occurrences_one_plasmid():
+    """Occurrence count and plasmid count are different quantities. Conflating them inflates
+    every independence measure downstream, which is the defect that made mob_cluster-based
+    counts unusable in the previous design."""
+    proteins, _ = derep.dereplicate([
+        _occurrence("p1", "MKV", occurrence_id="p1:1-99:+"),
+        _occurrence("p1", "MKV", occurrence_id="p1:500-599:+"),
+    ])
+    assert proteins[0]["occurrence_count"] == 2
+    assert proteins[0]["plasmid_count"] == 1
+
+
+def test_protein_records_are_emitted_in_a_deterministic_order():
+    """Shard output order depends on filesystem listing, which is not stable. Sorting here is
+    what makes the downstream protein shards reproducible between runs."""
+    first, _ = derep.dereplicate([_occurrence("p1", "MKW"), _occurrence("p2", "MKV")])
+    second, _ = derep.dereplicate([_occurrence("p2", "MKV"), _occurrence("p1", "MKW")])
+    assert [p["protein_id"] for p in first] == [p["protein_id"] for p in second]
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `.venv/bin/python -m pytest tests/test_derep.py -v`
+Expected: FAIL — `ImportError: cannot import name 'derep'`
+
+- [ ] **Step 3: Write the implementation**
+
+Port `src/plasmidann/dereplicate.py`, adapting it to the two-part return above. Read the
+original first: its losslessness assertion is the behaviour being preserved.
+
+```python
+# src/darkorf/derep.py
+"""Stage 2: dereplication (spec §13).
+
+Runs before every per-protein stage. The collection's ~9.3 million ORF occurrences collapse
+to ~3.5 million unique sequences, so AntiFam, the annotation cascade, structure and every
+other per-protein tool does roughly 2.7 times less work.
+
+Dereplication is a computational optimization with one hard constraint: it must not change
+biological occurrence counts. A protein on 400 plasmids is searched once and still reports
+400 occurrences.
+"""
+import collections
+
+
+def dereplicate(occurrences):
+    """Collapse occurrences to unique proteins and return the lossless mapping.
+
+    Returns (protein_records, mapping) where mapping is protein_id -> [orf_occurrence_id].
+    Protein records are sorted by protein_id: shard output arrives in filesystem order, which
+    is not stable between runs, and the downstream protein shards must be reproducible.
+    """
+    sequences = {}
+    occurrence_ids = collections.defaultdict(list)
+    plasmids = collections.defaultdict(set)
+    complete = collections.defaultdict(bool)
+
+    for record in occurrences:
+        protein = record["protein_id"]
+        sequences.setdefault(protein, record["protein_sequence"])
+        occurrence_ids[protein].append(record["orf_occurrence_id"])
+        plasmids[protein].add(record["plasmid_id"])
+        # Spec §12: the protein is complete if ANY occurrence is complete. One truncated copy
+        # at a contig edge says nothing about the protein itself.
+        if not record["partial"]:
+            complete[protein] = True
+
+    proteins = []
+    for protein in sorted(sequences):
+        proteins.append({
+            "protein_id": protein,
+            "protein_sequence": sequences[protein],
+            "protein_length": len(sequences[protein]),
+            # Two different quantities, deliberately both kept.
+            "occurrence_count": len(occurrence_ids[protein]),
+            "plasmid_count": len(plasmids[protein]),
+            "has_complete_occurrence": bool(complete[protein]),
+        })
+
+    return proteins, dict(occurrence_ids)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `.venv/bin/python -m pytest tests/test_derep.py -v`
+Expected: PASS (6 tests)
+
+- [ ] **Step 5: Write the rule**
+
+```python
+# workflow/rules/s2_derep.smk
+"""Stage 2: dereplication (spec §13, §68 Agent 4).
+
+This stage is placed before all per-protein work on purpose. Every tool downstream - AntiFam,
+the six cascade tiers, structure, properties - runs on the ~3.5 million unique sequences
+rather than the ~9.3 million occurrences.
+"""
+
+
+rule dereplicate:
+    """Collapse occurrences to unique proteins, keeping the mapping lossless."""
+    input:
+        orfs=expand(f"{OUT}/s1/orfs/{{shard}}.parquet", shard=PLASMID_SHARDS),
+    output:
+        core=f"{OUT}/s2/protein_core.parquet",
+        mapping=f"{OUT}/tables/protein_occurrences.parquet",
+    resources:
+        # Roughly 3.5M sequences at a ~330 aa mean, plus the occurrence mapping. Measured on
+        # the smoke set and extrapolated; the benchmark rule refines this before production.
+        mem_mb=64000,
+        runtime=240,
+    log:
+        f"{OUT}/logs/dereplicate.log",
+    conda:
+        "../envs/darkorf.yaml"
+    script:
+        "../scripts/dereplicate.py"
+
+
+rule shard_proteins:
+    """Write the unique proteins as FASTA shards, the input unit for every later search."""
+    input:
+        core=f"{OUT}/s2/protein_core.parquet",
+    output:
+        expand(f"{OUT}/s2/proteins/{{pshard}}.faa", pshard=PROTEIN_SHARDS),
+    resources:
+        mem_mb=16000,
+        runtime=60,
+    log:
+        f"{OUT}/logs/shard_proteins.log",
+    conda:
+        "../envs/darkorf.yaml"
+    script:
+        "../scripts/shard_proteins.py"
+```
+
+`workflow/scripts/dereplicate.py` reads the Stage 1 shards one at a time (never all at once),
+calls `derep.dereplicate`, and **asserts losslessness before writing**: the total number of
+mapped occurrence ids must equal the number of input rows, and the script must fail loudly
+with both numbers if it does not. `workflow/scripts/shard_proteins.py` assigns each protein to
+shard `int(protein_id[:8], 16) % n_protein_shards`, so a protein lands in the same shard on
+every run regardless of how many proteins exist.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/darkorf/derep.py workflow/rules/s2_derep.smk workflow/scripts/dereplicate.py workflow/scripts/shard_proteins.py tests/test_derep.py
+git commit -m "feat(s2): dereplicate before per-protein stages, with a lossless mapping
+
+Dereplication runs first so AntiFam, the cascade and every later per-protein
+tool sees ~3.5M unique sequences rather than ~9.3M occurrences. A protein is
+complete if any occurrence is complete, per spec 12, and occurrence count and
+plasmid count stay distinct quantities.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 9: Stage 3 — AntiFam, overlap QC and discovery eligibility
+
+**Files:**
+- Create: `src/darkorf/qc.py`, `workflow/rules/s3_qc.smk`, `workflow/scripts/apply_qc.py`
 - Test: `tests/test_qc.py`
 
 **Interfaces:**
-- Consumes: Stage 1 occurrence records, `status`.
+- Consumes: `results/s2/protein_core.parquet`, `results/s2/proteins/{pshard}.faa`, the Stage 1 shards, `schemas`, `store`.
 - Produces:
   - `qc.opposite_strand_overlap(gene, neighbours) -> tuple[float, str|None]`
   - `qc.discovery_eligibility(record, min_aa, max_overlap) -> dict` with keys `discovery_excluded_short`, `discovery_excluded_partial`, `discovery_excluded_antifam`, `discovery_eligible`, `exclusion_reason`
+  - `results/tables/orf_occurrences.parquet` and `results/tables/proteins.parquet`
+
+Two levels meet in this stage, and keeping them apart is the point. AntiFam status is a
+property of a **sequence**, so it is computed once per unique protein. Opposite-strand overlap
+is a property of an **occurrence**, because it depends on the neighbours on that particular
+plasmid, so it is computed per occurrence and cannot be dereplicated.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # tests/test_qc.py
-"""Stage 2 QC (spec §9, §10, §12).
+"""Stage 3 QC (spec §9, §10, §12).
 
-The governing rule for this whole module: flag, never delete. Every excluded record stays
-in the master dataset with a reason attached (spec §9.4).
+The governing rule for this whole module: flag, never delete. Every excluded record stays in
+the master dataset with a reason attached (spec §9.4). The excluded population is itself a
+result - it is how the artifact rate gets measured rather than assumed.
 """
 from darkorf import qc
 
 
 def test_an_orf_antisense_to_a_longer_orf_is_flagged():
-    """Spec §9.3. The shadow-ORF artifact: a spurious call on the reverse complement of a
-    real gene. It passes the entire annotation cascade cleanly, because it is not a protein
-    and no database contains it, and it is recurrent for exactly the same reason the real
-    gene is - so recurrence evidence selects for it unless it is flagged here."""
+    """Spec §9.3. The shadow-ORF artifact: a spurious call on the reverse complement of a real
+    gene. It passes the entire annotation cascade cleanly, because it is not a protein and no
+    database contains it, and it is recurrent for exactly the same reason the real gene is -
+    so recurrence evidence selects for it unless it is caught here."""
     shadow = {"orf_occurrence_id": "p1:100-400:-", "start": 100, "end": 400, "strand": -1}
     real = {"orf_occurrence_id": "p1:90-500:+", "start": 90, "end": 500, "strand": 1}
     fraction, partner = qc.opposite_strand_overlap(shadow, [real])
@@ -1507,7 +1763,7 @@ def test_an_orf_antisense_to_a_longer_orf_is_flagged():
 
 
 def test_same_strand_neighbours_do_not_count_as_overlap():
-    """Operons are gene-dense and same-strand overlap is normal bacterial biology."""
+    """Operons are gene-dense and same-strand overlap is ordinary bacterial biology."""
     gene = {"orf_occurrence_id": "p1:100-400:+", "start": 100, "end": 400, "strand": 1}
     neighbour = {"orf_occurrence_id": "p1:90-500:+", "start": 90, "end": 500, "strand": 1}
     fraction, partner = qc.opposite_strand_overlap(gene, [neighbour])
@@ -1515,7 +1771,21 @@ def test_same_strand_neighbours_do_not_count_as_overlap():
     assert partner is None
 
 
-def test_a_short_protein_is_flagged_but_remains_eligible_for_the_master_dataset():
+def test_a_gene_with_no_neighbours_has_no_overlap():
+    gene = {"orf_occurrence_id": "p1:100-400:+", "start": 100, "end": 400, "strand": 1}
+    assert qc.opposite_strand_overlap(gene, []) == (0.0, None)
+
+
+def test_an_origin_spanning_gene_does_not_report_a_negative_span():
+    """An origin-spanning gene keeps unrotated coordinates, so end < start (spec §8.4).
+    Treating that as a negative length would silently produce nonsense overlap fractions."""
+    wrapped = {"orf_occurrence_id": "p1:960-40:+", "start": 960, "end": 40, "strand": 1}
+    other = {"orf_occurrence_id": "p1:900-980:-", "start": 900, "end": 980, "strand": -1}
+    fraction, _ = qc.opposite_strand_overlap(wrapped, [other])
+    assert 0.0 <= fraction <= 1.0
+
+
+def test_a_short_protein_is_flagged_but_stays_in_the_master_dataset():
     """Spec §10.2: the cutoff is an operational discovery boundary, not a claim that short
     proteins are not real."""
     record = {"protein_length": 12, "partial": False, "antifam_hit": False,
@@ -1535,7 +1805,7 @@ def test_a_clean_protein_is_eligible():
 
 
 def test_multiple_exclusion_reasons_are_all_recorded():
-    """A record excluded for two reasons must say so; keeping only the first would make the
+    """A record excluded for two reasons must say both. Keeping only the first would make the
     exclusion counts in the QC report wrong."""
     record = {"protein_length": 10, "partial": True, "antifam_hit": True,
               "opposite_strand_overlap_fraction": 0.0}
@@ -1553,25 +1823,34 @@ Expected: FAIL — `ImportError: cannot import name 'qc'`
 
 ```python
 # src/darkorf/qc.py
-"""Stage 2: ORF quality control and discovery eligibility (spec §9, §10, §12).
+"""Stage 3: quality control and discovery eligibility (spec §9, §10, §12).
 
-Nothing in this module deletes a record. Every exclusion sets a flag and a reason, and the
-record stays in the master dataset, because the excluded population is itself a scientific
-result - it is how the artifact rate is measured rather than assumed.
+Nothing here deletes a record. Every exclusion sets a flag and a reason and the record stays
+in the master dataset, because the excluded population is how the artifact rate is measured.
+
+Two levels meet in this module. AntiFam status is a property of a sequence and is computed
+once per unique protein. Opposite-strand overlap is a property of an occurrence, because it
+depends on that plasmid's neighbours, and cannot be dereplicated.
 """
 
 
 def _span(gene):
-    """Half-open interval covered by a gene, ignoring strand."""
+    """Half-open interval covered by a gene, ignoring strand.
+
+    Origin-spanning genes keep unrotated coordinates, so end < start is legitimate (spec
+    §8.4). min/max rather than assuming an order, because a negative length here would turn
+    into a meaningless overlap fraction rather than an error.
+    """
     return min(gene["start"], gene["end"]), max(gene["start"], gene["end"])
 
 
 def opposite_strand_overlap(gene, neighbours):
     """Fraction of this gene covered by the longest opposite-strand gene overlapping it.
 
-    Spec §9.3. Returns (fraction, partner_occurrence_id). Only opposite-strand overlap is
-    counted: same-strand overlap is ordinary in gene-dense bacterial replicons, whereas a
-    call lying antisense to a longer real gene is the classic spurious-ORF signature.
+    Spec §9.3. Returns (fraction, partner_occurrence_id). Only opposite-strand overlap counts:
+    same-strand overlap is ordinary in gene-dense bacterial replicons, whereas a call lying
+    antisense to a longer real gene is the classic spurious-ORF signature, and it is the one
+    artifact class that survives the whole annotation cascade untouched.
     """
     start, end = _span(gene)
     length = end - start
@@ -1595,11 +1874,11 @@ def opposite_strand_overlap(gene, neighbours):
 
 
 def discovery_eligibility(record, min_aa, max_overlap):
-    """Decide whether one occurrence enters the dark-discovery population (spec §10, §12).
+    """Decide whether one record enters the dark-discovery population (spec §10, §12).
 
-    Eligibility is about what may be *discovered*, not about what is real: a 12-residue
-    microprotein is excluded from discovery because the evidence tools cannot interpret it,
-    and it stays in the dataset because it may still be biology.
+    Eligibility is about what may be discovered, not about what is real: a 12-residue
+    microprotein is excluded because the evidence tools cannot interpret it, and it stays in
+    the dataset because it may still be biology.
     """
     reasons = []
 
@@ -1631,49 +1910,57 @@ def discovery_eligibility(record, min_aa, max_overlap):
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `.venv/bin/python -m pytest tests/test_qc.py -v`
-Expected: PASS (5 tests)
+Expected: PASS (7 tests)
 
-- [ ] **Step 5: Write the AntiFam rule**
+- [ ] **Step 5: Write the rules**
 
 ```python
-# workflow/rules/s2_qc.smk
-"""Stage 2: artifact screening and discovery eligibility (spec §9, §68 Agent 3)."""
+# workflow/rules/s3_qc.smk
+"""Stage 3: artifact screening and discovery eligibility (spec §9, §68 Agent 3).
+
+AntiFam runs on the DEREPLICATED protein shards produced by Stage 2, not on occurrences:
+AntiFam status is a property of the sequence, so screening ~3.5 million unique proteins gives
+the identical answer for roughly a third of the work.
+"""
 
 
 rule antifam_search:
-    """Screen the dereplicated proteins against AntiFam at its curated thresholds.
+    """Screen unique proteins against AntiFam at its curated per-family thresholds.
 
     --cut_ga rather than a blanket E-value: 274 of AntiFam's 278 profiles carry a curated
     gathering threshold looser than E=1e-5, so a global floor would override the curator
-    across almost the whole database, in the one screen whose job is to stop non-proteins
-    reaching the discovery set.
+    across almost the whole database - in the one screen whose job is stopping non-proteins
+    from reaching the discovery set (Eberhardt et al. 2012, Database 2012:bas003).
     """
     input:
-        faa=f"{OUT}/s2/proteins/{{shard}}.faa",
+        faa=f"{OUT}/s2/proteins/{{pshard}}.faa",
         db=config["qc"]["antifam"]["db"],
     output:
-        f"{OUT}/s2/antifam/{{shard}}.domtbl",
+        f"{OUT}/s3/antifam/{{pshard}}.domtbl",
     threads: 4
     resources:
         mem_mb=8000,
         runtime=240,
     log:
-        f"{OUT}/logs/antifam/{{shard}}.log",
+        f"{OUT}/logs/antifam/{{pshard}}.log",
     conda:
         "../envs/darkorf.yaml"
     shell:
-        "hmmsearch --cut_ga --domtblout {output} --cpu {threads} {input.db} {input.faa} > /dev/null 2> {log}"
+        "hmmsearch --cut_ga --domtblout {output} --cpu {threads} "
+        "{input.db} {input.faa} > /dev/null 2> {log}"
 
 
 rule apply_qc:
-    """Merge AntiFam hits and overlap QC onto the occurrence records (spec §9, §10)."""
+    """Assemble the occurrence and protein tables with all QC columns filled (spec §9, §10)."""
     input:
         orfs=expand(f"{OUT}/s1/orfs/{{shard}}.parquet", shard=PLASMID_SHARDS),
-        antifam=expand(f"{OUT}/s2/antifam/{{shard}}.domtbl", shard=PROTEIN_SHARDS),
+        core=f"{OUT}/s2/protein_core.parquet",
+        antifam=expand(f"{OUT}/s3/antifam/{{pshard}}.domtbl", pshard=PROTEIN_SHARDS),
     output:
-        table("orf_occurrences"),
+        occurrences=table("orf_occurrences"),
+        proteins=table("proteins"),
     resources:
-        mem_mb=32000,
+        mem_mb=48000,
         runtime=240,
     log:
         f"{OUT}/logs/apply_qc.log",
@@ -1683,154 +1970,31 @@ rule apply_qc:
         "../scripts/apply_qc.py"
 ```
 
-Write `workflow/scripts/apply_qc.py` to read the Stage 1 shards, compute `opposite_strand_overlap` per plasmid (group by `plasmid_id`, compare each gene against the others on that plasmid only), join AntiFam hits by `protein_id`, apply `discovery_eligibility`, and write the complete `orf_occurrences` table.
+`workflow/scripts/apply_qc.py` must:
+
+1. Parse the AntiFam domtbl shards into `protein_id -> (model, score, evalue)`.
+2. Process the Stage 1 shards **one shard at a time**, and within a shard group by
+   `plasmid_id` so that `opposite_strand_overlap` compares a gene only against neighbours on
+   its own plasmid. Sharding is by plasmid, so a plasmid's genes are never split across
+   shards — assert this rather than assuming it.
+3. Apply `discovery_eligibility` per occurrence and write `orf_occurrences`.
+4. Roll the occurrence-level verdicts up to `proteins`: `discovery_eligible` is true for a
+   protein if **any** of its occurrences is eligible, matching the spec §12 rule that one
+   partial copy does not disqualify a protein, and `record_class` is `"observed"`.
+
+Never hold all occurrences in memory at once; append per shard.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/darkorf/qc.py workflow/rules/s2_qc.smk workflow/scripts/ tests/test_qc.py
-git commit -m "feat(s2): add AntiFam screening, opposite-strand overlap QC and eligibility
+git add src/darkorf/qc.py workflow/rules/s3_qc.smk workflow/scripts/apply_qc.py tests/test_qc.py
+git commit -m "feat(s3): screen AntiFam over unique proteins, add opposite-strand overlap QC
 
-Adds the shadow-ORF signature the artifact screen previously missed: fraction
-of a call covered by a longer opposite-strand ORF. Every exclusion is a flag
-with a reason and the record stays in the dataset, per spec 9.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
-
----
-
-### Task 9: Stage 3 — dereplication
-
-**Files:**
-- Create: `src/darkorf/derep.py`, `workflow/rules/s3_derep.smk`, `workflow/scripts/dereplicate.py`
-- Test: `tests/test_derep.py`
-
-**Interfaces:**
-- Consumes: `orf_occurrences` table, `ids.protein_id`.
-- Produces:
-  - `derep.dereplicate(occurrences) -> tuple[list[dict], dict[str, list[str]]]` — protein records plus `protein_id -> [occurrence_id]`
-  - `results/tables/proteins.parquet`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-# tests/test_derep.py
-"""Stage 3 dereplication (spec §13).
-
-The one rule: dereplication changes computation, never biological occurrence counts. If a
-protein occurs on 400 plasmids, every later stage must still be able to see 400 occurrences.
-"""
-from darkorf import derep, ids
-
-
-def _occurrence(plasmid, sequence, complete=True):
-    return {
-        "orf_occurrence_id": f"{plasmid}:1-99:+",
-        "plasmid_id": plasmid,
-        "protein_id": ids.protein_id(sequence),
-        "protein_sequence": sequence,
-        "protein_length": len(sequence),
-        "partial": not complete,
-        "discovery_eligible": complete,
-    }
-
-
-def test_identical_sequences_collapse_to_one_protein():
-    proteins, mapping = derep.dereplicate([
-        _occurrence("p1", "MKV"), _occurrence("p2", "MKV"),
-    ])
-    assert len(proteins) == 1
-    assert proteins[0]["occurrence_count"] == 2
-    assert proteins[0]["plasmid_count"] == 2
-
-
-def test_the_occurrence_mapping_is_lossless():
-    """The losslessness assertion: every input occurrence must be recoverable through the
-    mapping. This is the invariant that makes dereplication safe."""
-    occurrences = [_occurrence("p1", "MKV"), _occurrence("p2", "MKV"), _occurrence("p3", "MKW")]
-    proteins, mapping = derep.dereplicate(occurrences)
-    recovered = {occ for occs in mapping.values() for occ in occs}
-    assert recovered == {o["orf_occurrence_id"] for o in occurrences}
-
-
-def test_a_protein_is_complete_if_any_occurrence_is_complete():
-    """Spec §12: one partial occurrence does not make the protein globally incomplete."""
-    proteins, _ = derep.dereplicate([
-        _occurrence("p1", "MKV", complete=False),
-        _occurrence("p2", "MKV", complete=True),
-    ])
-    assert proteins[0]["has_complete_occurrence"] is True
-
-
-def test_a_protein_seen_only_as_partial_is_not_complete():
-    proteins, _ = derep.dereplicate([_occurrence("p1", "MKV", complete=False)])
-    assert proteins[0]["has_complete_occurrence"] is False
-
-
-def test_the_same_protein_on_one_plasmid_twice_counts_two_occurrences_one_plasmid():
-    """Occurrence count and plasmid count are different quantities; conflating them inflates
-    every independence measure downstream."""
-    first = _occurrence("p1", "MKV")
-    second = dict(first, orf_occurrence_id="p1:500-599:+")
-    proteins, _ = derep.dereplicate([first, second])
-    assert proteins[0]["occurrence_count"] == 2
-    assert proteins[0]["plasmid_count"] == 1
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `.venv/bin/python -m pytest tests/test_derep.py -v`
-Expected: FAIL — `ImportError: cannot import name 'derep'`
-
-- [ ] **Step 3: Write the implementation**
-
-Port `src/plasmidann/dereplicate.py`, adapting it to return the two-part result above. The protein record fields are exactly `schemas.columns("proteins")`. Set `has_complete_occurrence` from whether any occurrence has `partial=False` (spec §12), `discovery_eligible` from whether any occurrence is eligible, and `record_class` to `"observed"`.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `.venv/bin/python -m pytest tests/test_derep.py -v`
-Expected: PASS (5 tests)
-
-- [ ] **Step 5: Write the rule**
-
-```python
-# workflow/rules/s3_derep.smk
-"""Stage 3: dereplication (spec §13, §68 Agent 4).
-
-Dereplication exists so that an identical protein sequence occurring on 400 plasmids is
-searched once rather than 400 times. It is a computational optimization with a hard
-constraint attached: the occurrence mapping must stay lossless.
-"""
-
-
-rule dereplicate:
-    input:
-        occurrences=table("orf_occurrences"),
-    output:
-        proteins=table("proteins"),
-        mapping=f"{OUT}/tables/protein_occurrences.parquet",
-    resources:
-        mem_mb=64000,
-        runtime=240,
-    log:
-        f"{OUT}/logs/dereplicate.log",
-    conda:
-        "../envs/darkorf.yaml"
-    script:
-        "../scripts/dereplicate.py"
-```
-
-The script must assert losslessness before writing — the count of mapped occurrences must equal the input row count — and fail loudly if it does not.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/darkorf/derep.py workflow/rules/s3_derep.smk workflow/scripts/dereplicate.py tests/test_derep.py
-git commit -m "feat(s3): add dereplication with an asserted lossless occurrence mapping
-
-A protein is complete if any of its occurrences is complete, per spec 12, and
-occurrence count and plasmid count stay distinct quantities.
+AntiFam runs on the dereplicated set because the status is a property of the
+sequence, which is the identical answer for a third of the work. Adds the
+shadow-ORF signature the artifact screen previously missed: fraction of a call
+covered by a longer opposite-strand ORF. Every exclusion is a flag with a
+reason and the record stays in the dataset, per spec 9.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
@@ -2125,7 +2289,7 @@ Each follows the same shape: unit-tested module in `src/darkorf/`, thin script, 
 
 ## Self-Review
 
-**Spec coverage for Plan 1's scope:** §3 dataset → Task 6; §4 data architecture → Tasks 3, 4; §5 identifiers → Task 2; §6 manifest → Task 6; §7 missing values → Task 3; §8 ORF prediction → Tasks 5, 7; §9 QC and artifact screening → Task 8; §10 minimum length → Task 8; §11 configuration of the two length parameters → Task 1; §12 partial handling → Tasks 8, 9; §13 dereplication → Task 9; §58 controls → Task 10; §72 sharding and §73 resume → Tasks 6, 7. Sections §14 onward belong to Plans 2–5 and are listed above.
+**Spec coverage for Plan 1's scope:** §3 dataset → Task 6; §4 data architecture → Tasks 3, 4; §5 identifiers → Task 2; §6 manifest → Task 6; §7 missing values → Task 3; §8 ORF prediction → Tasks 5, 7; §9 QC and artifact screening → Task 9; §10 minimum length → Task 9; §11 configuration of the two length parameters → Task 1; §12 partial handling → Tasks 8, 9; §13 dereplication → Task 8; §58 controls → Task 10; §72 sharding and §73 resume → Tasks 6, 7. Sections §14 onward belong to Plans 2–5 and are listed above.
 
 **Placeholders:** none. Tasks 7, 8, 9 and 10 delegate one script body each to the implementer with an exact specification of inputs, outputs and invariants, rather than inline code; every module under test has its code or its port instruction in full.
 
