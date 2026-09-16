@@ -1,6 +1,65 @@
-working_set_fasta: data/plasmidscope_primary/working_set.fna.gz
-master_table: data/plasmidscope_primary/plasmid_metadata_master.tsv
+# Every threshold the pipeline uses lives here (spec §6). Values are stamped into the run
+# manifest and into the output rows they govern, so a result can always be traced to the
+# configuration that produced it.
+
+input:
+  # The analysis set: the master table with the locked artifact exclusions already applied.
+  # The plasmid count is NOT recorded here - it is derived at runtime and written to the
+  # manifest (spec §3.1), because a hard-coded denominator silently goes stale.
+  working_set_fasta: data/plasmidscope_primary/provenance/working_set.fna.gz
+  master_table: data/plasmidscope_primary/analysis_set.tsv
+
 outdir: results
-n_shards: 600
-exclude_hab_top: [Simulated-artifact, Lab-artifact]
-min_orf_aa: 20
+
+# Sharding sets the unit of parallelism and of resume. Nothing biological depends on these
+# numbers, but changing them between resumed runs invalidates the affected stage (spec §72).
+shards:
+  plasmid: 600    # S1/S2 shard over plasmids
+  protein: 64     # S4 shards over the dereplicated protein set
+
+orf:
+  # The gene caller's own floor. Distinct from the discovery cutoff below (spec §11.1).
+  min_call_length_aa: 20
+  # Prodigal in metagenomic mode: plasmids are too short and too compositionally varied to
+  # train a single-genome model on.
+  meta_mode: true
+
+discovery:
+  # Proteins shorter than this are flagged discovery_excluded_short, never deleted (spec §10, §11).
+  min_dark_candidate_length_aa: 20
+
+qc:
+  # Spec §9.3. A protein whose coding region is mostly antisense to a longer ORF on the
+  # opposite strand is the classic shadow-ORF artifact: it passes the whole cascade cleanly
+  # because it is not a protein and no database contains it. Flag, never delete.
+  max_opposite_strand_overlap_fraction: 0.6
+  antifam:
+    db: data/refs/antifam/AntiFam.hmm
+    # AntiFam's curated per-family gathering thresholds. Measured on this database: 274 of
+    # 278 profiles carry a GA looser than E=1e-5, so a blanket E-value floor would override
+    # the curator across essentially the whole database (Eberhardt et al. 2012, Database
+    # 2012:bas003).
+    threshold: cut_ga
+
+cascade:
+  # Spec §15. Two different decisions that an earlier design conflated into one number.
+  narrow_at: 0.9      # how explained before we STOP SEARCHING (compute)
+  min_explained: 0.5  # how explained before we call it ANNOTATED (science)
+  # Fraction of proteins that bypass narrowing and are searched by every tier, so the cost
+  # of narrowing is measurable rather than assumed (spec §61).
+  sweep_cohort_fraction: 0.02
+
+controls:
+  # Spec §58. Positive controls test recall; negative controls test the opposite direction.
+  positive:
+    raw_faa: data/refs/control/raw.faa
+    n: 500
+  negative:
+    # Decoys are built by shuffling real plasmid CDS while preserving length and amino-acid
+    # composition, plus reverse-complement translations of real CDS. Both must come out DARK
+    # and must not receive a confident functional annotation.
+    n_shuffled: 250
+    n_reverse_complement: 250
+
+# Seed for every stochastic step, so a rerun selects the identical sample (spec §61).
+seed: 20260916

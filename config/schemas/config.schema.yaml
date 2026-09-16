@@ -1,13 +1,50 @@
-$schema: "https://json-schema.org/draft/2020-12/schema"
-description: plasmid annotation pipeline configuration
+# Validated at workflow load time. A typo in config.yaml must fail in seconds, not in hour 45.
 type: object
+required: [input, outdir, shards, orf, discovery, qc, cascade, controls, seed]
 properties:
-  working_set_fasta: {type: string}
-  master_table: {type: string}
+  input:
+    type: object
+    required: [working_set_fasta, master_table]
+    properties:
+      working_set_fasta: {type: string}
+      master_table: {type: string}
   outdir: {type: string}
-  n_shards: {type: integer, minimum: 1}
-  min_orf_aa: {type: integer, minimum: 1}
-  exclude_hab_top:
-    type: array
-    items: {type: string}
-required: [working_set_fasta, master_table, outdir, n_shards, exclude_hab_top, min_orf_aa]
+  shards:
+    type: object
+    required: [plasmid, protein]
+    properties:
+      plasmid: {type: integer, minimum: 1}
+      protein: {type: integer, minimum: 1}
+  orf:
+    type: object
+    required: [min_call_length_aa, meta_mode]
+    properties:
+      min_call_length_aa: {type: integer, minimum: 1}
+      meta_mode: {type: boolean}
+  discovery:
+    type: object
+    required: [min_dark_candidate_length_aa]
+    properties:
+      min_dark_candidate_length_aa: {type: integer, minimum: 1}
+  qc:
+    type: object
+    required: [max_opposite_strand_overlap_fraction, antifam]
+    properties:
+      max_opposite_strand_overlap_fraction: {type: number, minimum: 0, maximum: 1}
+      antifam:
+        type: object
+        required: [db, threshold]
+        properties:
+          db: {type: string}
+          threshold: {type: string, enum: [cut_ga]}
+  cascade:
+    type: object
+    required: [narrow_at, min_explained, sweep_cohort_fraction]
+    properties:
+      narrow_at: {type: number, minimum: 0, maximum: 1}
+      min_explained: {type: number, minimum: 0, maximum: 1}
+      sweep_cohort_fraction: {type: number, minimum: 0, maximum: 1}
+  controls:
+    type: object
+    required: [positive, negative]
+  seed: {type: integer}
