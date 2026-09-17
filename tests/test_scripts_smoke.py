@@ -1426,3 +1426,121 @@ def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir
     assert rows["p1|1"]["sys_wholeness"] == "1.000"
     assert rows["p1|1"]["hit_profile_cov"] == "0.95"
     assert rows["p1|1"]["system"] == "defense-finder-models/Defense/RM_Type_II"
+
+
+# --- S4c: one long table of what every tool said --------------------------------------
+
+def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
+    """The substrate for the functional grouping. A wide table cannot hold it: the
+    vocabulary is open, Pfam-A 38.2 alone has 30,134 families, and the grouping is derived
+    from the labels observed rather than declared in advance."""
+    import gzip
+
+    hits = fixture_dir / "hits.tsv"
+    write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
+                     "evalue", "informative", "is_best", "start", "end", "tier",
+                     "threshold", "max_evalue"],
+              [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
+                "T1", "--cut_ga", ""],
+               ["s1", "P62554.1 RecName: Full=Toxin CcdB [Escherichia coli]", "P62554.1",
+                0.8, 0.9, "1e-30", "True", 1, 1, 90, "T3", "--fast", "1e-5"],
+               ["s2", "WP_1.1 hypothetical protein [Escherichia coli]", "WP_1.1",
+                0.95, 0.9, "1e-20", "False", 1, 1, 95, "T4", "--fast", "1e-10"]])
+
+    orth = fixture_dir / "orthology.tsv"
+    write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
+                     "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec", "kegg_ko"],
+              [["s1", "L", "ko03030", "repA", "Replication initiator",
+                "COG5527@2", "RepA_N", "GO:0006270", "2.7.7.7", "ko:K02314"]])
+
+    pfam_dat = fixture_dir / "Pfam-A.hmm.dat.gz"
+    with gzip.open(pfam_dat, "wt") as fh:
+        fh.write("# STOCKHOLM 1.0\n#=GF ID   RepA_N\n#=GF AC   PF06970.19\n"
+                 "#=GF DE   Replication initiator protein A (RepA) N-terminus\n"
+                 "#=GF TP   Domain\n#=GF CL   CL0123\n//\n")
+
+    out = fixture_dir / "protein_labels.tsv"
+    run_script("protein_labels.py", FakeSnakemake(
+        input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat)},
+        output={"tsv": str(out)},
+        params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
+                "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
+
+    pairs = {(r["protein_id"], r["kind"], r["label"]) for r in read_tsv(out)}
+
+    # From the Pfam hit, including the two fields the domtblout does not carry.
+    assert ("s1", "pfam_family", "RepA_N") in pairs
+    assert ("s1", "pfam_description",
+            "Replication initiator protein A (RepA) N-terminus") in pairs
+    assert ("s1", "pfam_clan", "CL0123") in pairs
+    # From the Swiss-Prot hit.
+    assert ("s1", "swissprot_product", "Toxin CcdB") in pairs
+    # From eggNOG, including the gene symbol.
+    assert ("s1", "gene_symbol", "repA") in pairs
+    assert ("s1", "cog_category", "L") in pairs
+    assert ("s1", "cog_id", "COG5527") in pairs
+    # The uninformative hit contributes nothing.
+    assert not any(p[0] == "s2" for p in pairs), (
+        "'hypothetical protein' entered the functional vocabulary")
+
+
+def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
+    """A label without the database release it came from cannot be reproduced, and the
+    grouping built on it cannot be described in a methods section."""
+    hits = fixture_dir / "hits.tsv"
+    write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
+                     "evalue", "informative", "is_best", "start", "end", "tier",
+                     "threshold", "max_evalue"],
+              [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
+                "T1", "--cut_ga", ""]])
+    orth = fixture_dir / "orthology.tsv"
+    write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
+                     "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec",
+                     "kegg_ko"], [])
+    pfam_dat = fixture_dir / "pfam.dat"
+    pfam_dat.write_text("")
+
+    out = fixture_dir / "protein_labels.tsv"
+    run_script("protein_labels.py", FakeSnakemake(
+        input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat)},
+        output={"tsv": str(out)},
+        params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
+                "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
+
+    rows = read_tsv(out)
+    assert rows
+    assert all(r["database_version"] for r in rows), "a row carries no database version"
+    assert rows[0]["database"] == "Pfam-A"
+    assert rows[0]["database_version"] == "38.2"
+
+
+def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
+    """The same Pfam family hit by T1 and T2 is one statement about the protein, not two.
+    Unmerged, a widely searched label would outvote a rare one by copy number when the
+    categories are counted."""
+    hits = fixture_dir / "hits.tsv"
+    write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
+                     "evalue", "informative", "is_best", "start", "end", "tier",
+                     "threshold", "max_evalue"],
+              [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-10", "True", 1, 1, 100,
+                "T1", "--cut_ga", ""],
+               ["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
+                "T2", "-E 1e-5", "1e-5"]])
+    orth = fixture_dir / "orthology.tsv"
+    write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
+                     "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec",
+                     "kegg_ko"], [])
+    pfam_dat = fixture_dir / "pfam.dat"
+    pfam_dat.write_text("")
+
+    out = fixture_dir / "protein_labels.tsv"
+    run_script("protein_labels.py", FakeSnakemake(
+        input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat)},
+        output={"tsv": str(out)},
+        params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
+                "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
+
+    rows = [r for r in read_tsv(out) if r["kind"] == "pfam_family"]
+    assert len(rows) == 1, f"the same family was recorded {len(rows)} times"
+    # The strongest evidence for the statement survives the merge.
+    assert rows[0]["evidence_evalue"] == "1e-40"

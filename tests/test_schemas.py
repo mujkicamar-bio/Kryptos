@@ -28,3 +28,13 @@ def test_validate_frame_rejects_an_undeclared_column():
     columns["surprise"] = ["x"]
     with pytest.raises(ValueError, match="undeclared"):
         schemas.validate_frame("plasmids", pa.table(columns))
+
+
+def test_the_protein_labels_table_is_declared():
+    """The substrate for the functional grouping is a declared table, not a loose file.
+    An undeclared column here is a label kind nothing downstream can group."""
+    cols = schemas.columns("protein_labels")
+
+    for required in ("protein_id", "source", "kind", "label", "database",
+                     "database_version"):
+        assert required in cols, f"protein_labels has no {required} column"

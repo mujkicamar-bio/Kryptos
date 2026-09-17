@@ -28,6 +28,27 @@ discovery:
   # Proteins shorter than this are flagged discovery_excluded_short, never deleted (spec §10, §11).
   min_dark_candidate_length_aa: 20
 
+# Reference releases the LABELS carry, so a label can always be traced to the database
+# that produced it. A label without its release cannot be reproduced, and a functional
+# category built on it cannot be described in a methods section.
+references:
+  # Pfam family metadata: the description, type and clan that --domtblout does not carry.
+  # The description is what makes a functional grouping possible at all, since a family
+  # NAME carries no matchable word. Release read from data/refs/pfam/Pfam.version.gz,
+  # which reports 38.2 with 30,134 families.
+  pfam_dat: data/refs/pfam/Pfam-A.hmm.dat.gz
+  pfam_version: "38.2"
+  # The NCBI BLAST database snapshot behind the DIAMOND indexes. The path
+  # /sw/data/diamond_databases/Blast/latest resolves to .../20250303-003013.
+  swissprot_version: "2025-03-03"
+  nr_version: "2025-03-03"
+  eggnog_version: "5.0.2"
+  # Grouping tool labels into functional categories. null means no grouping: every
+  # (kind, label) is its own category. The categories are derived from the observed
+  # vocabulary in results/s4c/protein_labels.tsv after a full annotation run; see
+  # config/label_categories.yaml.
+  label_categories: null
+
 qc:
   # Spec §9.3. A protein whose coding region is mostly antisense to a longer ORF on the
   # opposite strand is the classic shadow-ORF artifact: it passes the whole cascade cleanly

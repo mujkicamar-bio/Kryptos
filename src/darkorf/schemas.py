@@ -33,6 +33,16 @@ TABLES = {
         "occurrence_count", "plasmid_count",
         "has_complete_occurrence", "discovery_eligible", "record_class",
     ],
+    # Spec §62.3 addendum - one row per (protein, source, label). LONG, not wide: the
+    # label vocabulary is open (Pfam-A 38.2 alone has 30,134 families, and nr product
+    # names are unbounded), so it cannot be columns. This table is the substrate from
+    # which functional categories - replication, mobilisation, conjugation - are derived.
+    # The hand-curated family list it replaces named 15 of the 42 Pfam families whose
+    # description mentions conjugation, and assigned every role with no source.
+    "protein_labels": [
+        "protein_id", "source", "tier", "kind", "label", "accession",
+        "evidence_evalue", "evidence_coverage", "database", "database_version",
+    ],
     # Spec §58 - positive and negative controls travel with the real data and are excluded
     # from biological occurrence-integrity checks.
     "controls": [
