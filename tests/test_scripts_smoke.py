@@ -1644,3 +1644,86 @@ def test_the_dark_family_representative_is_a_dark_protein(fixture_dir):
         assert "p_annot_long" not in row["members"], (
             "an annotated member leaked into the dark family's member list, which would "
             "widen every downstream evolution and context measurement")
+
+
+# --- Stage 7: recurrence counted over independent units --------------------------------
+
+def _recurrence_fixture(fixture_dir, lineage_rows):
+    """One family on three plasmids; the caller decides how independent those are."""
+    families = fixture_dir / "protein_families.tsv"
+    write_tsv(families, ["family_id", "family_resolution", "representative", "members"],
+              [["broad:s1", "broad", "s1", "s1,s2"]])
+    mapping = fixture_dir / "protein_map.tsv"
+    # s1 on two plasmids with two copies on one of them; s2 on a third.
+    mapping.write_text("s1\tpl1|1,pl1|2,pl2|1\ns2\tpl3|1\n")
+    registry = fixture_dir / "clonal_registry.tsv"
+    write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "topology", "size_bp",
+                         "hab_top"],
+              [["pl1", "MOB_A", "Escherichia coli", "circular", 100, "Host-associated"],
+               ["pl2", "MOB_A", "Escherichia coli", "circular", 100, "Host-associated"],
+               ["pl3", "MOB_A", "Escherichia coli", "circular", 100, "Host-associated"]])
+    lineage = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"], lineage_rows)
+    master = fixture_dir / "master.tsv"
+    write_tsv(master, ["plasmid_id", "sources"],
+              [["pl1", "PLSDB,IMG"], ["pl2", "PLSDB"], ["pl3", "PLSDB"]])
+
+    out = fixture_dir / "recurrence.tsv"
+    run_script("recurrence.py", FakeSnakemake(
+        input={"families": str(families), "map": str(mapping),
+               "registry": str(registry), "lineage": str(lineage),
+               "master": str(master)},
+        output={"tsv": str(out)}))
+    return read_tsv(out)[0]
+
+
+def test_recurrence_separates_occurrences_plasmids_and_lineages(fixture_dir):
+    """Spec section 34.2: 'database record counts must never be treated as independent
+    biological observations.' Four gene copies on three plasmid records that are all ONE
+    lineage is one independent observation, and the three numbers must not agree."""
+    row = _recurrence_fixture(fixture_dir,
+                              [["pl1", "L1"], ["pl2", "L1"], ["pl3", "L1"]])
+
+    assert row["plasmid_occurrence_count"] == "4", "gene copies miscounted"
+    assert row["unique_plasmid_count"] == "3"
+    assert row["independent_plasmid_cluster_count"] == "1", (
+        "three redepositions of one lineage were counted as independent observations")
+    assert row["independent_cluster_status"] == "SUCCESS"
+
+
+def test_genuinely_independent_plasmids_are_counted_as_such(fixture_dir):
+    """The other direction: the conservative count must not flatten real breadth."""
+    row = _recurrence_fixture(fixture_dir,
+                              [["pl1", "L1"], ["pl2", "L2"], ["pl3", "L3"]])
+
+    assert row["independent_plasmid_cluster_count"] == "3"
+
+
+def test_mob_breadth_is_not_evolutionary_independence(fixture_dir):
+    """Section 33: MOB classification and sequence similarity are separate concepts. All
+    three plasmids share one MOB cluster while being three lineages, so the two counts
+    must be able to disagree in both directions."""
+    row = _recurrence_fixture(fixture_dir,
+                              [["pl1", "L1"], ["pl2", "L2"], ["pl3", "L3"]])
+
+    assert row["MOB_count"] == "1"
+    assert row["independent_plasmid_cluster_count"] == "3"
+
+
+def test_unmeasured_independence_is_not_reported_as_zero(fixture_dir):
+    """A family whose plasmids are absent from the lineage table has not been measured.
+    Reporting 0 would read as 'no independent lineages', a much stronger claim than 'not
+    measured' (section 2.9)."""
+    row = _recurrence_fixture(fixture_dir, [])
+
+    assert row["independent_cluster_status"] == "NOT_RUN"
+
+
+def test_database_sources_are_provenance_not_biology(fixture_dir):
+    """Section 34.1 asks for these counts so a reader can see when a number is large for a
+    database reason. They are reported and are never a denominator."""
+    row = _recurrence_fixture(fixture_dir,
+                              [["pl1", "L1"], ["pl2", "L1"], ["pl3", "L1"]])
+
+    assert row["database_source_count"] == "2", "PLSDB and IMG were not both counted"
+    assert row["database_record_count"] == "3"

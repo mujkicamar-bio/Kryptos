@@ -133,6 +133,31 @@ rule protein_families:
         "../scripts/protein_families.py"
 
 
+rule recurrence:
+    """Stage 7: distribution and recurrence, counted over independent units.
+
+    Seven counts per family, never collapsed. Spec section 34.2: "database record counts
+    must never be treated as independent biological observations."
+    """
+    input:
+        families=f"{OUT}/s6/protein_families.tsv",
+        map=f"{OUT}/s2/protein_map.tsv",
+        registry=f"{OUT}/s0/clonal_registry.tsv",
+        lineage=f"{OUT}/s6/plasmid_lineage.tsv",
+        master=config["input"]["master_table"],
+    output:
+        tsv=f"{OUT}/s7/recurrence.tsv",
+    resources:
+        mem_mb=16000,
+        runtime=240,
+    log:
+        f"{OUT}/logs/s7/recurrence.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/recurrence.py"
+
+
 rule extract_cds:
     """S7a: recover nucleotide CDS - dN/dS needs codons, and we store protein only."""
     input:
