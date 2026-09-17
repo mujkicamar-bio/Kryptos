@@ -1384,3 +1384,45 @@ def test_tier_search_keeps_the_subject_accession(fixture_dir):
         f"accession not captured, got {rows[0]['target_accession']!r}")
     assert "CcdB" in rows[0]["label"] or "P62554" in rows[0]["label"], (
         "the title is no longer being kept as the label")
+
+
+# --- S8a phase 2: mandatory is not the same as accessory ------------------------------
+
+def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir):
+    """A mandatory component of a complete system and a neutral component of a fragment
+    are not the same evidence, and both arrived as the same row. MacSyFinder reports the
+    distinction and it was discarded."""
+    out = fixture_dir / "defence_systems.tsv"
+    phase2 = out.parent / "phase2" / "run"
+    phase2.mkdir(parents=True)
+    write_tsv(phase2 / "best_solution.tsv",
+              ["replicon", "hit_id", "gene_name", "hit_pos", "model_fqn", "sys_id",
+               "sys_wholeness", "sys_score", "hit_gene_ref", "hit_status",
+               "hit_i_eval", "hit_profile_cov"],
+              [["p1", "GB1", "RM_Type_II_REase", 3,
+                "defense-finder-models/Defense/RM_Type_II", "p1_RM_1",
+                "1.000", "5.5", "RM_Type_II_REase", "mandatory", "1e-40", "0.95"],
+               ["p1", "GB2", "RM_Type_II_MTase", 4,
+                "defense-finder-models/Defense/RM_Type_II", "p1_RM_1",
+                "1.000", "5.5", "RM_Type_II_MTase", "accessory", "1e-20", "0.60"]])
+
+    mapping = fixture_dir / "map.tsv"
+    write_tsv(mapping, ["gembase_id", "orf_id", "plasmid_id"],
+              [["GB1", "p1|1", "p1"], ["GB2", "p1|2", "p1"]])
+    faa = fixture_dir / "cand.faa"
+    write_fasta(faa, [("GB1", "MKV"), ("GB2", "MKW")])
+
+    # macsyfinder is not invoked: its output tree is pre-populated above, which is what the
+    # parser under test reads. skip_run lets this test run without the model set installed.
+    run_script("defence_systems.py", FakeSnakemake(
+        input={"faa": str(faa), "map": str(mapping)},
+        output={"tsv": str(out)},
+        params={"models_dir": str(fixture_dir / "models"), "skip_run": True},
+        threads=1))
+
+    rows = {r["orf_id"]: r for r in read_tsv(out)}
+    assert rows["p1|1"]["hit_status"] == "mandatory"
+    assert rows["p1|2"]["hit_status"] == "accessory"
+    assert rows["p1|1"]["sys_wholeness"] == "1.000"
+    assert rows["p1|1"]["hit_profile_cov"] == "0.95"
+    assert rows["p1|1"]["system"] == "defense-finder-models/Defense/RM_Type_II"

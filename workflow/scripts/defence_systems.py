@@ -1,0 +1,83 @@
+"""S8a phase 2: call defence systems from gene adjacency.
+
+MacSyFinder is driven directly rather than through `defense-finder run`, for one reason:
+the wrapper does not pass `--replicon-topology` through, and 94% of these plasmids are
+circular. Under linear topology a system spanning the origin is invisible, and origin-
+spanning genes are exactly what S1 worked to reconstruct.
+
+`--db-type gembase` lets a single run hold every candidate replicon and still treat each
+separately, which turns tens of thousands of per-plasmid invocations into one job.
+
+Thresholds are MacSyFinder's and DefenseFinder's own published defaults (Tesson et al.
+2022; Abby et al. 2014 for MacSyFinder). The quorum and co-localisation rules come from the
+711 shipped model definitions - referenced by construction, since they ARE the published
+models rather than our reinterpretation of them.
+"""
+import _ctx  # noqa: F401
+import csv
+import pathlib
+import subprocess
+
+outdir = pathlib.Path(snakemake.output.tsv).parent / "phase2"
+outdir.mkdir(parents=True, exist_ok=True)
+
+# skip_run exists for the parser test, which pre-populates the output tree. It is never
+# set by the workflow: a missing MacSyFinder run in production must fail, not be skipped.
+if not snakemake.params.get("skip_run", False):
+    subprocess.run(
+        f"macsyfinder --models-dir {snakemake.params.models_dir} "
+        f"--models defense-finder-models all "
+        f"--sequence-db {snakemake.input.faa} "
+        f"--db-type gembase --replicon-topology circular "
+        f"--worker {snakemake.threads} --out-dir {outdir} --mute",
+        shell=True, check=True)
+
+# Map gembase ids back to our orf_ids.
+back = {}
+with open(snakemake.input.map, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        back[r["gembase_id"]] = r
+
+rows = []
+for path in outdir.rglob("best_solution.tsv"):
+    with open(path) as fh:
+        header = None
+        for line in fh:
+            if line.startswith("#") or not line.strip():
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if header is None:
+                header = fields
+                continue
+            rec = dict(zip(header, fields))
+            gid = rec.get("hit_id", "")
+            src = back.get(gid)
+            if not src:
+                continue
+            rows.append({"orf_id": src["orf_id"], "plasmid_id": src["plasmid_id"],
+                         "gembase_id": gid, "system": rec.get("model_fqn", ""),
+                         "system_id": rec.get("sys_id", ""),
+                         "component": rec.get("gene_name", ""),
+                         "hit_evalue": rec.get("hit_i_eval", ""),
+                         # A mandatory component of a complete system and a neutral
+                         # component of a fragment are different evidence and arrived as
+                         # identical rows. hit_status is the model's own declaration of
+                         # which it is, and sys_wholeness is how much of the model was
+                         # found - both are MacSyFinder's numbers, not our
+                         # reinterpretation of them.
+                         "hit_status": rec.get("hit_status", ""),
+                         "sys_wholeness": rec.get("sys_wholeness", ""),
+                         "hit_gene_ref": rec.get("hit_gene_ref", ""),
+                         "hit_profile_cov": rec.get("hit_profile_cov", "")})
+
+with open(snakemake.output.tsv, "w", newline="") as out:
+    w = csv.DictWriter(out, fieldnames=["orf_id", "plasmid_id", "gembase_id", "system",
+                                        "system_id", "component", "hit_evalue",
+                                        "hit_status", "sys_wholeness", "hit_gene_ref",
+                                        "hit_profile_cov"],
+                       delimiter="\t")
+    w.writeheader()
+    w.writerows(rows)
+
+print(f"phase 2: {len(rows)} genes in {len({r['system_id'] for r in rows})} systems "
+      f"across {len({r['plasmid_id'] for r in rows})} plasmids")
