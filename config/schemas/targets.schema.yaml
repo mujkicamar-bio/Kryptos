@@ -26,24 +26,35 @@ properties:
     - min_controls
   clustering:
     type: object
+    required:
+    - resolutions
+    - primary
+    - cov_mode
+    - cluster_mode
     properties:
-      min_seq_id:
-        type: number
-        minimum: 0
-        maximum: 1
-      coverage:
-        type: number
-        minimum: 0
-        maximum: 1
+      resolutions:
+        type: object
+        minProperties: 1
+        additionalProperties:
+          type: object
+          required:
+          - min_seq_id
+          - coverage
+          properties:
+            min_seq_id:
+              type: number
+              minimum: 0
+              maximum: 1
+            coverage:
+              type: number
+              minimum: 0
+              maximum: 1
+      primary:
+        type: string
       cov_mode:
         type: integer
       cluster_mode:
         type: integer
-    required:
-    - min_seq_id
-    - coverage
-    - cov_mode
-    - cluster_mode
   evolution:
     type: object
     properties:
@@ -125,6 +136,10 @@ properties:
         type: boolean
       gpu:
         type: boolean
+      scope:
+        enum:
+        - representatives
+        - all
     required:
     - max_evalue
     - required

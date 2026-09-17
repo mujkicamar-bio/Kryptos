@@ -269,9 +269,15 @@ rule integrons:
 
 
 rule structure_search:
-    """S8d: structural homology for every dark protein, via Foldseek + ProstT5."""
+    """S8d: structural homology for the dark set, via Foldseek + ProstT5.
+
+    Scope is representatives by default. Spec section 49 sets that as the discovery-scale
+    strategy and section 79 makes it a success criterion; ProstT5 is a transformer and the
+    query count is the cost of this stage.
+    """
     input:
         faa=f"{OUT}/s6/dark_proteins.faa",
+        families=f"{OUT}/s6/dark_families.tsv",
     output:
         f"{OUT}/s8/structure_hits.tsv",
     params:

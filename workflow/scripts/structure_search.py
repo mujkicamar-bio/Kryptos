@@ -17,15 +17,23 @@ are then worth folding properly for confirmation.
 
 This is a screening step, not a structure determination.
 
-WHY EVERY DARK PROTEIN AND NOT ONE REPRESENTATIVE PER FAMILY
+SCOPE: REPRESENTATIVES BY DEFAULT
 
-The input is results/s6/dark_proteins.faa, the whole dark set. A cluster representative is
+Spec section 49 sets the discovery-scale strategy - "analyze dark-family representatives
+where practical" - and section 79 makes it a success criterion: "structure is performed at
+representative scale in the production run". So `structure.scope: representatives` is the
+default and searches one sequence per dark family.
+
+The cost is why. ProstT5 predicts the 3Di alphabet for every query, and it is a transformer:
+on the full collection the difference between all dark proteins and one per family is the
+difference between the largest job in the pipeline and a modest one.
+
+`scope: all` searches every dark protein and is a real option, because a representative is
 chosen by MMseqs2 on sequence criteria that have nothing to do with which member is most
-structurally informative, and at 30% identity - FESNov's deep-homology setting - members of
-one family can differ enough that only some of them reach a recognisable fold. Searching
-only representatives would therefore lose real structural evidence for reasons unrelated to
-structure. `folds` is one of the four reality tests and the only route to a fourth line of
-evidence, so losing it silently costs candidates their eligibility.
+structurally informative - at 30% identity, members of one family can differ enough that
+only some reach a recognisable fold. Spec section 49 calls that "candidate scale" and puts
+it downstream of discovery. Setting it here is supported and expensive; the default is what
+the specification asks for.
 
 WHY THE DESCRIPTION IS CARRIED, NOT JUST THE ACCESSION
 
@@ -39,10 +47,45 @@ import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
+import sys
 
 cfg = snakemake.params.structure
 target_db = snakemake.params.target_db
 tmp = pathlib.Path(snakemake.output[0]).parent / "foldseek_tmp"
+
+# ---- the query set: one sequence per dark family, or every dark protein ----------------
+scope = cfg.get("scope", "representatives")
+if scope not in ("representatives", "all"):
+    sys.exit(f"structure.scope must be 'representatives' or 'all', not {scope!r}")
+
+query_faa = snakemake.input.faa
+if scope == "representatives":
+    wanted = set()
+    with open(snakemake.input.families, newline="") as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            if row.get("representative"):
+                wanted.add(row["representative"])
+
+    query_faa = str(pathlib.Path(snakemake.output[0]).parent / "structure_query.faa")
+    n_written = 0
+    with open(query_faa, "w") as out:
+        emit = False
+        for line in open(snakemake.input.faa):
+            if line[0] == ">":
+                emit = line[1:].split()[0] in wanted
+                n_written += emit
+            if emit:
+                out.write(line)
+
+    # A representative named in the families table but absent from the dark FASTA means the
+    # two disagree about what the dark set is, and every structural count would inherit it.
+    if n_written != len(wanted):
+        sys.exit(f"S8d: {len(wanted)} family representatives declared but {n_written} found "
+                 f"in {snakemake.input.faa} - the families table and the dark set disagree.")
+    print(f"S8d: scope=representatives, searching {n_written} of "
+          f"{sum(1 for l in open(snakemake.input.faa) if l[0] == '>')} dark proteins")
+else:
+    print("S8d: scope=all, searching every dark protein")
 
 # GPU, when one is allocated.
 #
@@ -59,7 +102,7 @@ tmp = pathlib.Path(snakemake.output[0]).parent / "foldseek_tmp"
 gpu_flag = " --gpu 1" if cfg.get("gpu", False) else ""
 
 subprocess.run(
-    f"foldseek easy-search {snakemake.input.faa} {target_db} "
+    f"foldseek easy-search {query_faa} {target_db} "
     f"{snakemake.output[0]}.raw {tmp} --prostt5-model {snakemake.params.prostt5} "
     f"-e {cfg['max_evalue']} --threads {snakemake.threads}{gpu_flag} "
     # `prob` is a valid output field but is derived from Calpha coordinates, which a

@@ -49,6 +49,15 @@ sys.path.insert(0, "src")
 from plasmidann.cascade import check_thresholds  # noqa: E402
 from plasmidann.shards import discover_shards  # noqa: E402
 check_thresholds(cascade)
+# clustering.primary must name a resolution that exists, or every downstream stage reads a
+# family set that was never built - and it would present as an empty join rather than as a
+# configuration error.
+_clu = targets["clustering"]
+if _clu["primary"] not in _clu["resolutions"]:
+    raise ValueError(
+        f"clustering.primary is {_clu['primary']!r} but the configured resolutions are "
+        f"{sorted(_clu['resolutions'])}. The primary resolution is the one every later "
+        "stage reads, so naming one that is not built empties them all.")
 OUT = config["outdir"]
 
 # The plasmid shards are PREPARED OUTSIDE THE PIPELINE and discovered here. See

@@ -1,4 +1,4 @@
-# config/targets.yaml with structure.gpu enabled. Regenerate after editing targets.yaml.
+# config/targets.yaml with structure.gpu enabled, for the test-set GPU run.
 quality_gate:
   min_control_recall: 0.99
   control_fasta: data/refs/control/positive_control.faa
@@ -28,7 +28,6 @@ context:
   max_q_value: 0.05
   min_enrichment: 2.0
 structure:
-  scope: representatives
   gpu: true
   max_evalue: 0.001
   required: true

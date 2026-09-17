@@ -8,184 +8,63 @@
 
 # --- S5 quality gate -----------------------------------------------------------------
 quality_gate:
-  # Success criterion SC2. Known plasmid biology must not come out dark. ECLIPSE recovered
-  # 99.2-100% of its control set; anything below this means the cascade has a recall
-  # problem and the run stops rather than building a target list on a broken annotation.
-  #
-  # WHAT THIS GATE DOES AND DOES NOT DO
-  #
-  # It does NOT stop on unannotated proteins. Unannotated is the whole point: a dark
-  # integron cassette protein flows straight through to the dark set and is scored. The
-  # gate asks the opposite question - did KNOWN biology come out named? If a replication
-  # initiator emerges dark, annotation is broken, "dark" means nothing, and a target list
-  # built on it would waste bench time while looking perfectly reasonable.
   min_control_recall: 0.99
-
-  # The control set is SPIKED IN from an independent source, not drawn from the cascade's
-  # own output.
-  #
-  # An earlier version used proteins the cascade itself had labelled as backbone. That is
-  # circular: a protein the cascade MISSED never enters the control set, so the control
-  # could not detect the one failure it exists to catch. Reviewed Swiss-Prot proteins of
-  # known function are added to the query set with a CTRL_ prefix and must come back
-  # FUNCTIONAL.
   control_fasta: data/refs/control/positive_control.faa
-  # How many reviewed Swiss-Prot proteins are spiked into the query set.
-  #
-  # These were literals in the Snakefile and in prepare_control.py - which is exactly the
-  # defect class this project fixed once already, where three of six cascade thresholds
-  # lived as Python constants outside config and schema and so could never be validated,
-  # swept or recorded. They govern a run-halting gate, so they belong here.
-  #
-  # 500 sets the resolution of the recall measurement: at n=500 one failure moves recall by
-  # 0.002, comfortably finer than the 0.99 bar. min_controls is the point below which the
-  # gate cannot resolve 1% at all and should refuse to run rather than pass vacuously.
-  # n_controls moved to config.controls.positive.n: it describes the control INPUT,
-  # not the gate. It was declared in both files and the pipeline read this one, so
-  # setting the other had no effect - which is how a test configuration silently
-  # fails to apply.
   min_controls: 100
-  # When the control set is unavailable the gate cannot run. Halting is the safe default:
-  # a gate that silently skips itself is not a gate.
   require_control_set: true
-
-# --- S6 dark set and clustering ------------------------------------------------------
+# --- Stage 5: protein families (spec section 31) --------------------------------------
+#
+# Clustering runs over EVERY unique protein, not only the dark ones. Spec section 31.2
+# requires dark_member_count, annotated_member_count and percentage_dark_in_family, and
+# section 32 DERIVES a dark family as percentage_dark_in_family = 100% - none of which can
+# be computed from a clustering that contains only dark proteins.
+#
+# Three resolutions, as section 31.4 asks for, with thresholds stated rather than implied:
+#
+#   close         90% identity, 80% coverage. Near-identical proteins; separates true
+#                 orthologues from a diverged family.
+#   intermediate  50% / 80%. The conventional homology bar.
+#   broad         30% / 50%. FESNov's deep-homology setting (Nature 626:377), deliberately
+#                 looser than the 70/80 they used on 1.17 billion metagenomic sequences:
+#                 this collection has 3.5 million, and at 70% real families fragment into
+#                 singletons.
+#
+# `primary` names the resolution the downstream stages read when they need one family per
+# protein. The others are computed and reported beside it.
 clustering:
-  # FESNov's deep-homology setting. Deliberately looser than the 70/80 used on 1.17
-  # billion metagenomic sequences: at 70% our 3.5M would fragment real families into
-  # singletons.
-  min_seq_id: 0.30
-  coverage: 0.50
+  resolutions:
+    close:
+      min_seq_id: 0.9
+      coverage: 0.8
+    intermediate:
+      min_seq_id: 0.5
+      coverage: 0.8
+    broad:
+      min_seq_id: 0.3
+      coverage: 0.5
+  primary: broad
   cov_mode: 0
   cluster_mode: 0
-  # A family is a sequence cluster. Nothing else. Size and distribution are ATTRIBUTES,
-  # scored at S9, never gates here - putting them in the definition would make the family
-  # count a function of metadata completeness and would destroy the counterfactual, the
-  # same mistake as baking a decision threshold into the search.
-  # Clusters of one are retained and labelled ORPHAN.
-
-# --- S7 evolutionary evidence --------------------------------------------------------
 evolution:
-  # Below this many aligned codons a dN/dS estimate is noise whatever it says.
   min_codons: 20
-  # Families smaller than this cannot support an alignment-based estimate at all.
   min_members_for_dnds: 3
-  # FESNov's threshold. Reported for every family; used as a weighted feature at S9
-  # rather than a hard gate, so a family just above it is not silently deleted.
   dnds_purifying_max: 0.5
-  # RNAcode: the region carries protein-coding signal independent of the gene caller.
-  # FESNov's threshold. Both strands are reported - for a shadow ORF the antisense signal
-  # should be the stronger one, and that is the artefact class nothing else here catches.
   rnacode_max_p: 0.05
-  # Cap on members aligned per family. Alignment is O(n^2)-ish and the marginal
-  # information from the 200th member of a family is negligible.
   max_members_aligned: 50
-  # NO CODON MODEL, AND NO TREE.
-  #
-  # S7d - HyPhy BUSTED fitted to a per-family FastTree tree - was removed from the analysis
-  # on 2026-09-14 together with busted_max_p and min_members_for_busted. The two tests above
-  # are the whole of S7's evolutionary evidence, and neither needs a tree. The measurements
-  # behind the decision, and the two levers that were weighed - lowering this cap, or
-  # parallelising the stage - are recorded once, in docs/PIPELINE_CODE.md section 13.
-
-# --- S4b orthology -------------------------------------------------------------------
 orthology:
-  # eggNOG-mapper is NOT a dark-hunting tier. It describes the genes the cascade already
-  # named, because S8 asks what a dark ORF's neighbours do and free text cannot be
-  # aggregated into pathways. FESNov's neighbourhood metric is defined over KEGG pathway
-  # membership, so annotating the known fraction is what makes the unknown one
-  # interpretable.
   data_dir: data/refs/eggnog
-  # Same contract as structure: when true, a missing database fails PRE-FLIGHT in seconds.
-  # When false the stage is skipped and every term is recorded as absent - which is honest -
-  # rather than as searched and not found. The database is ~50 GB; fetch it with
-  #   download_eggnog_data.py --data_dir data/refs/eggnog
   required: false
-
-# --- S8 context and structure --------------------------------------------------------
-# S8a defence systems. DefenseFinder's models are an OPTIONAL database: the primary
-# deliverable - complete annotation of every ORF - does not depend on them, and spec
-# section 7.2 distinguishes "not run" from "ran and found nothing". With required false and
-# the models absent, the stage records NOT_RUN and every defence column downstream is
-# absent-because-not-searched. Set it true for a production run, where a silently missing
-# defence axis would be a defect.
 defence:
   required: false
-
 context:
-  # Maximum intergenic distance for two same-strand genes to count as one transcriptional
-  # unit. A dark ORF INSIDE a directon whose other members are annotated is predicted to
-  # be co-transcribed, which is far stronger than mere adjacency.
   max_operon_gap: 100
-  # Genes either side considered for neighbourhood composition (FESNov used 3).
   neighbourhood_window: 3
-  # Minimum fraction of a family's members sharing an association before it is reported
-  # as a hypothesis. FESNov required 0.9 for its high-confidence set.
-  min_context_conservation: 0.50
-  high_confidence_conservation: 0.90
-  # Maximum Benjamini-Hochberg q-value for an association to be reportable as a
-  # hypothesis. Needed at all only because the label vocabulary is open: the six
-  # hand-picked features this replaces were not corrected for multiple testing, and could
-  # not be, since a fixed six is not a family of tests over a vocabulary. 0.05 is the
-  # conventional FDR level (Benjamini and Hochberg 1995, J R Stat Soc B 57:289); it is a
-  # prioritisation parameter and is swept with the others.
+  min_context_conservation: 0.5
+  high_confidence_conservation: 0.9
   max_q_value: 0.05
-  # Enrichment over the corpus background required alongside conservation.
-  #
-  # This guards the small-plasmid trap: on a 5 kb cryptic plasmid carrying six genes, a
-  # +/-3 neighbourhood IS the whole plasmid, so everything co-occurs with everything.
-  # Raw frequency would rank the smallest plasmids as the most informative when they are
-  # the least - and small cryptic plasmids are a stratum we care about.
   min_enrichment: 2.0
-
 structure:
-  # Use a CUDA GPU for the ProstT5 3Di prediction and the Foldseek search. ProstT5 is a
-  # transformer and is the cost of this stage; the search that follows it is not.
-  #
-  # Configured, never auto-detected: a stage that silently behaves differently depending on
-  # which node it landed on cannot have its results traced to the settings that produced
-  # them, and a run that asked for a GPU and did not get one should fail visibly rather
-  # than take ten times longer without saying so.
-  #
-  # On this cluster: sbatch -p gpu --gres=gpu:l40s:1  (or gpu:h100:1).
+  scope: representatives
   gpu: false
-  # Foldseek reports an alignment as significant below this E-value.
-  max_evalue: 1.0e-3
-  # NO pLDDT THRESHOLD, deliberately.
-  #
-  # The design specified min_plddt: 70, following FESNov, and it was declared here and read
-  # by nothing - which made the novel_fold stratum silently ungated: a family whose
-  # structure was too poor to trust was indistinguishable from a confident novel fold.
-  #
-  # It cannot be honoured by this method. pLDDT is a confidence score emitted by a structure
-  # PREDICTOR. Foldseek with ProstT5 does not predict a structure; it translates sequence
-  # directly into the 3Di structural alphabet, which is what makes it cheap enough to run
-  # over the whole dark set instead of days of ColabFold. There is no pLDDT to threshold.
-  #
-  # So the confidence axis here is the Foldseek E-value above, and the honest reading of
-  # novel_fold is "no structural match was found", not "a confident structure matched
-  # nothing". Restoring a pLDDT gate means folding the shortlist with ColabFold or ESMFold
-  # as a confirmatory stage, which is listed as missing in docs/PIPELINE_CODE.md.
-  # When true, a missing Foldseek database or ProstT5 model fails PRE-FLIGHT, in seconds,
-  # rather than producing an empty table after the cascade has already run for days.
-  # When false the stage is skipped entirely and structure is recorded as NOT_RUN - which
-  # is honest - rather than as "searched and found nothing", which is not.
+  max_evalue: 0.001
   required: true
-
-# --- S9 prioritisation ---------------------------------------------------------------
-# --- Layer C is deliberately absent ---------------------------------------------------
-#
-# prioritisation, portfolio and library blocks used to live here: composite scores, a
-# stratified 1,000-construct quota and a synthesis order. They are gone.
-#
-# Spec section 76 draws the boundary. The core pipeline ends with a complete evidence-rich
-# representation of the plasmid protein universe and its dark subset, and it produces no
-# top_1000, no candidate_score, no novelty_score and no experimental_rank. Section 2.3 is
-# the same rule stated as a design principle: do not collapse all evidence into a single
-# score, because evidence must remain named and interpretable.
-#
-# Section 77 lists what a downstream prioritisation workflow MAY use - dark status,
-# conservation, independent recurrence, lineage breadth, MOB breadth, context, defence and
-# mobilisation association, structural relationship and state, protein properties, family
-# diversity, feasibility. Every one of those is a column this pipeline produces. The
-# selection is made on the tables, not inside them.
