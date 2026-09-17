@@ -211,8 +211,8 @@ rule feature_files:
     """
     input:
         annotation=f"{OUT}/s4/plasmid_annotation.tsv",
-        fasta=config["working_set_fasta"],
-        master=config["master_table"],
+        fasta=config["input"]["working_set_fasta"],
+        master=config["input"]["master_table"],
     output:
         gff3=f"{OUT}/s4/plasmid_annotation.gff3",
         genbank=f"{OUT}/s4/plasmid_annotation.gbk",

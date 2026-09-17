@@ -8,14 +8,26 @@ input:
   # manifest (spec §3.1), because a hard-coded denominator silently goes stale.
   working_set_fasta: data/plasmidscope_primary/provenance/working_set.fna.gz
   master_table: data/plasmidscope_primary/analysis_set.tsv
+  # The plasmid shards, PREPARED OUTSIDE THE PIPELINE. Every FASTA in this directory is a
+  # shard; its name is the file name without the extension. The pipeline no longer creates
+  # the partition, so a new batch of plasmids is one more file here: the per-shard stages
+  # run for it alone, and only the aggregating stages re-run. An empty directory is an
+  # error, because an empty shard set would let every stage succeed while writing nothing.
+  shard_dir: data/shards_test
+  # The locked exclusion (spec section 3.1). "Simulated communities" is a PlasmidScope
+  # ecosystem artifact, not an environment, and it is excluded from every analysis.
+  exclude_hab_top: ["Simulated-artifact"]
 
 outdir: results
 
-# Sharding sets the unit of parallelism and of resume. Nothing biological depends on these
-# numbers, but changing them between resumed runs invalidates the affected stage (spec §72).
+# The PROTEIN partition only. Plasmid shards are discovered from input.shard_dir and are
+# not configured here: the pipeline no longer partitions plasmids.
+#
+# This one the pipeline must still create itself, because the dereplicated protein set does
+# not exist until S2 has run, so there is nothing on disk to discover at load time.
+# Changing it between resumed runs invalidates the cascade (spec section 72).
 shards:
-  plasmid: 600    # S1/S2 shard over plasmids
-  protein: 64     # S4 shards over the dereplicated protein set
+  protein: 64     # cascade shards over the dereplicated protein set
 
 orf:
   # The gene caller's own floor. Distinct from the discovery cutoff below (spec §11.1).
@@ -43,6 +55,9 @@ references:
   swissprot_version: "2025-03-03"
   nr_version: "2025-03-03"
   eggnog_version: "5.0.2"
+  # MacSyFinder model sets: DefenseFinder for S8 defence systems. macsydata reports
+  # CONJScan 2.1.0 installed in the same tree.
+  macsyfinder_models: data/refs/macsyfinder
   # Grouping tool labels into functional categories. null means no grouping: every
   # (kind, label) is its own category. The categories are derived from the observed
   # vocabulary in results/s4c/protein_labels.tsv after a full annotation run; see

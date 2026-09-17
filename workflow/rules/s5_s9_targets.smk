@@ -18,7 +18,7 @@ rule clonal_registry:
     Without this, a family on forty plasmids may be one clone sequenced forty times.
     """
     input:
-        master=config["master_table"],
+        master=config["input"]["master_table"],
         ids=f"{OUT}/s0/analysis_set.txt",
     output:
         f"{OUT}/s0/clonal_registry.tsv",
@@ -103,7 +103,7 @@ rule extract_cds:
         ids=f"{OUT}/s6/dark_ids.txt",
         map=f"{OUT}/s2/protein_map.tsv",
         index=f"{OUT}/s1/orf_index.tsv",
-        fasta=config["working_set_fasta"],
+        fasta=config["input"]["working_set_fasta"],
     output:
         f"{OUT}/s7/dark_cds.fna",
     resources:
@@ -230,7 +230,7 @@ rule defence_systems:
     output:
         tsv=f"{OUT}/s8/defence_systems.tsv",
     params:
-        models_dir=config["macsyfinder_models"],
+        models_dir=config["references"]["macsyfinder_models"],
     threads: 16
     resources:
         mem_mb=16000,
@@ -246,7 +246,7 @@ rule defence_systems:
 rule integrons:
     """S8b: integron cassette arrays - the strongest plasmid-specific signal available."""
     input:
-        fasta=f"{OUT}/s1/shards/{{shard}}.fna",
+        fasta=lambda wc: SHARD_PATHS[wc.shard],
     output:
         f"{OUT}/s8/integrons/{{shard}}.tsv",
     threads: 4
@@ -314,59 +314,6 @@ rule context_features:
         "../scripts/context_features.py"
 
 
-rule prioritise:
-    """S9: score, sweep the weights, and build the stratified portfolio."""
-    input:
-        families=f"{OUT}/s6/dark_families.tsv",
-        evolution=f"{OUT}/s7/family_evolution.tsv",
-        context=f"{OUT}/s8/family_context.tsv",
-        structure=f"{OUT}/s8/structure_hits.tsv",
-        faa=f"{OUT}/s6/dark_proteins.faa",
-    output:
-        scored=f"{OUT}/s9/scored_families.tsv",
-        report=f"{OUT}/s9/portfolio_report.txt",
-    params:
-        prioritisation=targets["prioritisation"],
-        portfolio=targets["portfolio"],
-        context=targets["context"],
-        library=targets["library"],
-        # S9's reality tests read dnds_purifying_max and min_members_for_dnds from here
-        # rather than restating them, so they cannot diverge from what S7b measured.
-        evolution=targets["evolution"],
-    resources:
-        mem_mb=16000,
-        runtime=120,
-    log:
-        f"{OUT}/logs/s9/prioritise.log",
-    conda:
-        "../envs/plasmidann.yaml"
-    script:
-        "../scripts/prioritise.py"
-
-
-rule library_design:
-    """S9b: the synthesis order - codon-optimised, barcoded, tag terminus per construct."""
-    input:
-        scored=f"{OUT}/s9/scored_families.tsv",
-        faa=f"{OUT}/s6/dark_proteins.faa",
-    output:
-        order=f"{OUT}/s9/synthesis_order.tsv",
-        report=f"{OUT}/s9/library_report.txt",
-    params:
-        library=targets["library"],
-        portfolio=targets["portfolio"],
-        seed=config["seed"],
-    resources:
-        mem_mb=8000,
-        runtime=60,
-    log:
-        f"{OUT}/logs/s9/library.log",
-    conda:
-        "../envs/plasmidann.yaml"
-    script:
-        "../scripts/library_design.py"
-
-
 rule annotation_report:
     """The deliverable: every annotation the run produced, as CSV.
 
@@ -387,7 +334,6 @@ rule annotation_report:
         annotation=f"{OUT}/final/annotation_complete.csv",
         families=f"{OUT}/final/dark_families_complete.csv",
     params:
-        prioritisation=targets["prioritisation"],
         evolution=targets["evolution"],
     resources:
         mem_mb=32000,

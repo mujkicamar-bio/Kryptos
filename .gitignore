@@ -1,10 +1,17 @@
 # ---- Large data trees: regenerable or too big for git ----
-data/
-envs/
+# Root-anchored. An unanchored `envs/` also matched workflow/envs/plasmidann.yaml, the
+# one file that specifies the environment, and silently kept it out of every commit.
+/data/
+/envs/
 
-# ---- Vendored tool binaries (keep the README) ----
+# ---- Vendored tool binaries (keep the README and our own scripts) ----
+#
+# The test-set generator is code, not a vendored binary: the SHARDS it writes are ignored
+# with the rest of /data/, because they are regenerable from the seeded script, and
+# committing the script rather than its output is what makes the test set reproducible.
 tools/*
 !tools/README.md
+!tools/*.py
 
 # ---- Auxiliary reference databases ----
 orit_db_folder/

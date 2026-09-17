@@ -10,7 +10,9 @@ for f in snakemake.input:
             orfs.append(r)
 
 indexed = assign_orf_ids(orfs)
-cols = ["orf_id", "plasmid_id", "start", "end", "strand", "partial", "seq"]
+# spans_origin is carried through from S1: a gene reconstructed across the cut point of a
+# circular plasmid runs begin..length then 1..end, so a naive end - begin is negative.
+cols = ["orf_id", "plasmid_id", "start", "end", "strand", "partial", "spans_origin", "seq"]
 with open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()

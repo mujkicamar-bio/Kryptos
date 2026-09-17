@@ -151,105 +151,19 @@ structure:
   required: true
 
 # --- S9 prioritisation ---------------------------------------------------------------
-prioritisation:
-  # THERE ARE NO WEIGHTS HERE, AND NO COMPOSITE SCORE.
-  #
-  # An earlier version blended four evidence groups into one number using coefficients -
-  # 0.40 for selection, 0.25 for lineage breadth, caps at 3 MOB clusters and 400 residues.
-  # Every one of those was invented: unmeasured, undefended, and untestable. That is the
-  # same defect the review found in the cascade thresholds, one layer up.
-  #
-  # A composite also throws away what a screening decision needs. Two candidates scoring
-  # 0.6 can be entirely different bets - one with overwhelming evidence of being a real
-  # protein and no idea what it does, the other with a sharp hypothesis on almost nothing.
-  # Those want different experiments; averaging them is discarding, not summarising.
-  #
-  # Evidence is counted, hypotheses are named, and selection is a declared procedure.
-
-  # How many of the four independent reality tests a family must pass to be eligible:
-  #   purifying_selection   dN/dS measured and below 0.5
-  #   multi_lineage         present on >= 2 distinct MOB clusters
-  #   is_family             >= 3 members
-  #   folds                 a significant structural match
-  #
-  # This is the ONE declared number left in selection, and unlike a weight it means
-  # something directly: how many independent lines of evidence you demand before spending
-  # a well on a protein. Its cost is reported at every level in the run report.
-  min_reality_lines: 2
-
-  # How many distinct MOB clusters a family must span for `multi_lineage` to fire.
-  #
-  # This was the literal 2 inside a lambda in plasmidann.targets with no config counterpart
-  # anywhere. Two is the smallest number that can mean "more than one lineage" at all, so
-  # it is close to definitional rather than tuned - but it governs one of the four evidence
-  # lines and therefore belongs here, declared and schema-checked, like everything else.
-  #
-  # The other two reality-test thresholds are NOT restated here. They are read from the
-  # evolution block above - dnds_purifying_max and min_members_for_dnds - so a change there
-  # cannot silently diverge from what S9 eligibility applies.
-  min_mob_clusters: 2
-
-  # Ranking within a stratum is lexicographic, declared in plasmidann.targets.RANK_PRIORITY:
-  #   reality_n desc  >  hypothesis_conservation desc  >  liability_n asc
-  # Each step is a claim someone can agree or disagree with - "more independent evidence
-  # beats a better hypothesis" - which a coefficient never is.
-
-  seed: 20260910
-
-# --- The portfolio -------------------------------------------------------------------
-# Stratified by EXPECTED PHENOTYPE, because the microscope reads phenotypes, not evidence
-# classes. Every stratum names something visible under a fluorescent tag plus morphology,
-# which is the readout confirmed with the lab; dye-dependent phenotypes gain resolution if
-# reagents arrive but nothing load-bearing depends on them.
-portfolio:
-  total: 1000
-  strata:
-    membrane_or_secreted: 200      # localisation - informative for every member
-    defence_island: 175            # localisation; full readout needs a phage arm
-    integron_cassette: 175         # see below - real genes by construction
-    small_cationic_peptide: 125    # lysis, membrane disruption
-    nucleic_acid_binding: 75       # nucleoid association, filamentation
-    novel_fold: 250                # open discovery arm, plus the 175 released below
-  #
-  # toxin_or_ta_adjacent (175) is SUSPENDED, not removed. It was filled by a hypothesis
-  # that fired when a dark ORF's two-gene partner appeared on a hand-written list of 73
-  # Pfam family names. That list is deleted: Pfam-A 38.2 holds 30,134 families, of which
-  # 67 mention replication in their description and 42 mention conjugation, and the list
-  # named 16 and 15 - nine of its names did not exist in Pfam-A at all. Its replacement is
-  # a toxin_antitoxin CATEGORY derived from the observed label vocabulary in
-  # results/s4c/protein_labels.tsv, which does not exist until a full annotation run has
-  # been made and reviewed. The quota is parked in novel_fold rather than left unfilled, so
-  # the portfolio still totals 1,000 and the suspension is visible here rather than
-  # appearing as a short order at the bench.
-  #
-  # integron_cassette earns its own quota rather than falling through to novel_fold.
-  # A dark ORF in a cassette array is a real gene BY CONSTRUCTION: it carries an attC
-  # recombination site, and it has been physically excised, mobilised, re-integrated and
-  # then retained under selection. That is direct evidence of both existence and function
-  # obtained without any homology at all, and neither Nature study could use it because
-  # both worked on genomes and metagenomes rather than mobile elements.
-  #
-  # Cassette membership is a LABEL AND A HYPOTHESIS, never a filter. No stage excludes a
-  # protein for being in a cassette; the flag travels to the final table so a dark ORF in
-  # a cassette is always visible as such.
-
-  # Fill any shortfall from the best-scoring candidates in other strata.
-  #
-  # false protects the portfolio's purpose: a short stratum stays short and is reported,
-  # because quietly topping up would collapse the library back toward a single bet. true
-  # protects a committed synthesis budget from being under-spent. Either way the choice is
-  # declared here and recorded in the run report, so a reader can tell whether a stratum
-  # was filled on its own merits.
-  reallocate_shortfall: true
-  # Controls sit OUTSIDE the 1,000. Without them "no phenotype" cannot be distinguished
-  # from "never expressed".
-  n_controls: 80
-
-# --- S9b library design --------------------------------------------------------------
-library:
-  host: ecoli
-  # Gene synthesis, so no hard length cap. Cost and expression success still scale with
-  # length, so this is a reported liability rather than a filter.
-  length_liability_above_aa: 400
-  # Restriction sites removed during codon optimisation (cloning scars).
-  avoid_sites: [GAATTC, GGATCC, AAGCTT, CTCGAG, GTCGAC, TCTAGA]
+# --- Layer C is deliberately absent ---------------------------------------------------
+#
+# prioritisation, portfolio and library blocks used to live here: composite scores, a
+# stratified 1,000-construct quota and a synthesis order. They are gone.
+#
+# Spec section 76 draws the boundary. The core pipeline ends with a complete evidence-rich
+# representation of the plasmid protein universe and its dark subset, and it produces no
+# top_1000, no candidate_score, no novelty_score and no experimental_rank. Section 2.3 is
+# the same rule stated as a design principle: do not collapse all evidence into a single
+# score, because evidence must remain named and interpretable.
+#
+# Section 77 lists what a downstream prioritisation workflow MAY use - dark status,
+# conservation, independent recurrence, lineage breadth, MOB breadth, context, defence and
+# mobilisation association, structural relationship and state, protein properties, family
+# diversity, feasibility. Every one of those is a column this pipeline produces. The
+# selection is made on the tables, not inside them.

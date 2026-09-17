@@ -1,92 +1,132 @@
 # Schema for config/targets.yaml (S5-S9). Shape and range only; cross-field coherence -
 # that the portfolio strata sum to the declared total, and that the prioritisation weights
 # sum to 1 - is checked in the Snakefile at load time, before any job is scheduled.
-$schema: "https://json-schema.org/draft/2020-12/schema"
+$schema: https://json-schema.org/draft/2020-12/schema
 type: object
 additionalProperties: false
 properties:
   quality_gate:
     type: object
     properties:
-      min_control_recall: {type: number, minimum: 0, maximum: 1}
-      control_fasta: {type: string}
-      require_control_set: {type: boolean}
-      n_controls: {type: integer, minimum: 1}
-      min_controls: {type: integer, minimum: 1}
-    required: [min_control_recall, control_fasta, require_control_set,
-               n_controls, min_controls]
+      min_control_recall:
+        type: number
+        minimum: 0
+        maximum: 1
+      control_fasta:
+        type: string
+      require_control_set:
+        type: boolean
+      n_controls:
+        type: integer
+        minimum: 1
+      min_controls:
+        type: integer
+        minimum: 1
+    required:
+    - min_control_recall
+    - control_fasta
+    - require_control_set
+    - n_controls
+    - min_controls
   clustering:
     type: object
     properties:
-      min_seq_id: {type: number, minimum: 0, maximum: 1}
-      coverage: {type: number, minimum: 0, maximum: 1}
-      cov_mode: {type: integer}
-      cluster_mode: {type: integer}
-    required: [min_seq_id, coverage, cov_mode, cluster_mode]
+      min_seq_id:
+        type: number
+        minimum: 0
+        maximum: 1
+      coverage:
+        type: number
+        minimum: 0
+        maximum: 1
+      cov_mode:
+        type: integer
+      cluster_mode:
+        type: integer
+    required:
+    - min_seq_id
+    - coverage
+    - cov_mode
+    - cluster_mode
   evolution:
     type: object
     properties:
-      min_codons: {type: integer, minimum: 1}
-      min_members_for_dnds: {type: integer, minimum: 2}
-      dnds_purifying_max: {type: number, exclusiveMinimum: 0}
-      rnacode_max_p: {type: number, exclusiveMinimum: 0}
-      max_members_aligned: {type: integer, minimum: 2}
-    required: [min_codons, min_members_for_dnds, dnds_purifying_max,
-               max_members_aligned, rnacode_max_p]
+      min_codons:
+        type: integer
+        minimum: 1
+      min_members_for_dnds:
+        type: integer
+        minimum: 2
+      dnds_purifying_max:
+        type: number
+        exclusiveMinimum: 0
+      rnacode_max_p:
+        type: number
+        exclusiveMinimum: 0
+      max_members_aligned:
+        type: integer
+        minimum: 2
+    required:
+    - min_codons
+    - min_members_for_dnds
+    - dnds_purifying_max
+    - max_members_aligned
+    - rnacode_max_p
   context:
     type: object
     properties:
-      max_operon_gap: {type: integer, minimum: 0}
-      neighbourhood_window: {type: integer, minimum: 1}
-      max_q_value: {type: number, minimum: 0, maximum: 1}
-      min_context_conservation: {type: number, minimum: 0, maximum: 1}
-      high_confidence_conservation: {type: number, minimum: 0, maximum: 1}
-      min_enrichment: {type: number, minimum: 0}
-    required: [max_operon_gap, neighbourhood_window, min_context_conservation,
-               high_confidence_conservation, min_enrichment]
+      max_operon_gap:
+        type: integer
+        minimum: 0
+      neighbourhood_window:
+        type: integer
+        minimum: 1
+      max_q_value:
+        type: number
+        minimum: 0
+        maximum: 1
+      min_context_conservation:
+        type: number
+        minimum: 0
+        maximum: 1
+      high_confidence_conservation:
+        type: number
+        minimum: 0
+        maximum: 1
+      min_enrichment:
+        type: number
+        minimum: 0
+    required:
+    - max_operon_gap
+    - neighbourhood_window
+    - min_context_conservation
+    - high_confidence_conservation
+    - min_enrichment
   orthology:
     type: object
     properties:
-      data_dir: {type: string}
-      required: {type: boolean}
-    required: [data_dir, required]
+      data_dir:
+        type: string
+      required:
+        type: boolean
+    required:
+    - data_dir
+    - required
   structure:
     type: object
     properties:
-      max_evalue: {type: number, exclusiveMinimum: 0}
-      required: {type: boolean}
-    required: [max_evalue, required]
-  prioritisation:
-    type: object
-    additionalProperties: false
-    properties:
-      # The bound that matters is not 4: purifying_selection entails is_family,
-      # so at most 3 independent lines are reachable. That is a relationship
-      # between fields, which a schema cannot express -
-      # targets.check_reality_config enforces it before any job is scheduled.
-      min_reality_lines: {type: integer, minimum: 0, maximum: 4}
-      min_mob_clusters: {type: integer, minimum: 1}
-      seed: {type: integer}
-    required: [min_reality_lines, min_mob_clusters, seed]
-  portfolio:
-    type: object
-    properties:
-      total: {type: integer, minimum: 1}
-      strata:
-        type: object
-        additionalProperties: {type: integer, minimum: 0}
-      n_controls: {type: integer, minimum: 0}
-      reallocate_shortfall: {type: boolean}
-    required: [total, strata, n_controls, reallocate_shortfall]
-  library:
-    type: object
-    properties:
-      host: {type: string}
-      length_liability_above_aa: {type: integer, minimum: 1}
-      avoid_sites:
-        type: array
-        items: {type: string, pattern: "^[ACGT]+$"}
-    required: [host, length_liability_above_aa, avoid_sites]
-required: [quality_gate, clustering, evolution, orthology, context, structure,
-           prioritisation,
-           portfolio, library]
+      max_evalue:
+        type: number
+        exclusiveMinimum: 0
+      required:
+        type: boolean
+    required:
+    - max_evalue
+    - required
+required:
+- quality_gate
+- clustering
+- evolution
+- orthology
+- context
+- structure

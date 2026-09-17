@@ -6,16 +6,17 @@ required: [input, outdir, shards, orf, discovery, qc, cascade, controls, seed,
 properties:
   input:
     type: object
-    required: [working_set_fasta, master_table]
+    required: [working_set_fasta, master_table, shard_dir]
     properties:
       working_set_fasta: {type: string}
       master_table: {type: string}
   outdir: {type: string}
   shards:
     type: object
-    required: [plasmid, protein]
+    # plasmid is deliberately absent: those shards are discovered from input.shard_dir,
+    # not configured. Only the protein partition is a number the pipeline chooses.
+    required: [protein]
     properties:
-      plasmid: {type: integer, minimum: 1}
       protein: {type: integer, minimum: 1}
   orf:
     type: object
@@ -37,6 +38,7 @@ properties:
       swissprot_version: {type: string}
       nr_version: {type: string}
       eggnog_version: {type: string}
+      macsyfinder_models: {type: string}
       # null is a valid value: it means no grouping is configured and every (kind, label)
       # is its own category, which is the state until the vocabulary has been reviewed.
       label_categories: {type: [string, "null"]}

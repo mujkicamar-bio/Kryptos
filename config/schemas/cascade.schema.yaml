@@ -1,17 +1,114 @@
+# JSON schema for config/cascade.yaml.
+#
+# This checks SHAPE and RANGE. It cannot check relationships between fields - that
+# narrow_at must not be stricter than min_explained, for instance - so every entry point
+# also calls plasmidann.cascade.check_thresholds(), which raises on incoherent
+# combinations. The two together are the P4 guarantee: no threshold reaches a search
+# without having been declared and validated.
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
+additionalProperties: false
 properties:
-  min_explained: {type: number, minimum: 0, maximum: 1}
+
+  narrow_at:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: >
+      Explained fraction at or above which a protein stops being searched by deeper tiers.
+      Deliberately permissive; must be >= min_explained (enforced by check_thresholds).
+
+  min_explained:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: >
+      Reporting threshold, applied post hoc on the complete table. Freely sweepable
+      because narrowing no longer depends on it.
+
+  min_coverage:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: >
+      Merged informative coverage at or above which a protein is FUNCTIONAL rather than
+      DOMAIN_ONLY. Applied to the protein, never to a single alignment.
+
+  full_at:
+    type: number
+    minimum: 0
+    maximum: 1
+
+  partial_at:
+    type: number
+    minimum: 0
+    maximum: 1
+
+  hmmer_z:
+    type: integer
+    minimum: 1
+    description: >
+      Fixed database size passed to every hmmer tier as -Z and --domZ, so an E-value means
+      the same thing on every shard and does not move when an upstream stage changes.
+
+  max_target_seqs:
+    type: integer
+    minimum: 1
+
+  sweep_cohort_fraction:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: >
+      Fraction of proteins that bypass narrowing and are searched by every tier, so the
+      cost of the narrowing threshold can be measured rather than assumed.
+
   tiers:
     type: array
     minItems: 1
     items:
       type: object
+      additionalProperties: false
       properties:
-        id: {type: string, pattern: "^T[0-9]+$"}
-        method: {type: string, enum: [hmmer, diamond, hhblits, foldseek, eggnogmapper]}
-        db: {type: string}
-        args: {type: string}
-        note: {type: string}
-      required: [id, method, db, args]
-required: [tiers, min_explained]
+        id:
+          type: string
+          pattern: "^T[0-9]+$"
+        method:
+          type: string
+          enum: [hmmer, diamond]
+        db:
+          type: string
+        args:
+          type: string
+        max_evalue:
+          # null means the tier has no E-value criterion. T1 uses Pfam gathering
+          # thresholds, which are per-family and can be looser than any global cut.
+          type: [number, "null"]
+          exclusiveMinimum: 0
+        note:
+          type: string
+      required: [id, method, db, args, max_evalue]
+
+  artefact_screen:
+    type: object
+    additionalProperties: false
+    properties:
+      antifam_db: {type: string}
+      antifam_args: {type: string}
+      # null means the tool's own curated threshold decided the hit.
+      antifam_max_evalue: {type: [number, 'null'], exclusiveMinimum: 0}
+      max_low_complexity_fraction: {type: number, minimum: 0, maximum: 1}
+    required: [antifam_db, antifam_args, antifam_max_evalue,
+               max_low_complexity_fraction]
+
+required:
+  - narrow_at
+  - min_explained
+  - min_coverage
+  - full_at
+  - partial_at
+  - hmmer_z
+  - max_target_seqs
+  - sweep_cohort_fraction
+  - tiers
+  - artefact_screen
