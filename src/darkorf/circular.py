@@ -35,9 +35,32 @@ and is called intact, with the correct translation.
     extended    [1 .................................... L][1 ... overlap]
                                               ^gene now contiguous^
 
-Three cases when mapping back, handled by resolve_origin_genes:
+An analogy with text makes the mechanism concrete. Consider a sentence written around a
+ring, so that it has no first or last word. Transcribing the ring onto a line requires a
+cut, and the cut usually falls inside a word:
+
+    transcribed     ELLO WORLD HOW ARE YOU H
+                                           ^ the cut
+
+A reader of the line sees two fragments, "ELLO" and "H", and has no way to tell that they
+are two halves of one word. Continue transcribing past the cut, repeating the first few
+words, and the word reappears whole:
+
+    extended        ELLO WORLD HOW ARE YOU H ELLO WORLD
+                                           ^ HELLO is now contiguous
+
+Read the words off the extended line and then discard what the repetition introduced:
+"ELLO" at the start, because it is the head of a word already read whole, and the second
+"WORLD", because it is a copy of the first. The ring is the plasmid, the words are genes,
+the fragments are the two partial ORFs that a linear caller reports, and the pipeline
+never joins the fragments; it discards them and reads the gene whole from the extended
+sequence.
+
+Four cases when mapping back, handled by resolve_origin_genes:
 
     end <= L            an ordinary gene            keep unchanged
+    start <= 3, partial truncated at the record   the head fragment of a gene now called
+                        start                      intact across the cut; drop
     start <= L < end    the gene crossed the cut    keep, wrap end, flag origin_spanning
     start > L           wholly in the appended tail duplicate of one already kept; drop
 
@@ -114,6 +137,12 @@ def resolve_origin_genes(genes, original_length):
     Genes lying wholly beyond original_length are duplicates of genes already called near
     the start of the record and are dropped. Without this, every circular plasmid would
     gain phantom ORFs equal to whatever fits in the appended tail.
+
+    Genes truncated at the start of the record are dropped for the mirror reason. The
+    caller only ever flags a gene partial at coordinate 1-3 when it ran off the left edge,
+    and on a closed molecule that edge is not real: the gene is the one the extension has
+    just called intact across the cut, and keeping both would emit every origin-spanning
+    protein twice, once whole and once as its stub.
     """
     kept = []
     for g in genes:
@@ -122,6 +151,10 @@ def resolve_origin_genes(genes, original_length):
         if start > original_length:
             # Wholly inside the appended tail: the same gene was already called at the
             # start of the record.
+            continue
+        if start <= 3 and g.get("partial"):
+            # Truncated at the record start: the head fragment of a gene that the
+            # extension calls whole across the origin.
             continue
 
         out = dict(g)

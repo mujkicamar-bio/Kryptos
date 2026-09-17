@@ -43,6 +43,29 @@ def test_genes_duplicated_by_the_overlap_are_resolved_to_one_copy():
     assert len(resolved) == 1
 
 
+def test_the_head_fragment_of_an_origin_spanning_gene_is_dropped():
+    """The gene caller sees the record start as an edge and emits the truncated head of a
+    gene that crosses the cut as a partial ORF at coordinate 1-3 - 88,600 of the 160,375
+    partials on this collection. The extension calls the same gene intact, so keeping the
+    stub would write every origin-spanning protein twice."""
+    length = 2_906
+    genes = [
+        {"start": 2, "end": 124, "strand": -1, "partial": 1},
+        {"start": 2_626, "end": 3_030, "strand": -1, "partial": 0},
+    ]
+    resolved = circular.resolve_origin_genes(genes, length)
+    assert len(resolved) == 1
+    assert resolved[0]["origin_spanning"] is True
+    assert (resolved[0]["start"], resolved[0]["end"]) == (2_626, 124)
+
+
+def test_an_intact_gene_at_the_record_start_is_kept():
+    """Only a PARTIAL gene at the record start is a fragment. A complete gene that happens
+    to begin at coordinate 1 is real and must survive."""
+    genes = [{"start": 1, "end": 300, "strand": 1, "partial": 0}]
+    assert len(circular.resolve_origin_genes(genes, 1_000)) == 1
+
+
 def test_an_origin_spanning_gene_is_marked_and_keeps_unrotated_coordinates():
     """Spec §8.4: do not assume end > start. The occurrence id is built from these
     coordinates, so rewriting them to look linear would break the identifier."""
