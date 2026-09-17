@@ -75,14 +75,24 @@ rule dark_set:
         "../scripts/dark_set.py"
 
 
-rule cluster_dark:
-    """S6b: cluster the dark set into families. A family is a sequence cluster, nothing else."""
+rule protein_families:
+    """Stage 5: cluster EVERY unique protein into families (spec section 31).
+
+    Not only the dark set. Section 31.2 requires dark_member_count,
+    annotated_member_count and percentage_dark_in_family, and section 32 derives a
+    dark-only family as 100% dark - all four need the annotated members present.
+
+    Two outputs: the complete table across every configured resolution, and the derived
+    dark-family subset at the primary resolution that the dark stages read.
+    """
     input:
-        faa=f"{OUT}/s6/dark_proteins.faa",
+        faa=f"{OUT}/s2/unique_proteins.faa",
+        dark_ids=f"{OUT}/s6/dark_ids.txt",
         map=f"{OUT}/s2/protein_map.tsv",
         registry=f"{OUT}/s0/clonal_registry.tsv",
     output:
-        tsv=f"{OUT}/s6/dark_families.tsv",
+        families=f"{OUT}/s6/protein_families.tsv",
+        dark_families=f"{OUT}/s6/dark_families.tsv",
     params:
         clustering=targets["clustering"],
     threads: 16
@@ -90,11 +100,11 @@ rule cluster_dark:
         mem_mb=64000,
         runtime=1440,
     log:
-        f"{OUT}/logs/s6/cluster.log",
+        f"{OUT}/logs/s6/protein_families.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
-        "../scripts/cluster_dark.py"
+        "../scripts/protein_families.py"
 
 
 rule extract_cds:

@@ -91,6 +91,7 @@ rule all:
     input:
         f"{OUT}/final/annotation_complete.csv",     # every ORF, every annotation
         f"{OUT}/final/dark_families_complete.csv",  # every dark family, every evidence
+        f"{OUT}/s6/protein_families.tsv",           # Stage 5: every protein family
         f"{OUT}/s4/plasmid_annotation.gff3",        # S4 feature files
         f"{OUT}/s4/plasmid_annotation.gbk",
         f"{OUT}/s5/quality_gate.txt",               # S5 the run-halting control

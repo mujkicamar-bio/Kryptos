@@ -114,6 +114,18 @@ COLS = [
     "members",
 ]
 
+# The DERIVED dark-family table (spec section 32). Downstream dark analysis - dN/dS,
+# structure, context - operates on families that CONTAIN dark members, at the primary
+# resolution only, and carries the dark_only flag with them.
+#
+# Containing-dark rather than dark-only, deliberately. Section 32 makes dark-only a
+# DESCRIPTIVE label, not a filter, and a family that is 60% dark still holds dark proteins
+# whose evolution and context are worth measuring - with the advantage that its annotated
+# members say what the family does. Restricting to 100% dark would discard exactly the
+# families where a dark protein is most interpretable.
+primary = cfg["primary"]
+dark_rows = []
+
 summary = []
 with open(snakemake.output.families, "w", newline="") as out:
     writer = csv.DictWriter(out, fieldnames=COLS, delimiter="\t")
@@ -191,11 +203,45 @@ with open(snakemake.output.families, "w", newline="") as out:
                 "members": ",".join(mem),
             })
 
+            if resolution == primary and n_dark:
+                dark_members = [m for m in mem if m in dark]
+                dark_rows.append({
+                    "family_id": ids.family_id(resolution, rep),
+                    # The representative must be a DARK member: S8d searches this sequence
+                    # structurally, and searching an annotated representative would spend
+                    # the ProstT5 budget on a protein that is not part of the dark set.
+                    "representative": rep if rep in dark else dark_members[0],
+                    "n_members": len(mem),
+                    "n_orfs": n_orfs,
+                    "n_plasmids": len(plasmids),
+                    "n_mob_clusters": len(mobs),
+                    "family_class": family_class,
+                    "dark_member_count": n_dark,
+                    "annotated_member_count": n_annotated,
+                    "percentage_dark_in_family": pct_dark,
+                    "dark_only": dark_only,
+                    # Only the dark members: the downstream stages measure the DARK
+                    # proteins' evolution and context, and including annotated members
+                    # here would silently widen every one of those measurements.
+                    "members": ",".join(dark_members),
+                })
+
         summary.append((resolution, len(members), n_orphan, n_dark_only))
+
+DARK_COLS = ["family_id", "representative", "n_members", "n_orfs", "n_plasmids",
+             "n_mob_clusters", "family_class", "dark_member_count",
+             "annotated_member_count", "percentage_dark_in_family", "dark_only", "members"]
+with open(snakemake.output.dark_families, "w", newline="") as out:
+    writer = csv.DictWriter(out, fieldnames=DARK_COLS, delimiter="\t")
+    writer.writeheader()
+    writer.writerows(dark_rows)
 
 print(f"{'resolution':<14}{'families':>10}{'orphans':>10}{'dark_only':>11}")
 for resolution, n_fam, n_orphan, n_dark_only in summary:
     print(f"{resolution:<14}{n_fam:>10}{n_orphan:>10}{n_dark_only:>11}")
+
+print(f"dark families at {primary}: {len(dark_rows)} containing at least one dark member, "
+      f"of which {sum(r['dark_only'] for r in dark_rows)} are 100% dark")
 
 if not summary:
     raise SystemExit("protein_families: no resolutions configured - clustering.resolutions "
