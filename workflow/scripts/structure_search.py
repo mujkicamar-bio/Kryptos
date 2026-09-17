@@ -44,10 +44,24 @@ cfg = snakemake.params.structure
 target_db = snakemake.params.target_db
 tmp = pathlib.Path(snakemake.output[0]).parent / "foldseek_tmp"
 
+# GPU, when one is allocated.
+#
+# ProstT5 is a transformer, and predicting 3Di for every dark protein is the cost of this
+# stage - not the Foldseek search that follows it. On CPU that is the difference between
+# minutes and hours, so the flag is worth having; foldseek 10 takes --gpu on both createdb
+# (the ProstT5 step) and search.
+#
+# It is CONFIGURED rather than detected. Auto-detecting a GPU would make the stage behave
+# differently depending on which node it landed on, with nothing in the output saying
+# which - and this pipeline records the settings that produced every row precisely so that
+# a result can be traced. A run that asked for a GPU and did not get one should fail
+# visibly, not silently take ten times longer.
+gpu_flag = " --gpu 1" if cfg.get("gpu", False) else ""
+
 subprocess.run(
     f"foldseek easy-search {snakemake.input.faa} {target_db} "
     f"{snakemake.output[0]}.raw {tmp} --prostt5-model {snakemake.params.prostt5} "
-    f"-e {cfg['max_evalue']} --threads {snakemake.threads} "
+    f"-e {cfg['max_evalue']} --threads {snakemake.threads}{gpu_flag} "
     # `prob` is a valid output field but is derived from Calpha coordinates, which a
     # ProstT5 query database does not carry - requesting it makes foldseek exit 1 and the
     # whole stage returns nothing. Verified in review: dropping this one field gives

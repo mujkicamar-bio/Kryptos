@@ -40,7 +40,10 @@ quality_gate:
   # 500 sets the resolution of the recall measurement: at n=500 one failure moves recall by
   # 0.002, comfortably finer than the 0.99 bar. min_controls is the point below which the
   # gate cannot resolve 1% at all and should refuse to run rather than pass vacuously.
-  n_controls: 500
+  # n_controls moved to config.controls.positive.n: it describes the control INPUT,
+  # not the gate. It was declared in both files and the pipeline read this one, so
+  # setting the other had no effect - which is how a test configuration silently
+  # fails to apply.
   min_controls: 100
   # When the control set is unavailable the gate cannot run. Halting is the safe default:
   # a gate that silently skips itself is not a gate.
@@ -100,6 +103,15 @@ orthology:
   required: false
 
 # --- S8 context and structure --------------------------------------------------------
+# S8a defence systems. DefenseFinder's models are an OPTIONAL database: the primary
+# deliverable - complete annotation of every ORF - does not depend on them, and spec
+# section 7.2 distinguishes "not run" from "ran and found nothing". With required false and
+# the models absent, the stage records NOT_RUN and every defence column downstream is
+# absent-because-not-searched. Set it true for a production run, where a silently missing
+# defence axis would be a defect.
+defence:
+  required: false
+
 context:
   # Maximum intergenic distance for two same-strand genes to count as one transcriptional
   # unit. A dark ORF INSIDE a directon whose other members are annotated is predicted to
@@ -127,6 +139,16 @@ context:
   min_enrichment: 2.0
 
 structure:
+  # Use a CUDA GPU for the ProstT5 3Di prediction and the Foldseek search. ProstT5 is a
+  # transformer and is the cost of this stage; the search that follows it is not.
+  #
+  # Configured, never auto-detected: a stage that silently behaves differently depending on
+  # which node it landed on cannot have its results traced to the settings that produced
+  # them, and a run that asked for a GPU and did not get one should fail visibly rather
+  # than take ten times longer without saying so.
+  #
+  # On this cluster: sbatch -p gpu --gres=gpu:l40s:1  (or gpu:h100:1).
+  gpu: false
   # Foldseek reports an alignment as significant below this E-value.
   max_evalue: 1.0e-3
   # NO pLDDT THRESHOLD, deliberately.

@@ -1,0 +1,42 @@
+# config/targets.yaml with structure.gpu enabled, for workflow/structure_gpu.sbatch.
+#
+# A separate file rather than a command-line override because the GPU setting is part
+# of the configuration a result is traced to, and Snakemake's --config cannot reach a
+# nested key in a file the Snakefile loads itself.
+#
+# Regenerate after editing config/targets.yaml:
+#   python -c "import yaml;t=yaml.safe_load(open('config/targets.yaml'));\
+#              t['structure']['gpu']=True;\
+#              print(yaml.safe_dump(t,sort_keys=False))" > config/targets.gpu.yaml
+quality_gate:
+  min_control_recall: 0.99
+  control_fasta: data/refs/control/positive_control.faa
+  min_controls: 100
+  require_control_set: true
+clustering:
+  min_seq_id: 0.3
+  coverage: 0.5
+  cov_mode: 0
+  cluster_mode: 0
+evolution:
+  min_codons: 20
+  min_members_for_dnds: 3
+  dnds_purifying_max: 0.5
+  rnacode_max_p: 0.05
+  max_members_aligned: 50
+orthology:
+  data_dir: data/refs/eggnog
+  required: false
+defence:
+  required: false
+context:
+  max_operon_gap: 100
+  neighbourhood_window: 3
+  min_context_conservation: 0.5
+  high_confidence_conservation: 0.9
+  max_q_value: 0.05
+  min_enrichment: 2.0
+structure:
+  gpu: true
+  max_evalue: 0.001
+  required: true

@@ -17,9 +17,30 @@ import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
+import sys
+
+from darkorf import status
 
 outdir = pathlib.Path(snakemake.output.tsv).parent / "phase2"
 outdir.mkdir(parents=True, exist_ok=True)
+
+# The same NOT_RUN contract as phase 1. Phase 2 cannot call a system from models that are
+# not installed, and spec section 7.2 separates "not run" from "ran and found nothing": an
+# empty systems table with no status would read as "this collection carries no defence
+# systems", which is a biological claim this run has not earned.
+models_dir = pathlib.Path(snakemake.params.models_dir)
+if not (models_dir.is_dir() and any(models_dir.iterdir())):
+    if snakemake.params.get("required", False):
+        sys.exit(f"S8a phase 2: DefenseFinder models are not installed at {models_dir}.")
+    print(f"S8a phase 2: models absent at {models_dir}; recording NOT_RUN. Defence system "
+          "calls are absent-because-not-searched, not absent-because-searched.")
+    with open(snakemake.output.tsv, "w", newline="") as out:
+        csv.DictWriter(out, fieldnames=["orf_id", "plasmid_id", "gembase_id", "system",
+                                        "system_id", "component", "hit_evalue",
+                                        "hit_status", "sys_wholeness", "hit_gene_ref",
+                                        "hit_profile_cov", "status"],
+                       delimiter="\t").writeheader()
+    sys.exit(0)
 
 # skip_run exists for the parser test, which pre-populates the output tree. It is never
 # set by the workflow: a missing MacSyFinder run in production must fail, not be skipped.
@@ -68,13 +89,14 @@ for path in outdir.rglob("best_solution.tsv"):
                          "hit_status": rec.get("hit_status", ""),
                          "sys_wholeness": rec.get("sys_wholeness", ""),
                          "hit_gene_ref": rec.get("hit_gene_ref", ""),
-                         "hit_profile_cov": rec.get("hit_profile_cov", "")})
+                         "hit_profile_cov": rec.get("hit_profile_cov", ""),
+                         "status": status.SUCCESS})
 
 with open(snakemake.output.tsv, "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=["orf_id", "plasmid_id", "gembase_id", "system",
                                         "system_id", "component", "hit_evalue",
                                         "hit_status", "sys_wholeness", "hit_gene_ref",
-                                        "hit_profile_cov"],
+                                        "hit_profile_cov", "status"],
                        delimiter="\t")
     w.writeheader()
     w.writerows(rows)

@@ -194,7 +194,7 @@ rule prepare_control:
         control=targets["quality_gate"]["control_fasta"],
         spiked=f"{OUT}/s2/cascade_input.faa",
     params:
-        n_controls=targets["quality_gate"]["n_controls"],
+        n_controls=config["controls"]["positive"]["n"],
         min_controls=targets["quality_gate"]["min_controls"],
         seed=config["seed"],
     resources:

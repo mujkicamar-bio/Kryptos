@@ -8,7 +8,13 @@
 #SBATCH -J dark_plasmidome
 #SBATCH -o results/logs/pipeline_%j.out
 #
-# The whole pipeline: 143,503 plasmids -> a 1,000-construct synthesis order.
+# The whole pipeline: 143,503 plasmids -> a complete, evidence-rich annotation of every
+# plasmid ORF and its dark subset. It produces no ranking and no candidate list; spec
+# section 76 puts experimental prioritisation in a separate downstream workflow.
+#
+# S8d (structural screening) is GPU-bound and has its own submission script,
+# workflow/structure_gpu.sbatch. Running it here works but spends the ProstT5 cost on
+# CPU, which dominates the run.
 #
 # ENVIRONMENT
 #

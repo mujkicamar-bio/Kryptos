@@ -18,13 +18,47 @@ import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
+import sys
+
+from darkorf import status
 
 outdir = pathlib.Path(snakemake.output.tsv).parent / "phase1"
 outdir.mkdir(parents=True, exist_ok=True)
 
-# check=True: a tool failure must stop the run. Three stages in v2 used check=False and
-# wrote well-formed EMPTY tables while reporting success, which is how a 175-construct
-# stratum can silently vanish.
+# A MISSING MODEL SET IS NOT A TOOL FAILURE.
+#
+# Spec section 7.2 gives NOT_RUN and FAILED different meanings, and this is the difference
+# in practice. defense-finder exits non-zero when its models are not installed, which is
+# indistinguishable at the exit code from a real crash, and letting that halt the run makes
+# a missing OPTIONAL database fatal to a pipeline whose primary deliverable does not depend
+# on it.
+#
+# So the models are checked first. Absent and not required, the stage records NOT_RUN and
+# writes an empty table with the status on it - which is a different statement from "the
+# search ran and found nothing", and the two must never be conflated (section 2.9).
+# Absent and required, it fails here with a message naming what to install, rather than
+# after the search has already burned the allocation.
+models_dir = pathlib.Path(snakemake.params.models_dir)
+required = bool(snakemake.params.get("required", False))
+have_models = models_dir.is_dir() and any(models_dir.iterdir())
+
+if not have_models:
+    message = (f"DefenseFinder models are not installed at {models_dir}. Install them with "
+               "`defense-finder update --models-dir <dir>` and point "
+               "references.macsyfinder_models at it.")
+    if required:
+        sys.exit(f"S8a: {message}")
+    print(f"S8a: {message}\n"
+          "     defence.required is false, so this stage records NOT_RUN. Every defence "
+          "column downstream is absent-because-not-searched, NOT absent-because-searched.")
+    with open(snakemake.output.tsv, "w", newline="") as out:
+        w = csv.DictWriter(out, fieldnames=["seq_id", "component", "model_unverified",
+                                            "hit_evalue", "status"], delimiter="\t")
+        w.writeheader()
+    sys.exit(0)
+
+# check=True: with the models present, a tool failure IS a failure. Three stages in v2 used
+# check=False and wrote well-formed EMPTY tables while reporting success.
 subprocess.run(
     f"defense-finder run --db-type unordered --out-dir {outdir} "
     f"--workers {snakemake.threads} --preserve-raw {snakemake.input.faa}",
@@ -49,11 +83,12 @@ for path in outdir.rglob("*defense_finder_genes.tsv"):
             rows.append({"seq_id": seq_id,
                          "component": r.get("gene_name", ""),
                          "model_unverified": r.get("type") or r.get("subtype") or "",
-                         "hit_evalue": r.get("hit_i_eval", "")})
+                         "hit_evalue": r.get("hit_i_eval", ""),
+                         "status": status.SUCCESS})
 
 with open(snakemake.output.tsv, "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=["seq_id", "component", "model_unverified",
-                                        "hit_evalue"], delimiter="\t")
+                                        "hit_evalue", "status"], delimiter="\t")
     w.writeheader()
     w.writerows(rows)
 

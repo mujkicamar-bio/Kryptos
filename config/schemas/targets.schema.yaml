@@ -16,9 +16,6 @@ properties:
         type: string
       require_control_set:
         type: boolean
-      n_controls:
-        type: integer
-        minimum: 1
       min_controls:
         type: integer
         minimum: 1
@@ -26,7 +23,6 @@ properties:
     - min_control_recall
     - control_fasta
     - require_control_set
-    - n_controls
     - min_controls
   clustering:
     type: object
@@ -72,6 +68,13 @@ properties:
     - dnds_purifying_max
     - max_members_aligned
     - rnacode_max_p
+  defence:
+    type: object
+    required:
+    - required
+    properties:
+      required:
+        type: boolean
   context:
     type: object
     properties:
@@ -119,6 +122,8 @@ properties:
         type: number
         exclusiveMinimum: 0
       required:
+        type: boolean
+      gpu:
         type: boolean
     required:
     - max_evalue

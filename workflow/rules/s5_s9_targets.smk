@@ -180,6 +180,12 @@ rule defence_search:
         faa=f"{OUT}/s2/unique_proteins.faa",
     output:
         tsv=f"{OUT}/s8/defence_components.tsv",
+    params:
+        models_dir=config["references"]["macsyfinder_models"],
+        # When false and the models are absent, the stage records NOT_RUN rather than
+        # halting: a missing optional database must not be fatal to a deliverable that
+        # does not depend on it (spec section 7.2).
+        required=targets["defence"]["required"],
     threads: 16
     resources:
         mem_mb=16000,
@@ -231,6 +237,7 @@ rule defence_systems:
         tsv=f"{OUT}/s8/defence_systems.tsv",
     params:
         models_dir=config["references"]["macsyfinder_models"],
+        required=targets["defence"]["required"],
     threads: 16
     resources:
         mem_mb=16000,

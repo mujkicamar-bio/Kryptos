@@ -1223,10 +1223,14 @@ def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir
 
     # macsyfinder is not invoked: its output tree is pre-populated above, which is what the
     # parser under test reads. skip_run lets this test run without the model set installed.
+    models = fixture_dir / "models"
+    models.mkdir()
+    (models / "placeholder").write_text("")
+
     run_script("defence_systems.py", FakeSnakemake(
         input={"faa": str(faa), "map": str(mapping)},
         output={"tsv": str(out)},
-        params={"models_dir": str(fixture_dir / "models"), "skip_run": True},
+        params={"models_dir": str(models), "skip_run": True, "required": False},
         threads=1))
 
     rows = {r["orf_id"]: r for r in read_tsv(out)}
@@ -1438,3 +1442,52 @@ def test_build_categories_only_ever_writes_its_declared_outputs():
     for target in written:
         assert target.startswith("snakemake.output."), (
             f"build_categories writes to {target}, which is not a declared output")
+
+
+def test_defence_records_not_run_when_the_models_are_absent(fixture_dir):
+    """Spec section 7.2 separates NOT_RUN from NO_HIT, and this is where the distinction
+    is earned. An empty defence table with no status reads as 'this collection carries no
+    defence systems', which is a biological claim a run without the models has not made.
+
+    The models are an OPTIONAL database: the primary deliverable is complete annotation of
+    every ORF, which does not depend on them, so their absence must not halt the run."""
+    faa = fixture_dir / "cand.faa"
+    write_fasta(faa, [("GB1", "MKV")])
+    mapping = fixture_dir / "map.tsv"
+    write_tsv(mapping, ["gembase_id", "orf_id", "plasmid_id"], [["GB1", "p1|1", "p1"]])
+    out = fixture_dir / "defence_systems.tsv"
+
+    # The script ends with sys.exit(0) - a successful early return for a Snakemake script,
+    # which the in-process harness sees as SystemExit. The code is asserted rather than
+    # swallowed: exit 0 is the whole claim being made, that this is a clean skip and not a
+    # failure.
+    with pytest.raises(SystemExit) as exit_info:
+        run_script("defence_systems.py", FakeSnakemake(
+            input={"faa": str(faa), "map": str(mapping)},
+            output={"tsv": str(out)},
+            params={"models_dir": str(fixture_dir / "absent"), "required": False},
+            threads=1))
+    assert exit_info.value.code == 0, "a missing optional database exited non-zero"
+
+    assert out.exists(), "no table written, so downstream stages cannot read the status"
+    rows = read_tsv(out)
+    assert rows == [], "rows were invented for a search that never ran"
+    assert "status" in out.read_text().split("\n")[0], (
+        "the table carries no status column, so absent-because-not-searched cannot be "
+        "told from absent-because-searched")
+
+
+def test_defence_halts_when_the_models_are_required_and_absent(fixture_dir):
+    """The other direction: in a production run a silently missing defence axis is a
+    defect, so required true must fail loudly rather than record NOT_RUN."""
+    faa = fixture_dir / "cand.faa"
+    write_fasta(faa, [("GB1", "MKV")])
+    mapping = fixture_dir / "map.tsv"
+    write_tsv(mapping, ["gembase_id", "orf_id", "plasmid_id"], [["GB1", "p1|1", "p1"]])
+
+    with pytest.raises(SystemExit, match="not installed"):
+        run_script("defence_systems.py", FakeSnakemake(
+            input={"faa": str(faa), "map": str(mapping)},
+            output={"tsv": str(fixture_dir / "out.tsv")},
+            params={"models_dir": str(fixture_dir / "absent"), "required": True},
+            threads=1))
