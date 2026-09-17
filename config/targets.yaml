@@ -1,0 +1,255 @@
+# =====================================================================================
+# S5-S9: from the annotated plasmidome to 1,000 screening candidates.
+#
+# The cascade's thresholds live in config/cascade.yaml. These are the downstream ones.
+# Same rule applies (design principle P4): declared here, schema-validated, and stamped
+# into the output rows they govern.
+# =====================================================================================
+
+# --- S5 quality gate -----------------------------------------------------------------
+quality_gate:
+  # Success criterion SC2. Known plasmid biology must not come out dark. ECLIPSE recovered
+  # 99.2-100% of its control set; anything below this means the cascade has a recall
+  # problem and the run stops rather than building a target list on a broken annotation.
+  #
+  # WHAT THIS GATE DOES AND DOES NOT DO
+  #
+  # It does NOT stop on unannotated proteins. Unannotated is the whole point: a dark
+  # integron cassette protein flows straight through to the dark set and is scored. The
+  # gate asks the opposite question - did KNOWN biology come out named? If a replication
+  # initiator emerges dark, annotation is broken, "dark" means nothing, and a target list
+  # built on it would waste bench time while looking perfectly reasonable.
+  min_control_recall: 0.99
+
+  # The control set is SPIKED IN from an independent source, not drawn from the cascade's
+  # own output.
+  #
+  # An earlier version used proteins the cascade itself had labelled as backbone. That is
+  # circular: a protein the cascade MISSED never enters the control set, so the control
+  # could not detect the one failure it exists to catch. Reviewed Swiss-Prot proteins of
+  # known function are added to the query set with a CTRL_ prefix and must come back
+  # FUNCTIONAL.
+  control_fasta: data/refs/control/positive_control.faa
+  # How many reviewed Swiss-Prot proteins are spiked into the query set.
+  #
+  # These were literals in the Snakefile and in prepare_control.py - which is exactly the
+  # defect class this project fixed once already, where three of six cascade thresholds
+  # lived as Python constants outside config and schema and so could never be validated,
+  # swept or recorded. They govern a run-halting gate, so they belong here.
+  #
+  # 500 sets the resolution of the recall measurement: at n=500 one failure moves recall by
+  # 0.002, comfortably finer than the 0.99 bar. min_controls is the point below which the
+  # gate cannot resolve 1% at all and should refuse to run rather than pass vacuously.
+  n_controls: 500
+  min_controls: 100
+  # When the control set is unavailable the gate cannot run. Halting is the safe default:
+  # a gate that silently skips itself is not a gate.
+  require_control_set: true
+
+# --- S6 dark set and clustering ------------------------------------------------------
+clustering:
+  # FESNov's deep-homology setting. Deliberately looser than the 70/80 used on 1.17
+  # billion metagenomic sequences: at 70% our 3.5M would fragment real families into
+  # singletons.
+  min_seq_id: 0.30
+  coverage: 0.50
+  cov_mode: 0
+  cluster_mode: 0
+  # A family is a sequence cluster. Nothing else. Size and distribution are ATTRIBUTES,
+  # scored at S9, never gates here - putting them in the definition would make the family
+  # count a function of metadata completeness and would destroy the counterfactual, the
+  # same mistake as baking a decision threshold into the search.
+  # Clusters of one are retained and labelled ORPHAN.
+
+# --- S7 evolutionary evidence --------------------------------------------------------
+evolution:
+  # Below this many aligned codons a dN/dS estimate is noise whatever it says.
+  min_codons: 20
+  # Families smaller than this cannot support an alignment-based estimate at all.
+  min_members_for_dnds: 3
+  # FESNov's threshold. Reported for every family; used as a weighted feature at S9
+  # rather than a hard gate, so a family just above it is not silently deleted.
+  dnds_purifying_max: 0.5
+  # RNAcode: the region carries protein-coding signal independent of the gene caller.
+  # FESNov's threshold. Both strands are reported - for a shadow ORF the antisense signal
+  # should be the stronger one, and that is the artefact class nothing else here catches.
+  rnacode_max_p: 0.05
+  # Cap on members aligned per family. Alignment is O(n^2)-ish and the marginal
+  # information from the 200th member of a family is negligible.
+  max_members_aligned: 50
+  # NO CODON MODEL, AND NO TREE.
+  #
+  # S7d - HyPhy BUSTED fitted to a per-family FastTree tree - was removed from the analysis
+  # on 2026-09-14 together with busted_max_p and min_members_for_busted. The two tests above
+  # are the whole of S7's evolutionary evidence, and neither needs a tree. The measurements
+  # behind the decision, and the two levers that were weighed - lowering this cap, or
+  # parallelising the stage - are recorded once, in docs/PIPELINE_CODE.md section 13.
+
+# --- S4b orthology -------------------------------------------------------------------
+orthology:
+  # eggNOG-mapper is NOT a dark-hunting tier. It describes the genes the cascade already
+  # named, because S8 asks what a dark ORF's neighbours do and free text cannot be
+  # aggregated into pathways. FESNov's neighbourhood metric is defined over KEGG pathway
+  # membership, so annotating the known fraction is what makes the unknown one
+  # interpretable.
+  data_dir: data/refs/eggnog
+  # Same contract as structure: when true, a missing database fails PRE-FLIGHT in seconds.
+  # When false the stage is skipped and every term is recorded as absent - which is honest -
+  # rather than as searched and not found. The database is ~50 GB; fetch it with
+  #   download_eggnog_data.py --data_dir data/refs/eggnog
+  required: false
+
+# --- S8 context and structure --------------------------------------------------------
+context:
+  # Maximum intergenic distance for two same-strand genes to count as one transcriptional
+  # unit. A dark ORF INSIDE a directon whose other members are annotated is predicted to
+  # be co-transcribed, which is far stronger than mere adjacency.
+  max_operon_gap: 100
+  # Genes either side considered for neighbourhood composition (FESNov used 3).
+  neighbourhood_window: 3
+  # Minimum fraction of a family's members sharing an association before it is reported
+  # as a hypothesis. FESNov required 0.9 for its high-confidence set.
+  min_context_conservation: 0.50
+  high_confidence_conservation: 0.90
+  # Maximum Benjamini-Hochberg q-value for an association to be reportable as a
+  # hypothesis. Needed at all only because the label vocabulary is open: the six
+  # hand-picked features this replaces were not corrected for multiple testing, and could
+  # not be, since a fixed six is not a family of tests over a vocabulary. 0.05 is the
+  # conventional FDR level (Benjamini and Hochberg 1995, J R Stat Soc B 57:289); it is a
+  # prioritisation parameter and is swept with the others.
+  max_q_value: 0.05
+  # Enrichment over the corpus background required alongside conservation.
+  #
+  # This guards the small-plasmid trap: on a 5 kb cryptic plasmid carrying six genes, a
+  # +/-3 neighbourhood IS the whole plasmid, so everything co-occurs with everything.
+  # Raw frequency would rank the smallest plasmids as the most informative when they are
+  # the least - and small cryptic plasmids are a stratum we care about.
+  min_enrichment: 2.0
+
+structure:
+  # Foldseek reports an alignment as significant below this E-value.
+  max_evalue: 1.0e-3
+  # NO pLDDT THRESHOLD, deliberately.
+  #
+  # The design specified min_plddt: 70, following FESNov, and it was declared here and read
+  # by nothing - which made the novel_fold stratum silently ungated: a family whose
+  # structure was too poor to trust was indistinguishable from a confident novel fold.
+  #
+  # It cannot be honoured by this method. pLDDT is a confidence score emitted by a structure
+  # PREDICTOR. Foldseek with ProstT5 does not predict a structure; it translates sequence
+  # directly into the 3Di structural alphabet, which is what makes it cheap enough to run
+  # over the whole dark set instead of days of ColabFold. There is no pLDDT to threshold.
+  #
+  # So the confidence axis here is the Foldseek E-value above, and the honest reading of
+  # novel_fold is "no structural match was found", not "a confident structure matched
+  # nothing". Restoring a pLDDT gate means folding the shortlist with ColabFold or ESMFold
+  # as a confirmatory stage, which is listed as missing in docs/PIPELINE_CODE.md.
+  # When true, a missing Foldseek database or ProstT5 model fails PRE-FLIGHT, in seconds,
+  # rather than producing an empty table after the cascade has already run for days.
+  # When false the stage is skipped entirely and structure is recorded as NOT_RUN - which
+  # is honest - rather than as "searched and found nothing", which is not.
+  required: true
+
+# --- S9 prioritisation ---------------------------------------------------------------
+prioritisation:
+  # THERE ARE NO WEIGHTS HERE, AND NO COMPOSITE SCORE.
+  #
+  # An earlier version blended four evidence groups into one number using coefficients -
+  # 0.40 for selection, 0.25 for lineage breadth, caps at 3 MOB clusters and 400 residues.
+  # Every one of those was invented: unmeasured, undefended, and untestable. That is the
+  # same defect the review found in the cascade thresholds, one layer up.
+  #
+  # A composite also throws away what a screening decision needs. Two candidates scoring
+  # 0.6 can be entirely different bets - one with overwhelming evidence of being a real
+  # protein and no idea what it does, the other with a sharp hypothesis on almost nothing.
+  # Those want different experiments; averaging them is discarding, not summarising.
+  #
+  # Evidence is counted, hypotheses are named, and selection is a declared procedure.
+
+  # How many of the four independent reality tests a family must pass to be eligible:
+  #   purifying_selection   dN/dS measured and below 0.5
+  #   multi_lineage         present on >= 2 distinct MOB clusters
+  #   is_family             >= 3 members
+  #   folds                 a significant structural match
+  #
+  # This is the ONE declared number left in selection, and unlike a weight it means
+  # something directly: how many independent lines of evidence you demand before spending
+  # a well on a protein. Its cost is reported at every level in the run report.
+  min_reality_lines: 2
+
+  # How many distinct MOB clusters a family must span for `multi_lineage` to fire.
+  #
+  # This was the literal 2 inside a lambda in plasmidann.targets with no config counterpart
+  # anywhere. Two is the smallest number that can mean "more than one lineage" at all, so
+  # it is close to definitional rather than tuned - but it governs one of the four evidence
+  # lines and therefore belongs here, declared and schema-checked, like everything else.
+  #
+  # The other two reality-test thresholds are NOT restated here. They are read from the
+  # evolution block above - dnds_purifying_max and min_members_for_dnds - so a change there
+  # cannot silently diverge from what S9 eligibility applies.
+  min_mob_clusters: 2
+
+  # Ranking within a stratum is lexicographic, declared in plasmidann.targets.RANK_PRIORITY:
+  #   reality_n desc  >  hypothesis_conservation desc  >  liability_n asc
+  # Each step is a claim someone can agree or disagree with - "more independent evidence
+  # beats a better hypothesis" - which a coefficient never is.
+
+  seed: 20260910
+
+# --- The portfolio -------------------------------------------------------------------
+# Stratified by EXPECTED PHENOTYPE, because the microscope reads phenotypes, not evidence
+# classes. Every stratum names something visible under a fluorescent tag plus morphology,
+# which is the readout confirmed with the lab; dye-dependent phenotypes gain resolution if
+# reagents arrive but nothing load-bearing depends on them.
+portfolio:
+  total: 1000
+  strata:
+    membrane_or_secreted: 200      # localisation - informative for every member
+    defence_island: 175            # localisation; full readout needs a phage arm
+    integron_cassette: 175         # see below - real genes by construction
+    small_cationic_peptide: 125    # lysis, membrane disruption
+    nucleic_acid_binding: 75       # nucleoid association, filamentation
+    novel_fold: 250                # open discovery arm, plus the 175 released below
+  #
+  # toxin_or_ta_adjacent (175) is SUSPENDED, not removed. It was filled by a hypothesis
+  # that fired when a dark ORF's two-gene partner appeared on a hand-written list of 73
+  # Pfam family names. That list is deleted: Pfam-A 38.2 holds 30,134 families, of which
+  # 67 mention replication in their description and 42 mention conjugation, and the list
+  # named 16 and 15 - nine of its names did not exist in Pfam-A at all. Its replacement is
+  # a toxin_antitoxin CATEGORY derived from the observed label vocabulary in
+  # results/s4c/protein_labels.tsv, which does not exist until a full annotation run has
+  # been made and reviewed. The quota is parked in novel_fold rather than left unfilled, so
+  # the portfolio still totals 1,000 and the suspension is visible here rather than
+  # appearing as a short order at the bench.
+  #
+  # integron_cassette earns its own quota rather than falling through to novel_fold.
+  # A dark ORF in a cassette array is a real gene BY CONSTRUCTION: it carries an attC
+  # recombination site, and it has been physically excised, mobilised, re-integrated and
+  # then retained under selection. That is direct evidence of both existence and function
+  # obtained without any homology at all, and neither Nature study could use it because
+  # both worked on genomes and metagenomes rather than mobile elements.
+  #
+  # Cassette membership is a LABEL AND A HYPOTHESIS, never a filter. No stage excludes a
+  # protein for being in a cassette; the flag travels to the final table so a dark ORF in
+  # a cassette is always visible as such.
+
+  # Fill any shortfall from the best-scoring candidates in other strata.
+  #
+  # false protects the portfolio's purpose: a short stratum stays short and is reported,
+  # because quietly topping up would collapse the library back toward a single bet. true
+  # protects a committed synthesis budget from being under-spent. Either way the choice is
+  # declared here and recorded in the run report, so a reader can tell whether a stratum
+  # was filled on its own merits.
+  reallocate_shortfall: true
+  # Controls sit OUTSIDE the 1,000. Without them "no phenotype" cannot be distinguished
+  # from "never expressed".
+  n_controls: 80
+
+# --- S9b library design --------------------------------------------------------------
+library:
+  host: ecoli
+  # Gene synthesis, so no hard length cap. Cost and expression success still scale with
+  # length, so this is a reported liability rather than a filter.
+  length_liability_above_aa: 400
+  # Restriction sites removed during codon optimisation (cloning scars).
+  avoid_sites: [GAATTC, GGATCC, AAGCTT, CTCGAG, GTCGAC, TCTAGA]
