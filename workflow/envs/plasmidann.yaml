@@ -33,7 +33,9 @@ dependencies:
   # --- S8 context and structure --------------------------------------------------------
   - foldseek=10.941cd33    # structural homology from sequence, via ProstT5
   - prodigal=2.6.3         # IntegronFinder calls genes with it and exits non-zero without
-  - infernal=1.1.5         # IntegronFinder locates attC sites with cmsearch
+  - infernal=1.1.5
+  # Stage 6 plasmid lineage clustering (spec section 33.1 names Mash)
+  - mash=2.3         # IntegronFinder locates attC sites with cmsearch
   # --- the Python libraries the src/ modules import ------------------------------------
   #
   # These were missing from this specification while darkorf.store imported pyarrow and

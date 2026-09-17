@@ -75,6 +75,31 @@ rule dark_set:
         "../scripts/dark_set.py"
 
 
+rule plasmid_lineage:
+    """Stage 6: cluster plasmids by sequence similarity into independent lineages.
+
+    Separate from MOB class by design (spec section 33): MOB typing describes the relaxase
+    a plasmid carries and says nothing about whether two records are the same molecule
+    sequenced twice.
+    """
+    input:
+        shards=[SHARD_PATHS[s] for s in SHARDS],
+    output:
+        tsv=f"{OUT}/s6/plasmid_lineage.tsv",
+    params:
+        lineage=targets["lineage"],
+    threads: 16
+    resources:
+        mem_mb=32000,
+        runtime=720,
+    log:
+        f"{OUT}/logs/s6/plasmid_lineage.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/plasmid_lineage.py"
+
+
 rule protein_families:
     """Stage 5: cluster EVERY unique protein into families (spec section 31).
 
@@ -90,6 +115,7 @@ rule protein_families:
         dark_ids=f"{OUT}/s6/dark_ids.txt",
         map=f"{OUT}/s2/protein_map.tsv",
         registry=f"{OUT}/s0/clonal_registry.tsv",
+        lineage=f"{OUT}/s6/plasmid_lineage.tsv",
     output:
         families=f"{OUT}/s6/protein_families.tsv",
         dark_families=f"{OUT}/s6/dark_families.tsv",

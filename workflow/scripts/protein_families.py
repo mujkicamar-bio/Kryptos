@@ -90,6 +90,14 @@ with open(snakemake.input.registry, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
         plasmid_meta[row["plasmid_id"]] = row
 
+# Stage 6 lineage clusters: how many INDEPENDENT plasmid lineages a family occurs on.
+# Distinct from family_plasmid_count, which counts records, and from family_MOB_count,
+# which counts relaxase types - spec section 33.2 and design principle 2.6.
+lineage_of = {}
+with open(snakemake.input.lineage, newline="") as fh:
+    for row in csv.DictReader(fh, delimiter="\t"):
+        lineage_of[row["plasmid_id"]] = row["plasmid_lineage_cluster"]
+
 
 def genus_of(species):
     """The genus is the first token of a binomial.
@@ -161,6 +169,7 @@ with open(snakemake.output.families, "w", newline="") as out:
             species = {m.get("species") for m in meta if m.get("species")}
             mobs = {m.get("mob_cluster") for m in meta if m.get("mob_cluster")}
             habitats = {m.get("hab_top") for m in meta if m.get("hab_top")}
+            lineages = {lineage_of[p] for p in plasmids if p in lineage_of}
 
             n_dark = sum(1 for m in mem if m in dark)
             n_annotated = len(mem) - n_dark
@@ -194,11 +203,9 @@ with open(snakemake.output.families, "w", newline="") as out:
                 "family_species_count": len(species),
                 "family_genus_count": len({genus_of(s) for s in species if genus_of(s)}),
                 "family_MOB_count": len(mobs),
-                # Plasmid lineage clusters are Stage 6 (spec section 33) and do not exist
-                # yet. NOT_RUN rather than 0: "no lineages counted" and "lineage clustering
-                # has not been performed" are different statements (section 2.9).
-                "family_plasmid_lineage_count": "",
-                "family_plasmid_lineage_status": status.NOT_RUN,
+                "family_plasmid_lineage_count": len(lineages),
+                "family_plasmid_lineage_status": (
+                    status.SUCCESS if lineages else status.NO_HIT),
                 "family_habitat_count": len(habitats),
                 "members": ",".join(mem),
             })

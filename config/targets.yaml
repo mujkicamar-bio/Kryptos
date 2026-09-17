@@ -12,6 +12,27 @@ quality_gate:
   control_fasta: data/refs/control/positive_control.faa
   min_controls: 100
   require_control_set: true
+# --- Stage 6: plasmid lineage / independence (spec section 33) ------------------------
+#
+# MOB classification and plasmid sequence similarity are separate concepts (section 33).
+# This measures the second: how many INDEPENDENT plasmid lineages a protein occurs on,
+# which is the denominator any recurrence claim needs. Section 33.2's example - 2,143
+# plasmid occurrences, 8 MOB clusters, 47 independent clusters - is the reason.
+lineage:
+  # Mash distance below which two plasmids are the same lineage. 0.05 is approximately 95%
+  # ANI, the conventional species-level boundary and the usual bar for "same plasmid
+  # lineage". The cluster count is a direct function of this, so it is recorded on every
+  # row of the output.
+  max_distance: 0.05
+  # Mash reports a small distance from very few shared hashes, and says so with a large
+  # p-value. Distance alone would link plasmids sharing almost nothing.
+  max_pvalue: 1.0e-10
+  # Mash defaults (Ondov et al. 2016, Genome Biol 17:132). k=21 is their recommendation for
+  # genome-scale comparisons; s=1000 is the default sketch size and the accuracy/size
+  # trade-off they characterise.
+  kmer: 21
+  sketch_size: 1000
+
 # --- Stage 5: protein families (spec section 31) --------------------------------------
 #
 # Clustering runs over EVERY unique protein, not only the dark ones. Spec section 31.2

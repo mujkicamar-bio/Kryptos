@@ -143,6 +143,28 @@ properties:
     required:
     - max_evalue
     - required
+  lineage:
+    type: object
+    required:
+    - max_distance
+    - max_pvalue
+    - kmer
+    - sketch_size
+    properties:
+      max_distance:
+        type: number
+        minimum: 0
+        maximum: 1
+      max_pvalue:
+        type: number
+        minimum: 0
+        maximum: 1
+      kmer:
+        type: integer
+        minimum: 1
+      sketch_size:
+        type: integer
+        minimum: 1
 required:
 - quality_gate
 - clustering

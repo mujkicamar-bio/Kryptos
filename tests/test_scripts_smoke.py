@@ -1528,11 +1528,15 @@ def test_protein_families_clusters_annotated_and_dark_together(fixture_dir):
                ["pl2", "MOB_B", "Salmonella enterica", "circular", 6000, "Host-associated"],
                ["pl3", "MOB_A", "Escherichia coli", "linear", 7000, "Environmental"]])
 
+    lineage_tsv = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage_tsv, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["pl1", "L1"], ["pl2", "L2"], ["pl3", "L1"]])
+
     families = fixture_dir / "protein_families.tsv"
     dark_families = fixture_dir / "dark_families.tsv"
     run_script("protein_families.py", FakeSnakemake(
         input={"faa": str(faa), "dark_ids": str(dark_ids), "map": str(mapping),
-               "registry": str(registry)},
+               "registry": str(registry), "lineage": str(lineage_tsv)},
         output={"families": str(families), "dark_families": str(dark_families)},
         params={"clustering": {
             "resolutions": {"broad": {"min_seq_id": 0.3, "coverage": 0.5}},
@@ -1574,10 +1578,14 @@ def test_family_ids_are_content_derived_not_ordinal(fixture_dir):
                          "hab_top"], [["pl1", "M1", "E. coli", "circular", 100, "H"],
                                       ["pl2", "M2", "E. coli", "circular", 100, "H"]])
 
+    lineage_tsv = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage_tsv, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["pl1", "L1"], ["pl2", "L2"]])
+
     families = fixture_dir / "protein_families.tsv"
     run_script("protein_families.py", FakeSnakemake(
         input={"faa": str(faa), "dark_ids": str(dark_ids), "map": str(mapping),
-               "registry": str(registry)},
+               "registry": str(registry), "lineage": str(lineage_tsv)},
         output={"families": str(families),
                 "dark_families": str(fixture_dir / "dark_families.tsv")},
         params={"clustering": {
@@ -1612,10 +1620,14 @@ def test_the_dark_family_representative_is_a_dark_protein(fixture_dir):
                          "hab_top"], [["pl1", "M1", "E. coli", "circular", 100, "H"],
                                       ["pl2", "M2", "E. coli", "circular", 100, "H"]])
 
+    lineage_tsv = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage_tsv, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["pl1", "L1"], ["pl2", "L2"]])
+
     dark_families = fixture_dir / "dark_families.tsv"
     run_script("protein_families.py", FakeSnakemake(
         input={"faa": str(faa), "dark_ids": str(dark_ids), "map": str(mapping),
-               "registry": str(registry)},
+               "registry": str(registry), "lineage": str(lineage_tsv)},
         output={"families": str(fixture_dir / "protein_families.tsv"),
                 "dark_families": str(dark_families)},
         params={"clustering": {
