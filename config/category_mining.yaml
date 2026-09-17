@@ -1,0 +1,64 @@
+# Patterns that GENERATE candidate category members for review.
+#
+# These patterns never run in the pipeline. workflow/scripts/build_categories.py applies
+# them once, to the observed vocabulary in results/s4c/protein_labels.tsv, and writes a
+# DRAFT config with the protein count beside every candidate. A person reviews that draft,
+# removes what does not belong, and the reviewed result is what ships in
+# config/label_categories.yaml, where matching is exact.
+#
+# WHY GENERATE RATHER THAN MATCH AT RUNTIME
+#
+# Measured on the installed Pfam-A 38.2, over its 30,134 family descriptions:
+#
+#   /replicat/    matches  67 families   (the deleted hand list named 16)
+#   /conjug/      matches  42            (it named 15)
+#   /transposas/  matches  76            (it named 15)
+#   /toxin/       matches 317  - and ABC_toxin_N is an insect toxin, ADPRTs_Tse2 is a T6SS
+#                                effector; neither is a toxin-antitoxin system
+#
+# So the pattern supplies the scope a hand list cannot reach, and the review removes what
+# the pattern cannot judge. Running the pattern at query time would keep the scope and lose
+# the review - and a substring match against a live vocabulary is how a mislabelled
+# neighbourhood sends someone to the bench to test the wrong thing.
+#
+# FIELDS, per category
+#
+#   description   regular expression over the label's DESCRIPTION, case-insensitive. For a
+#                 Pfam family that is the release description, because the NAME carries no
+#                 matchable word: 'RepA_N' matches nothing, 'Replication initiator protein
+#                 A (RepA) N-terminus' matches /replicat/.
+#   symbol        regular expression over a gene symbol. Bacterial symbols are assigned in
+#                 families, which makes them the most systematic axis available - but the
+#                 exceptions are real and the review is where they are caught: parE is a
+#                 TOXIN (ParDE) as well as a topoisomerase IV subunit, not a partition
+#                 gene, despite the par prefix.
+#   cog_category  exact COG single-letter categories.
+#
+# Every candidate is reported with the number of proteins carrying it, so the reviewer can
+# see what including or excluding it costs before deciding.
+
+mine:
+  replication:
+    description: 'replicat|initiator protein|primase'
+    symbol: '^rep[A-Z]?$'
+    cog_category: [L]
+  mobilisation:
+    description: 'relaxase|mobilis|mobiliz|nickase|oriT|MobA|MobC|MobL'
+    symbol: '^(mob|nik)[A-Z]?$'
+  conjugation:
+    description: 'conjug|type IV secretion|T4SS|pilus assembly|mating pair|transfer protein'
+    symbol: '^(tra|trb|trw|vir)[A-Z]$'
+  partition:
+    description: 'partition|plasmid stability|segregation|centromere|ParA|ParB'
+    symbol: '^(par|sop|stb)[A-C]$'
+    cog_category: [D]
+  transposition:
+    description: 'transposas|integrase|recombinase|resolvase|insertion sequence|transposon'
+    symbol: '^(tnp|ins|int|res)[A-Z]?$'
+  toxin_antitoxin:
+    description: 'toxin-antitoxin|antitoxin|addiction module|post-segregational'
+    symbol: '^(ccd|rel[BE]|vap[BC]|hig[AB]|maz[EF]|par[DE]|hic[AB]|phd|doc)[A-Z]?$'
+  restriction_modification:
+    description: 'restriction|modification methyl|methyltransferase|DNA methylase'
+  defence:
+    description: 'anti-phage|antiviral|abortive infection|CRISPR|Cas[0-9]'

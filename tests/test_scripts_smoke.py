@@ -568,7 +568,14 @@ def test_every_informative_label_survives_into_the_resolved_row(fixture_dir):
 
 # --- S8c: the stage that turns a dark ORF into a testable hypothesis ------------------
 
-def _context_fixture(fixture_dir, partner_label):
+def _context_fixture(fixture_dir, partner_label, partner_kind="pfam_family"):
+    """One plasmid: a dark ORF, an annotated neighbour, and a dark ORF in a cassette.
+
+    `partner_label` is what the TOOLS called the neighbour. Since the curated 73-name list
+    was deleted, nothing here translates that into a class: the label travels into the
+    context table as itself, and the grouping into replication, mobilisation and so on is
+    derived later from the observed vocabulary.
+    """
     ann = fixture_dir / "plasmid_annotation.tsv"
     write_tsv(ann, ["plasmid_id", "orf_id", "start", "end", "strand", "annot_label",
                     "functional_class"],
@@ -587,40 +594,100 @@ def _context_fixture(fixture_dir, partner_label):
     write_tsv(integrons, ["plasmid_id", "integron_id", "element", "start", "end",
                           "integron_type", "annotation", "type_elt"],
               [["pl1", "in1", "protein", 3000, 3300, "complete", "protein", "protein"]])
-    return ann, fam, pmap, defence, integrons
+    labels_tsv = fixture_dir / "protein_labels.tsv"
+    write_tsv(labels_tsv, ["protein_id", "source", "tier", "kind", "label", "accession",
+                           "evidence_evalue", "evidence_coverage", "database",
+                           "database_version"],
+              [["S2", "pfam", "T1", partner_kind, partner_label, "PF00000.1", "1e-40",
+                "0.9", "Pfam-A", "38.2"]])
+    return ann, fam, pmap, defence, integrons, labels_tsv
 
 
-def _run_context(fixture_dir, partner_label):
-    ann, fam, pmap, defence, integrons = _context_fixture(fixture_dir, partner_label)
+def _run_context(fixture_dir, partner_label, categories=None):
+    ann, fam, pmap, defence, integrons, labels_tsv = _context_fixture(
+        fixture_dir, partner_label)
     fams_out = fixture_dir / "family_context.tsv"
     bg_out = fixture_dir / "context_background.tsv"
     run_script("context_features.py", FakeSnakemake(
         input={"annotation": str(ann), "families": str(fam), "map": str(pmap),
-               "defence": str(defence), "integrons": [str(integrons)]},
+               "defence": str(defence), "integrons": [str(integrons)],
+               "labels": str(labels_tsv)},
         output={"families": str(fams_out), "background": str(bg_out)},
         params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3,
                             "min_context_conservation": 0.50,
                             "high_confidence_conservation": 0.90,
-                            "min_enrichment": 2.0}}))
-    return read_tsv(fams_out)[0]
+                            "min_enrichment": 2.0},
+                "categories": categories}))
+    return read_tsv(fams_out)
 
 
-def test_a_transposase_partner_is_not_a_toxin_antitoxin_candidate(fixture_dir):
-    """ta_candidate fired whenever the two-gene partner was ANY of the 73 curated backbone
-    families - so a dark ORF beside a transposase, a relaxase or a methyltransferase was
-    labelled a candidate antitoxin and routed to the toxin_or_ta_adjacent stratum, 175 of
-    the 1,000 constructs. Only 16 of those families are toxins or antitoxins, and the tight
-    two-gene geometry is only evidence when the partner is one of them."""
-    row = _run_context(fixture_dir, "DDE_Tnp_Tn3")
-    assert float(row["cons_ta_candidate"]) == 0.0, (
-        "a transposase partner was scored as toxin-antitoxin geometry")
+def test_context_records_the_label_the_tool_produced(fixture_dir):
+    """The curated 73-name list is gone, so a neighbour's context is whatever the tools
+    called it. With no category rules configured the category is the label qualified by its
+    kind, which is what lets the grouping be decided later from the observed vocabulary
+    instead of being fixed in code now."""
+    rows = {r["category"]: r for r in _run_context(fixture_dir, "MobA_MobL")}
+
+    assert "pfam_family:MobA_MobL" in rows, (
+        f"the relaxase label is not in the context table; got {sorted(rows)}")
+    row = rows["pfam_family:MobA_MobL"]
+    assert row["n_units"] == "1", "the unit is the plasmid"
+    assert row["n_units_with_category"] == "1"
+    assert row["status"], "no status written"
+    # The column exists even with no rules configured, so a later grouping can fill it
+    # without changing the table's shape.
+    assert "subcategories" in row
 
 
-def test_a_toxin_partner_is_a_toxin_antitoxin_candidate(fixture_dir):
-    """The other half: restricting the test must not disable it."""
-    row = _run_context(fixture_dir, "RelE")
-    assert float(row["cons_ta_candidate"]) == 1.0, (
-        "a genuine toxin partner no longer produces the hypothesis")
+def test_context_writes_no_hand_assigned_category(fixture_dir):
+    """The standing constraint at the stage that used to break it. backbone_adjacent and
+    ta_candidate were classes assigned by a hand-written list of 73 Pfam family names -
+    against 30,134 families in Pfam-A 38.2, of which 67 mention replication in their
+    description alone. Neither name may reappear as a category."""
+    forbidden = {"backbone_adjacent", "ta_candidate", "replication", "mobilisation",
+                 "conjugation", "toxin_antitoxin"}
+
+    seen = {r["category"] for r in _run_context(fixture_dir, "RelE")}
+
+    assert not (seen & forbidden), f"hand-assigned category reappeared: {seen & forbidden}"
+
+
+def test_a_transposase_and_a_toxin_partner_are_told_apart_by_their_own_labels(fixture_dir):
+    """ta_candidate fired whenever the two-gene partner was ANY of the 73 curated families,
+    so a dark ORF beside a transposase was labelled a candidate antitoxin and routed to the
+    toxin_or_ta_adjacent stratum - 175 of the 1,000 constructs. The distinction is now made
+    by the partner's own label rather than by a class, so it cannot be lost to a gap in a
+    list."""
+    transposase = {r["category"] for r in _run_context(fixture_dir, "DDE_Tnp_Tn3")}
+    toxin = {r["category"] for r in _run_context(fixture_dir, "RelE")}
+
+    assert "pfam_family:DDE_Tnp_Tn3" in transposase
+    assert "pfam_family:RelE" in toxin
+    assert "pfam_family:RelE" not in transposase, (
+        "a transposase partner produced a toxin label")
+
+
+def test_a_configured_category_groups_labels_and_keeps_the_subcategory(fixture_dir):
+    """The grouping applied. Two different Pfam families become one category for the test,
+    while the subcategory keeps the finer distinction in the table - so a finer grouping
+    can be re-cut later without re-running the pipeline."""
+    rules = fixture_dir / "label_categories.yaml"
+    rules.write_text(
+        "categories:\n"
+        "  mobilisation:\n"
+        "    exact:\n"
+        "      pfam_family: [MobA_MobL]\n"
+        "    sub:\n"
+        "      pfam_family:\n"
+        "        MobA_MobL: relaxase\n")
+
+    rows = {r["category"]: r for r in
+            _run_context(fixture_dir, "MobA_MobL", categories=str(rules))}
+
+    assert "mobilisation" in rows, f"the category was not applied; got {sorted(rows)}"
+    assert rows["mobilisation"]["subcategories"] == "relaxase"
+    assert "pfam_family:MobA_MobL" not in rows, (
+        "the raw label survived alongside its category, so it would be counted twice")
 
 
 # --- S8d: the structural evidence has to carry a description, not just an accession ----
@@ -675,8 +742,12 @@ def _prioritise(fixture_dir, fam_row, ctx_row, struct_row, rep_seq=None):
     write_tsv(evo, ["family_id", "dnds_median", "dnds_status"],
               [["F1", "0.2", "MEASURED"]])
     ctx = fixture_dir / "family_context.tsv"
-    write_tsv(ctx, ["family_id", "cons_integron", "cons_defence", "cons_ta_candidate",
-                    "top_hypothesis", "top_conservation", "enrich_integron"], [ctx_row])
+    # LONG: one row per (family, category). prioritise reduces it to a per-family view,
+    # because "strongest association" depends on the q-value threshold, which is a
+    # prioritisation parameter and is swept.
+    write_tsv(ctx, ["family_id", "category", "subcategories", "n_units",
+                    "n_units_with_category", "observed_rate", "background_rate",
+                    "enrichment", "odds_ratio", "p_value", "q_value", "status"], ctx_row)
     struct = fixture_dir / "structure_hits.tsv"
     write_tsv(struct, ["seq_id", "target", "target_description", "evalue"],
               [struct_row] if struct_row else [])
@@ -697,7 +768,8 @@ def _prioritise(fixture_dir, fam_row, ctx_row, struct_row, rep_seq=None):
                                                       "integron_cassette": 5},
                               "reallocate_shortfall": False, "n_controls": 0},
                 "context": {"min_context_conservation": 0.5,
-                            "high_confidence_conservation": 0.9, "min_enrichment": 2.0},
+                            "high_confidence_conservation": 0.9, "min_enrichment": 2.0,
+                            "max_q_value": 0.05},
                 "library": {"length_liability_above_aa": 400}}))
     return read_tsv(scored)[0], report.read_text()
 
@@ -715,7 +787,7 @@ def test_one_member_in_a_cassette_does_not_make_it_a_cassette_family(fixture_dir
     The membership LABEL must survive - the user asked to be able to see that a dark ORF is
     in a cassette - but it must not decide the stratum on its own."""
     row, _ = _prioritise(fixture_dir, FAM,
-                         ["F1", 0.1, 0.0, 0.0, "", 0.0, ""], None)
+                         [["F1", "integron", "complete", 10, 1, 0.1, 0.05, 2.0, 2.1, "0.4", "0.4", "SUCCESS"]], None)
     assert row["in_integron_cassette"] == "1", (
         "the cassette label was lost - it is evidence a reader asked to keep")
     assert row["cassette_conserved"] == "0"
@@ -726,7 +798,7 @@ def test_one_member_in_a_cassette_does_not_make_it_a_cassette_family(fixture_dir
 def test_a_cassette_conserved_across_the_family_does_set_the_stratum(fixture_dir):
     """Restricting the rule must not disable it."""
     row, _ = _prioritise(fixture_dir, FAM,
-                         ["F1", 0.8, 0.0, 0.0, "integron", 0.8, "5.0"], None)
+                         [["F1", "integron", "complete", 10, 8, 0.8, 0.16, 5.0, 12.0, "1e-6", "1e-6", "SUCCESS"]], None)
     assert row["cassette_conserved"] == "1"
     assert row["stratum"] == "integron_cassette"
 
@@ -735,7 +807,7 @@ def test_a_dna_binding_fold_reaches_its_stratum(fixture_dir):
     """The nucleic_acid_binding stratum tested for "nucle" in the Foldseek target, which
     is a PDB accession. It could never be filled. The description is what says what the
     fold is."""
-    row, _ = _prioritise(fixture_dir, FAM, ["F1", 0.0, 0.0, 0.0, "", 0.0, ""],
+    row, _ = _prioritise(fixture_dir, FAM, [],
                          ["S1", "1abc-assembly1_A",
                           "1abc-assembly1_A CRYSTAL STRUCTURE OF A DNA-BINDING PROTEIN",
                           "1e-8"])
@@ -745,7 +817,7 @@ def test_a_dna_binding_fold_reaches_its_stratum(fixture_dir):
 def test_the_hypothesis_from_a_fold_says_what_the_fold_is(fixture_dir):
     """`structural:1abc-assembly1_A` reaches the synthesis order and tells a bench
     scientist nothing about what to assay."""
-    row, _ = _prioritise(fixture_dir, FAM, ["F1", 0.0, 0.0, 0.0, "", 0.0, ""],
+    row, _ = _prioritise(fixture_dir, FAM, [],
                          ["S1", "12as-assembly1_A",
                           "12as-assembly1_A ASPARAGINE SYNTHETASE MUTANT C51A", "1e-8"])
     assert "ASPARAGINE SYNTHETASE" in row["hypothesis"].upper(), (
@@ -862,7 +934,7 @@ def test_a_candidate_matching_two_strata_records_both(fixture_dir):
     row, _ = _prioritise(
         fixture_dir,
         ["F1", "S1", 10, 40, 40, 5, "FAMILY", "S1"],
-        ["F1", 0.0, 0.0, 0.0, "", 0.0, ""],
+        [],
         ["S1", "1abc-assembly1_A", "1abc-assembly1_A DNA-BINDING PROTEIN HU", "1e-8"],
         # Over 100 aa, so the peptide branch cannot fire, with one clear TM segment.
         rep_seq=("MKWLLLAAVFLGLAVLGSVIWLAGFAMTLVGSLLAWFPL"
@@ -884,7 +956,7 @@ def test_a_widely_carried_orphan_is_counted_in_the_report(fixture_dir):
     _, report = _prioritise(
         fixture_dir,
         ["F1", "S1", 1, 40, 40, 6, "ORPHAN", "S1"],
-        ["F1", 0.0, 0.0, 0.0, "", 0.0, ""], None)
+        [], None)
     assert "widely carried" in report.lower(), (
         f"the report never mentions the excluded high-prevalence orphans:\n{report}")
     assert "\t1\n" in report or " 1\n" in report
@@ -1221,8 +1293,13 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     write_tsv(rec, ["family_id", "consensus_hit", "consensus_label", "collectively_novel"],
               [["F1", 0, "", 1], ["F2", 0, "", 1]])
     ctx = fixture_dir / "ctx.tsv"
-    write_tsv(ctx, ["family_id", "top_hypothesis", "top_conservation", "cons_integron"],
-              [["F1", "", 0.0, 0.0], ["F2", "defence", 0.8, 0.0]])
+    # LONG: one row per (family, category). The report reduces it, taking the strongest
+    # association by q-value.
+    write_tsv(ctx, ["family_id", "category", "subcategories", "n_units",
+                    "n_units_with_category", "observed_rate", "background_rate",
+                    "enrichment", "odds_ratio", "p_value", "q_value", "status"],
+              [["F2", "defence", "RM_Type_II", 9, 7, 0.8, 0.1, 8.0, 20.0,
+                "1e-6", "1e-6", "SUCCESS"]])
     struct = fixture_dir / "struct.tsv"
     write_tsv(struct, ["seq_id", "target", "target_description", "evalue"], [])
     orth = fixture_dir / "orth.tsv"
@@ -1273,9 +1350,10 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "rnacode_p", "rnacode_p_antisense", "rnacode_status", "coding_signal",
         "consensus_hit", "consensus_label", "collectively_novel",
         "darkness_state", "structural_match", "structural_description", "structure_evalue",
-        "top_hypothesis", "top_conservation", "top_enrichment", "high_confidence",
-        "cons_defence", "cons_integron", "cons_backbone_adjacent",
-        "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_ta_candidate",
+        "top_hypothesis", "top_subcategories", "top_conservation", "top_enrichment",
+        "top_q_value", "high_confidence",
+        "cons_defence", "cons_integron",
+        "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
     ]
     assert list(fam_rows["F2"]) == FAMILY_COLUMNS, (
         f"family table columns changed: {list(fam_rows['F2'])}")
@@ -1544,3 +1622,88 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
     assert len(rows) == 1, f"the same family was recorded {len(rows)} times"
     # The strongest evidence for the statement survives the merge.
     assert rows[0]["evidence_evalue"] == "1e-40"
+
+
+# --- Category building: candidates for review, never a runtime matcher ----------------
+
+def test_build_categories_writes_a_reviewable_draft_with_counts(fixture_dir):
+    """The mining patterns must produce CANDIDATES with the evidence for judging them, not
+    a finished config. Measured on Pfam-A 38.2, /toxin/ matches 317 family descriptions of
+    which ABC_toxin_N is an insect toxin - the count beside each candidate is what lets a
+    reviewer see the cost of keeping or dropping it."""
+    import yaml
+
+    labels_tsv = fixture_dir / "protein_labels.tsv"
+    write_tsv(labels_tsv, ["protein_id", "source", "tier", "kind", "label", "accession",
+                           "evidence_evalue", "evidence_coverage", "database",
+                           "database_version"],
+              [["s1", "pfam", "T1", "pfam_family", "RepA_N", "PF06970.19", "1e-40",
+                "0.9", "Pfam-A", "38.2"],
+               ["s2", "pfam", "T1", "pfam_family", "RepA_N", "PF06970.19", "1e-30",
+                "0.9", "Pfam-A", "38.2"],
+               ["s1", "eggnog", "S4b", "gene_symbol", "repA", "", "", "",
+                "eggNOG", "5.0.2"],
+               ["s3", "nr", "T4", "pgap_product",
+                "putative plasmid replication initiator protein", "WP_1.1", "1e-20",
+                "0.8", "NCBI nr", "2025-03-03"],
+               ["s4", "nr", "T4", "pgap_product", "ABC transporter permease", "WP_2.1",
+                "1e-20", "0.8", "NCBI nr", "2025-03-03"]])
+
+    pfam_dat = fixture_dir / "pfam.dat"
+    pfam_dat.write_text("# STOCKHOLM 1.0\n#=GF ID   RepA_N\n#=GF AC   PF06970.19\n"
+                        "#=GF DE   Replication initiator protein A (RepA) N-terminus\n"
+                        "#=GF TP   Domain\n//\n")
+    mining = fixture_dir / "category_mining.yaml"
+    mining.write_text("mine:\n  replication:\n    description: 'replicat'\n"
+                      "    symbol: '^rep[A-Z]?$'\n")
+
+    draft = fixture_dir / "category_draft.yaml"
+    frequency = fixture_dir / "label_frequency.tsv"
+    run_script("build_categories.py", FakeSnakemake(
+        input={"labels": str(labels_tsv), "pfam_dat": str(pfam_dat),
+               "mining": str(mining)},
+        output={"draft": str(draft), "frequency": str(frequency)}))
+
+    document = yaml.safe_load(draft.read_text())
+    replication = document["categories"]["replication"]["exact"]
+
+    # Mined from the Pfam DESCRIPTION, which the family NAME does not contain.
+    assert "RepA_N" in replication["pfam_family"]
+    # Mined from the gene-symbol convention.
+    assert "repA" in replication["gene_symbol"]
+    # Mined from the NORMALISED product name, so the hedge did not hide it.
+    assert any("replication initiat" in p for p in replication["pgap_product"])
+    # Not mined: nothing about it matches, and it must not be swept in.
+    assert "ABC transporter permease" not in replication.get("pgap_product", [])
+
+    # The frequency table is the evidence for the review.
+    rows = {(r["kind"], r["label"]): r for r in read_tsv(frequency)}
+    assert rows[("pfam_family", "RepA_N")]["n_proteins"] == "2", (
+        "proteins are counted, not rows - a label seen by three tiers is one protein")
+    assert rows[("gene_symbol", "repA")]["n_proteins"] == "1"
+
+
+def test_build_categories_only_ever_writes_its_declared_outputs():
+    """The draft is reviewed by a person before it becomes the live config. A builder that
+    wrote config/label_categories.yaml directly would put unreviewed pattern matches
+    straight into the pipeline, which is the failure the whole design exists to prevent.
+
+    Asserted on the parsed code rather than on the text, because the module docstring
+    legitimately names that path to say it does not write it."""
+    import ast
+
+    source = (pathlib.Path(__file__).parent.parent
+              / "workflow" / "scripts" / "build_categories.py").read_text()
+
+    written = []
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "open"):
+            continue
+        mode = next((a.value for a in node.args[1:] if isinstance(a, ast.Constant)), "r")
+        if "w" in mode or "a" in mode:
+            written.append(ast.unparse(node.args[0]))
+
+    assert written, "the builder opens nothing for writing - it produces no draft"
+    for target in written:
+        assert target.startswith("snakemake.output."), (
+            f"build_categories writes to {target}, which is not a declared output")
