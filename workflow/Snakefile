@@ -33,10 +33,13 @@ from snakemake.utils import validate
 configfile: "config/config.yaml"
 validate(config, "../config/schemas/config.schema.yaml")
 
-cascade = yaml.safe_load(open("config/cascade.yaml"))
+# Overridable so a smaller run - the 100-plasmid test set, a benchmark - can supply its
+# own thresholds without editing the production file. hmmer_z in particular MUST match
+# the analysis set: a stale -Z rescales every E-value in the run.
+cascade = yaml.safe_load(open(config.get("cascade_config", "config/cascade.yaml")))
 validate(cascade, "../config/schemas/cascade.schema.yaml")
 
-targets = yaml.safe_load(open("config/targets.yaml"))
+targets = yaml.safe_load(open(config.get("targets_config", "config/targets.yaml")))
 validate(targets, "../config/schemas/targets.schema.yaml")
 
 # The schema checks each threshold's shape and range. It cannot check the relationships

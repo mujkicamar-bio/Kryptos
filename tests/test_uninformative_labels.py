@@ -48,3 +48,17 @@ def test_uninformative_labels_are_detected(label):
 @pytest.mark.parametrize("label", FUNCTIONAL_LABELS)
 def test_real_function_names_are_not_flagged(label):
     assert not UNINFORMATIVE.search(label), f"false positive: {label}"
+
+
+def test_a_missing_label_is_not_informative():
+    """v1 returned True here, because `not UNINFORMATIVE.search(None or "")` is True.
+
+    A label that failed to parse would therefore be treated as naming a function, silently
+    promoting the protein out of the dark set. Failing toward "we do not know" is the safe
+    direction for a discovery pipeline.
+    """
+    from plasmidann.cascade import is_informative
+
+    assert is_informative(None) is False
+    assert is_informative("") is False
+    assert is_informative("   ") is True   # whitespace is a label we cannot judge, not an absence

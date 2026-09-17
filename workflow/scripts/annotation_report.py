@@ -30,13 +30,12 @@ import _ctx  # noqa: F401
 import collections
 import csv
 
-from plasmidann.targets import (reality_lines, darkness_state, reality_thresholds,
-                                check_reality_config)
+from plasmidann.evidence import reality_lines, darkness_state, reality_thresholds
 
-cfg = snakemake.params.prioritisation
+# check_reality_config went with Layer C: it validated that min_reality_lines - a SELECTION
+# parameter - was reachable. Nothing selects here, so there is no such parameter to check.
 evo_cfg = snakemake.params.evolution
-check_reality_config(cfg, evo_cfg)
-THRESHOLDS = reality_thresholds(cfg, evo_cfg)
+THRESHOLDS = reality_thresholds(evo_cfg)
 
 
 def index(path, key):

@@ -37,3 +37,21 @@ def test_a_curated_family_outranks_multispecies_in_one_label():
 
 def test_conserved_outranks_plain_hypothetical_in_one_label():
     assert dark_evidence(["conserved hypothetical protein"]) == "CONSERVED"
+
+
+def test_multispecies_is_recognised_when_an_accession_comes_first():
+    """DIAMOND emits `stitle`, which puts the accession before the MULTISPECIES token:
+
+        WP_000123.1 MULTISPECIES: hypothetical protein [Enterobacteriaceae]
+
+    v1 anchored the pattern with ^, so this rung was unreachable for the entire run.
+    """
+    label = "WP_000123.1 MULTISPECIES: hypothetical protein [Enterobacteriaceae]"
+
+    assert dark_evidence([label]) == "MULTISPECIES"
+
+
+def test_a_curated_family_still_outranks_an_accession_prefixed_multispecies():
+    assert dark_evidence(
+        ["WP_000123.1 MULTISPECIES: DUF1234 domain-containing protein [Bacillus]"]
+    ) == "CURATED_FAMILY"

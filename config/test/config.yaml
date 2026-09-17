@@ -1,0 +1,58 @@
+# Test-scale configuration: the 100-plasmid smoke set.
+#
+# Run with:
+#   snakemake --configfile config/test/config.yaml -j 8 --use-conda
+#
+# Everything a smaller set forces is here and nowhere else, so the production config
+# is never edited to run a test - which is how a test setting reaches production.
+#
+#   shard_dir   the seeded 100-plasmid sample from tools/make_test_shards.py: 25
+#               plasmids in each of 4 shards, covering circular, linear, direct
+#               terminal repeat and inverted terminal repeat in two size bands, so
+#               both the origin-repair branch and the branch that must NOT get repair
+#               are exercised.
+#   outdir      results_test, so a smoke run never overwrites a production run.
+#   protein     4 cascade shards. 64 over 5,804 proteins is 90 sequences a shard.
+#   controls    100 positive and 100 negative. The production gate needs >=100
+#               positives to measure recall at 1% resolution; below that a single
+#               failure is a 1% swing.
+input:
+  working_set_fasta: data/plasmidscope_primary/provenance/working_set.fna.gz
+  master_table: data/plasmidscope_primary/analysis_set.tsv
+  shard_dir: data/shards_test
+  exclude_hab_top:
+  - Simulated-artifact
+outdir: results_test
+shards:
+  protein: 4
+orf:
+  min_call_length_aa: 20
+  meta_mode: true
+discovery:
+  min_dark_candidate_length_aa: 20
+references:
+  pfam_dat: data/refs/pfam/Pfam-A.hmm.dat.gz
+  pfam_version: '38.2'
+  swissprot_version: '2025-03-03'
+  nr_version: '2025-03-03'
+  eggnog_version: 5.0.2
+  macsyfinder_models: data/refs/macsyfinder
+  label_categories: null
+qc:
+  max_opposite_strand_overlap_fraction: 0.6
+  antifam:
+    db: data/refs/antifam/AntiFam.hmm
+    threshold: cut_ga
+cascade:
+  narrow_at: 0.9
+  min_explained: 0.5
+  sweep_cohort_fraction: 0.02
+controls:
+  positive:
+    raw_faa: data/refs/control/raw.faa
+    n: 100
+  negative:
+    n_shuffled: 50
+    n_reverse_complement: 50
+seed: 20260916
+cascade_config: config/test/cascade.yaml
