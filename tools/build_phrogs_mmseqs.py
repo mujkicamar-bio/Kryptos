@@ -24,6 +24,21 @@ first concatenated into one data file with an index beside it. The ffindex forma
 The PHROG identifier is the file stem (phrog_10000), which becomes the entry name and
 therefore the target identifier a hit reports.
 
+THE PROFILE MUST CARRY ITS OWN PHROG IDENTIFIER
+
+Spec section 18 lists phrog_id as a required field of a PHROGs hit, and the first build of
+this database could not produce one. convertprofiledb takes each profile's header from its
+NAME line, and the PHROGs NAME line names the SEED PROTEIN ('p428256 VI_04636'), not the
+PHROG. Nor could the id be recovered from the database key: convertprofiledb does not
+assign keys in ffindex order, and key 0's header turned out to be a different profile's
+NAME entirely. A hit would have reported a phage protein name with no traceable PHROG,
+which is not the field the spec asks for and cannot be joined to the PHROGs annotation
+table when that becomes available.
+
+So the id is prefixed onto the NAME line before the ffindex is written. mmseqs reports the
+header verbatim, so the identifier arrives as the first whitespace-delimited token of the
+target name, exactly where a parser expects an accession.
+
 THE ANNOTATION TABLE IS SEPARATE
 
 PHROGs distributes a table mapping each PHROG to one of nine functional categories. It is
@@ -61,6 +76,27 @@ def parse_name_line(text):
     return ""
 
 
+def label_with_phrog_id(text, phrog_id):
+    """Prefix the PHROG identifier onto a profile's NAME line.
+
+    convertprofiledb copies the NAME line into the database header, and that header is
+    what a hit reports as its target. PHROGs' own NAME line names the seed protein, so
+    without this the PHROG identifier is nowhere in the search output - see the module
+    docstring for why the database key cannot supply it either.
+
+    Idempotent: the build is re-run whenever PHROGs is updated, and a second prefix would
+    change every reported identifier with nothing failing.
+    """
+    out = []
+    for line in text.splitlines(keepends=True):
+        if line.startswith("NAME"):
+            body = line[4:].strip()
+            if not body.startswith(phrog_id + " ") and body != phrog_id:
+                line = f"NAME  {phrog_id} {body}\n"
+        out.append(line)
+    return "".join(out)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--hhm-dir", required=True, help="directory of .hhm profiles")
@@ -86,7 +122,8 @@ def main():
         desc.write("phrog_id\tphrog_description\n")
         for path in profiles:
             name = path.stem
-            text = path.read_text()
+            original = path.read_text()
+            text = label_with_phrog_id(original, name)
             # ffindex entries are NUL-terminated; the length recorded INCLUDES that byte,
             # which is what ffindex readers expect. Getting this wrong truncates the last
             # residue of every profile, silently.
@@ -94,7 +131,10 @@ def main():
             data.write(payload)
             index.write(f"{name}\t{offset}\t{len(payload)}\n")
             offset += len(payload)
-            desc.write(f"{name}\t{parse_name_line(text)}\n")
+            # From the ORIGINAL NAME line: the labelled one starts with the PHROG id,
+            # and where parse_name_line falls back to the whole line that would write the
+            # identifier into the description as well.
+            desc.write(f"{name}\t{parse_name_line(original)}\n")
 
     print(f"ffindex: {len(profiles)} profiles, {offset / 1e6:.0f} MB -> {ffdata}")
 
