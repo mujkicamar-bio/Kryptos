@@ -1,7 +1,7 @@
 """Stage 15: evidence integration without a ranking (spec sections 56 and 57).
 
 Section 56, first line: "Evidence integration combines results without producing an
-experimental ranking." Section 56.2 gives the harder half: Pfam, PHROGs, Swiss-Prot, eggNOG,
+experimental ranking." Section 56.2 gives the harder half: Pfam, pharokka, Swiss-Prot, eggNOG,
 nr, MMseqs2 and Foldseek "share evolutionary information to varying degrees", and the
 objective "is not to manufacture 'independent evidence' but to preserve distinct
 measurements and avoid double-counting them".
@@ -14,7 +14,7 @@ def test_four_sequence_databases_are_one_dimension_not_four():
     evidence would make a well-studied protein look four times better supported than an
     equally well-supported one that happens to be in fewer databases."""
     record = {"pfam_searched": 1, "swissprot_searched": 1, "nr_searched": 1,
-              "phrogs_searched": 1, "annot_tier": "T1"}
+              "pharokka_searched": 1, "annot_tier": "T1"}
 
     present = integration.dimensions_present(record)
 

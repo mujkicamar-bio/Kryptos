@@ -10,7 +10,7 @@ dependencies:
   - hmmer=3.4              # S2 AntiFam, S4 Pfam tiers
   - pyhmmer=0.12           # in-process HMM parsing
   - diamond=2.1            # S4 Swiss-Prot and nr tiers
-  - mmseqs2=15.*           # S4 PHROGs profiles, S5 families
+  - mmseqs2=15.*           # S5 families
   - foldseek=10.*          # S11 structural search
   - mafft=7.*              # S10 family alignments
   - rnacode=0.3            # S10 coding-potential evidence

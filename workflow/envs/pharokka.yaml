@@ -1,0 +1,16 @@
+# pharokka, in its own environment.
+#
+# The phage tier of the annotation cascade (spec section 18). pharokka annotates proteins
+# against the prokaryotic virus protein families as a MMseqs2 sequence database and as
+# HMMER3 profiles searched with pyhmmer - sequence-profile search, which spec section 79
+# permits - and carries a functional category for every family.
+#
+# Separate from plasmidann.yaml because pharokka pins its own gene caller, tRNA and CRISPR
+# tools and a pyhmmer version, none of which the rest of the pipeline uses, and a solver
+# conflict there would take down every stage rather than this one.
+name: pharokka
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - pharokka=1.10.1

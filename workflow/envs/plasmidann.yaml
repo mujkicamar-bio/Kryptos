@@ -27,10 +27,6 @@ dependencies:
   - tantan=51              # low-complexity masking
   # --- S6 clustering, S7 evolution -----------------------------------------------------
   - mmseqs2=18.8cc5c       # deep-homology clustering into families
-  # PHROGs ships 38,880 HH-suite HHM profiles and documents HH-suite as the way to
-  # search them. Spec section 79 excludes HMM-HMM search; the deviation is recorded
-  # in PLASMID_ANALYSIS.md and is confined to this one database.
-  - hhsuite=3.3.0
   - mafft=7.526            # protein alignment, projected onto codons for dN/dS
   - rnacode=0.3.1          # S7b coding potential, independent of the gene caller
   - eggnog-mapper=2.1.12   # S4b COG and KEGG terms for the annotated fraction

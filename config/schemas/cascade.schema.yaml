@@ -75,9 +75,7 @@ properties:
           pattern: "^T[0-9]+$"
         method:
           type: string
-          # hhsearch is the PHROGs tier: PHROGs ships HH-suite HHM profiles and
-          # documents HH-suite as the way to search them.
-          enum: [hmmer, hhsearch, diamond]
+          enum: [hmmer, diamond]
         db:
           type: string
         args:
@@ -87,14 +85,6 @@ properties:
           # thresholds, which are per-family and can be looser than any global cut.
           type: [number, "null"]
           exclusiveMinimum: 0
-        min_probability:
-          # hhsearch tiers only. HH-suite's calibrated probability that the match is a
-          # true homology, which is the statistic PHROGs' own work filters on. It governs
-          # what enters the annotated set, and the dark set is the complement of that, so
-          # it belongs in configuration where it can be audited and swept.
-          type: number
-          minimum: 0
-          maximum: 100
         note:
           type: string
       required: [id, method, db, args, max_evalue]

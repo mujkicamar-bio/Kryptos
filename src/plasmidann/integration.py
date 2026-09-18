@@ -12,7 +12,7 @@ with a sharp hypothesis resting on almost nothing - and those demand different e
 THE EIGHT DIMENSIONS (section 56.1)
 
     ORF_QC                     is it a protein at all
-    SEQUENCE_HOMOLOGY          Pfam, Swiss-Prot, nr, PHROGs
+    SEQUENCE_HOMOLOGY          Pfam, Swiss-Prot, nr, pharokka
     ORTHOLOGY                  eggNOG
     GENOMIC_CONTEXT            neighbours, defence systems, integrons, synteny
     EVOLUTIONARY_CONSERVATION  dN/dS, RNAcode
@@ -25,7 +25,7 @@ DEPENDENCE IS THE POINT OF THE DIMENSIONS (section 56.2)
 "The objective is not to manufacture 'independent evidence' but to preserve distinct
 measurements and avoid double-counting them."
 
-Pfam, Swiss-Prot, nr and PHROGs are four databases and ONE dimension. They share
+Pfam, Swiss-Prot, nr and pharokka are four databases and ONE dimension. They share
 evolutionary information: a protein found in Swiss-Prot is usually in nr, and a Pfam domain
 is built from the same alignments. Counting four hits as four lines of evidence would make
 a well-studied protein look four times better supported than an equally well-supported one
@@ -77,7 +77,7 @@ HYPOTHESES = (
 # Which databases feed which dimension. Several databases to ONE dimension is the whole
 # point (section 56.2): they are not independent, so they must not be counted separately.
 _DIMENSION_SOURCES = {
-    "SEQUENCE_HOMOLOGY": ("pfam", "swissprot", "nr", "phrogs"),
+    "SEQUENCE_HOMOLOGY": ("pfam", "swissprot", "nr", "pharokka"),
     "ORTHOLOGY": ("eggnog",),
     "STRUCTURAL_RELATIONSHIP": ("foldseek",),
 }

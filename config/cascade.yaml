@@ -120,28 +120,6 @@ tiers:
       the record.
 
   - id: T3
-    method: hhsearch
-    db: data/refs/phrogs/phrogs
-    # -Z/-B cap the report to the hits worth parsing; HH-suite's defaults write 250 hits
-    # and 100 alignments per query, which at 3.5M queries is output nobody reads.
-    args: "-Z 20 -B 0 -z 1 -b 1"
-    max_evalue: 1.0e-3
-    # PHROGs' own annotation work filters on HH-suite probability rather than on E-value:
-    # over a profile database the probability is the calibrated statistic, and an E-value
-    # alone admits matches the tool itself would not call homologous. 80 is the bar used
-    # for PHROG assignment in Terzian et al. 2021, NAR Genom Bioinform 3:lqab067.
-    min_probability: 80.0
-    note: >
-      PHROGs 4.0, 38,880 HH-suite profiles of prokaryotic virus proteins. Included because
-      plasmids and phages share mobile functions that neither Pfam nor Swiss-Prot covers
-      well, and because a large part of the plasmid dark set is phage-like. Searched with
-      HH-suite, which is what PHROGs distributes and documents; spec section 79's exclusion
-      of HMM-HMM search is deviated from for this database alone and the deviation is
-      recorded in PLASMID_ANALYSIS.md. Most PHROGs are named 'hypothetical protein', which
-      cascade.is_informative rejects exactly as it does at every other tier - a PHROG hit
-      does not make a dark protein annotated unless the PHROG itself is named.
-
-  - id: T4
     method: diamond
     db: /sw/data/diamond_databases/Blast/latest/swissprot.dmnd
     args: "--very-sensitive"
@@ -150,7 +128,7 @@ tiers:
       Swiss-Prot, 264 MB. Highest label quality available and nearly free; measured to
       clear 16.3% of Pfam's residue in seconds.
 
-  - id: T5
+  - id: T4
     method: diamond
     db: /sw/data/diamond_databases/Blast/latest/nr.dmnd
     args: "--very-sensitive"
@@ -159,19 +137,6 @@ tiers:
       NCBI nr, 350 GB. Reaches environmental sequence nothing else has. UniRef90 was
       dropped from the cascade after review measured it at 3-11 days for little beyond
       what nr already provides.
-
-# NOTE ON A FIFTH TIER (phage). The design specifies a PHROGs hmmer tier between
-# Swiss-Prot and nr, because nr labels phage genes poorly and the collection contains
-# phage-plasmids. It is omitted here only because data/refs/phrogs/ is not yet populated;
-# the preflight would fail on a missing database. To enable it, add the block below,
-# renumber nr to T5, and re-run. No code change is needed.
-#
-#   - id: T4
-#     method: hmmer
-#     db: data/refs/phrogs/phrogs.hmm
-#     args: "-E 1e-5 --domE 1e-5 --incdomE 1e-5"
-#     max_evalue: 1.0e-5
-#     note: phage and phage-plasmid genes, which nr labels poorly
 
 # --- Artefact screen (S2b) -----------------------------------------------------------
 # AntiFam is Pfam's companion database of profiles built to match sequences that are NOT

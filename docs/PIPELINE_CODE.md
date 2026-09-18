@@ -764,7 +764,6 @@ are still tested. They are opt-in: `snakemake portfolio`.
 
 | gap | consequence | fix |
 |---|---|---|
-| **PHROGs** download returned SSL errors on every mirror | no phage tier; nr labels phage genes poorly and the collection contains phage-plasmids | fetch the database, uncomment the extra tier block in `cascade.yaml`, renumber nr |
 | **ColabFold/ESMFold** not installed | no pLDDT, so `structure.min_plddt` is declared and unused | only needed to confirm shortlisted novel folds; Foldseek + ProstT5 does the screening pass without it |
 | **nr tier not benchmarked** | the walltime of T4 is unknown and it dominates the run; it is also the term that decides whether `n_cascade_shards: 64` is the right number | `workflow/bench_nr.sbatch`, needs a project allocation |
 | **no independent check on dN/dS** | Nei-Gojobori counting is the only selection estimate; the codon model that could contradict it was removed on 2026-09-14 (section 13). `purifying_selection` is one of four reality lines and the cheapest to fire | a confirmatory codon model on a chosen shortlist, outside the DAG, if one is ever wanted; the two input defects recorded in section 13 must be fixed first |

@@ -47,18 +47,14 @@ def test_the_declared_environment_provides_every_required_tool():
     machine. IntegronFinder failed exactly this way - its environment omitted prodigal and
     infernal, which it shells out to."""
     # conda package name -> the executables it provides, where they differ from the
-    # package name. A package may provide several: hhsuite ships the whole HH-suite
-    # toolchain, and the PHROGs tier invokes two of them.
+    # package name. A package may provide several.
     PROVIDES = {"hmmer": ("hmmsearch",), "mmseqs2": ("mmseqs",),
                 "infernal": ("cmsearch",),
                 "mdmparis-defense-finder": ("defense-finder",),
                 "macsyfinder": ("macsyfinder",),
                 "integron_finder": ("integron_finder",),
                 "rnacode": ("RNAcode",),
-                "eggnog-mapper": ("emapper.py",),
-                "hhsuite": ("hhblits", "hhblits_omp", "hhsearch", "hhsearch_omp",
-                            "hhmake", "cstranslate", "ffindex_build",
-                            "ffindex_from_fasta")}
+                "eggnog-mapper": ("emapper.py",)}
 
     for env_path in declared_envs():
         spec = yaml.safe_load(env_path.read_text())

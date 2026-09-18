@@ -589,7 +589,7 @@ Pfam GA
     ↓
 Pfam relaxed
     ↓
-PHROGs
+pharokka
     ↓
 Swiss-Prot
     ↓
@@ -599,8 +599,7 @@ nr / broad database
 
 The exact ordering may be adjusted after benchmarking, but every change must be documented.
 
-No HMM-HMM or InterPro stage is included in the production pipeline, with one
-explicitly revised exception: the PHROGs tier. See section 22.
+No HMM-HMM or InterPro stage is included in the production pipeline.
 
 15. Cascade Control
 
@@ -675,22 +674,31 @@ pfam_relaxed_alignment_end
 
 The relaxed threshold must be explicitly configured.
 
-18. Tier 3 — PHROGs
+18. Tier 3 — pharokka (phage protein families)
 
-PHROGs is included because phage/plasmid-associated proteins may be biologically relevant to the discovery problem.
+A phage tier is included because phage/plasmid-associated proteins may be biologically relevant to the discovery problem.
 
-Run a profile-based search against the configured PHROGs database.
+REVISED 2026-09-18. The tier is executed by pharokka in protein mode, which annotates
+against the prokaryotic virus protein families as a MMseqs2 sequence database and as
+HMMER3 profiles searched with pyhmmer, and carries a functional category for every family.
+The families' own distribution is HH-suite HHM profiles, which cannot be searched without
+the HMM-HMM tooling section 79 excludes; an MMseqs2 conversion of those profiles and an
+HH-suite build were both implemented and abandoned, and nothing of either remains in the
+pipeline. pharokka is the tool; the families are what it searches.
+
+Run pharokka in protein mode against its configured database.
 
 Required:
 
-phrog_hit
-phrog_id
-phrog_description
-phrog_score
-phrog_evalue
-phrog_query_coverage
+pharokka_hit
+pharokka_family_id
+pharokka_annotation
+pharokka_category
+pharokka_score
+pharokka_evalue
+pharokka_query_coverage
 
-PHROGs belongs to the broader sequence/domain homology evidence dimension.
+pharokka belongs to the broader sequence/domain homology evidence dimension.
 
 It is not independent evidence from Pfam merely because it uses a different database.
 
@@ -771,25 +779,6 @@ Rationale:
 computational cost at the current dataset scale;
 
 substantial overlap with existing domain/homology evidence;
-
-REVISION 2026-09-18 — HH-suite is permitted for PHROGs, and for PHROGs alone.
-
-PHROGs distributes its 38,880 families as HH-suite HHM profiles and documents HH-suite as
-the way to search them. Section 18 requires a profile-based search and lists phrog_id as a
-required field, and neither is obtainable any other way:
-
-  * hmmsearch cannot read the HHM format at all.
-  * Converting the profiles to an MMseqs2 profile database was implemented and abandoned.
-    `mmseqs convertprofiledb` takes each profile's header from its NAME line, which names
-    the SEED PROTEIN rather than the PHROG, and it does not assign database keys in ffindex
-    order - so the PHROG identifier was recoverable neither from the header nor from the
-    key. The resulting database could not produce the field section 18 requires. It was
-    also slow enough that a search of the converted profiles against 5,304 proteins did not
-    complete.
-
-The exclusion below stands for every other database. It is not a general re-admission of
-HMM-HMM search: no other stage may use it without a further revision recorded here.
-
 
 they are not required for the initial definition of the dark protein population;
 
@@ -1521,7 +1510,7 @@ The pipeline must recognize that these are not statistically independent.
 For example:
 
 Pfam
-PHROGs
+pharokka
 Swiss-Prot
 eggNOG
 nr
@@ -1874,7 +1863,7 @@ Pfam GA;
 
 Pfam relaxed;
 
-PHROGs;
+pharokka;
 
 Swiss-Prot;
 
@@ -1882,8 +1871,7 @@ eggNOG;
 
 nr/broad database.
 
-No HMM-HMM or InterPro stages are included in the production specification, with the
-single revised exception of the PHROGs tier recorded in section 22.
+No HMM-HMM or InterPro stages are included in the production specification.
 
 Agent 6 — Annotation Normalization
 
@@ -2086,7 +2074,7 @@ Before the production run, benchmark at least:
 
 Pfam GA
 Pfam relaxed
-PHROGs
+pharokka
 Swiss-Prot
 eggNOG
 nr
@@ -2311,7 +2299,7 @@ ORF QC
 ANNOTATION CASCADE
     ├── Pfam GA
     ├── Pfam relaxed
-    ├── PHROGs
+    ├── pharokka
     ├── Swiss-Prot
     ├── eggNOG
     └── nr
@@ -2394,10 +2382,9 @@ hypothetical/uncharacterized/DUF proteins are DARK when unresolved;
 
 raw annotation provenance is retained;
 
-PHROGs is included;
+pharokka is included;
 
-HMM-HMM and InterPro are absent unless the pipeline specification is formally
-revised; that revision has been made for PHROGs alone, and is recorded in section 22;
+HMM-HMM and InterPro are absent unless the pipeline specification is formally revised;
 
 MMseqs2 family membership is reproducible;
 

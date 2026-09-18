@@ -30,12 +30,7 @@ orthology = snakemake.params.get("orthology") or {}
 orthology_required = bool(orthology.get("required"))
 
 # method -> the executable that method actually invokes
-EXECUTABLE = {"hmmer": "hmmsearch", "hhsearch": "hhblits_omp", "diamond": "diamond"}
-
-# An hhsearch tier's `db` is a PREFIX, not a file: HH-suite splits a database across
-# <prefix>_hhm.ff{data,index} and <prefix>_cs219.ff{data,index}. Checking the prefix with
-# os.path.exists reports "database not found" for a database that is present and complete.
-HHSUITE_PARTS = ("_hhm.ffdata", "_hhm.ffindex", "_cs219.ffdata", "_cs219.ffindex")
+EXECUTABLE = {"hmmer": "hmmsearch", "diamond": "diamond"}
 
 problems = []
 resolved = {}
@@ -64,16 +59,6 @@ for tier in tiers:
     if db in checked_dbs:
         continue
     checked_dbs.add(db)
-    if tier["method"] == "hhsearch":
-        # The cs219 pair is the prefilter. Without it hhblits scores every query against
-        # all 38,880 profiles, which is not a failure - it is the same search, orders of
-        # magnitude slower - so its absence is reported as the missing piece it is.
-        missing = [part for part in HHSUITE_PARTS if not os.path.exists(db + part)]
-        if missing:
-            problems.append(
-                f"{tier['id']}: HH-suite database {db} is incomplete, missing "
-                f"{', '.join(missing)} - build it with tools/build_phrogs_hhsuite.sh")
-        continue
     if not os.path.exists(db):
         problems.append(f"{tier['id']}: database not found: {db}")
     elif tier["method"] == "hmmer" and not os.path.exists(db + ".h3i"):
@@ -118,9 +103,7 @@ with open(snakemake.output[0], "w") as out:
         out.write(f"{tool}\t{resolved[tool]}\n")
     out.write("\ndatabase\tsize_bytes\n")
     for db in sorted(checked_dbs | {artefact["antifam_db"]}):
-        # An HH-suite database is a prefix; its size is the profiles it holds.
-        path = db if os.path.exists(db) else db + "_hhm.ffdata"
-        out.write(f"{db}\t{os.path.getsize(path) if os.path.exists(path) else 0}\n")
+        out.write(f"{db}\t{os.path.getsize(db)}\n")
     out.write(f"\nstructure_required\t{structure_required}\n")
 
 print(f"pre-flight OK: {len(resolved)} tool(s), {len(checked_dbs) + 1} database(s)")
