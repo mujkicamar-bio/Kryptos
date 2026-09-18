@@ -133,6 +133,34 @@ rule protein_families:
         "../scripts/protein_families.py"
 
 
+rule rarity:
+    """Stage 14: rarity labels per family, and the dark-family rarefaction curve.
+
+    The curve answers whether the collection has saturated - whether more plasmids would
+    keep revealing new dark families - which is what says if the dark count is a lower
+    bound (spec section 55).
+    """
+    input:
+        recurrence=f"{OUT}/s7/recurrence.tsv",
+        dark_families=f"{OUT}/s6/dark_families.tsv",
+        map=f"{OUT}/s2/protein_map.tsv",
+    output:
+        rarity=f"{OUT}/s14/family_rarity.tsv",
+        rarefaction=f"{OUT}/final/dark_family_rarefaction.tsv",
+    params:
+        rarity=targets["rarity"],
+        seed=config["seed"],
+    resources:
+        mem_mb=16000,
+        runtime=240,
+    log:
+        f"{OUT}/logs/s14/rarity.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/rarity.py"
+
+
 rule synteny:
     """Stage 9: does a dark family's gene order RECUR across its occurrences?
 

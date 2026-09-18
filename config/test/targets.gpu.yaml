@@ -4,9 +4,30 @@ quality_gate:
   control_fasta: data/refs/control/positive_control.faa
   min_controls: 100
   require_control_set: true
+rarity:
+  rare_max_lineages: 3
+  widely_conserved_min_lineages: 50
+  cross_min_mob: 3
+  cross_min_hosts: 5
+  cross_min_genera: 3
+  rarefaction_replicates: 20
+lineage:
+  max_distance: 0.05
+  max_pvalue: 1.0e-10
+  kmer: 21
+  sketch_size: 1000
 clustering:
-  min_seq_id: 0.3
-  coverage: 0.5
+  resolutions:
+    close:
+      min_seq_id: 0.9
+      coverage: 0.8
+    intermediate:
+      min_seq_id: 0.5
+      coverage: 0.8
+    broad:
+      min_seq_id: 0.3
+      coverage: 0.5
+  primary: broad
   cov_mode: 0
   cluster_mode: 0
 evolution:
@@ -28,6 +49,7 @@ context:
   max_q_value: 0.05
   min_enrichment: 2.0
 structure:
+  scope: representatives
   gpu: true
   max_evalue: 0.001
   required: true

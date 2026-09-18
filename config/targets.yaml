@@ -12,6 +12,29 @@ quality_gate:
   control_fasta: data/refs/control/positive_control.faa
   min_controls: 100
   require_control_set: true
+# --- Stage 14: rarity, conservation and rarefaction (spec sections 54-55) -------------
+#
+# Rarity and conservation are SEPARATE descriptors (section 54). The labels are not a
+# ranking - RARE is not better than WIDELY_CONSERVED - and section 54 requires the
+# thresholds to be explicit, so they are here and travel on every labelled row.
+#
+# Every breadth threshold is counted in INDEPENDENT LINEAGES from Stage 7, never in plasmid
+# records: a family on four hundred redepositions of one plasmid is one observation, and
+# section 34.2 forbids treating record counts as independent observations.
+rarity:
+  # At or below this many independent lineages a family is RARE. 3 is the smallest count
+  # that can distinguish a repeated observation from a single one; it is a descriptive
+  # boundary and nothing selects on it.
+  rare_max_lineages: 3
+  # At or above this many, WIDELY_CONSERVED.
+  widely_conserved_min_lineages: 50
+  cross_min_mob: 3
+  cross_min_hosts: 5
+  cross_min_genera: 3
+  # Random orderings averaged for the rarefaction curve. A single ordering is one arbitrary
+  # curve and the shape is the entire output, so it must not be an artefact of one shuffle.
+  rarefaction_replicates: 20
+
 # --- Stage 6: plasmid lineage / independence (spec section 33) ------------------------
 #
 # MOB classification and plasmid sequence similarity are separate concepts (section 33).

@@ -95,6 +95,8 @@ rule all:
         f"{OUT}/s6/plasmid_lineage.tsv",            # Stage 6: independent lineages
         f"{OUT}/s7/recurrence.tsv",                 # Stage 7: distribution counts
         f"{OUT}/s9/synteny.tsv",                    # Stage 9: context conservation
+        f"{OUT}/s14/family_rarity.tsv",             # Stage 14: rarity labels
+        f"{OUT}/final/dark_family_rarefaction.tsv", # Stage 14: saturation curve
         f"{OUT}/s4/plasmid_annotation.gff3",        # S4 feature files
         f"{OUT}/s4/plasmid_annotation.gbk",
         f"{OUT}/s5/quality_gate.txt",               # S5 the run-halting control

@@ -165,6 +165,34 @@ properties:
       sketch_size:
         type: integer
         minimum: 1
+  rarity:
+    type: object
+    required:
+    - rare_max_lineages
+    - widely_conserved_min_lineages
+    - cross_min_mob
+    - cross_min_hosts
+    - cross_min_genera
+    - rarefaction_replicates
+    properties:
+      rare_max_lineages:
+        type: integer
+        minimum: 1
+      widely_conserved_min_lineages:
+        type: integer
+        minimum: 1
+      cross_min_mob:
+        type: integer
+        minimum: 1
+      cross_min_hosts:
+        type: integer
+        minimum: 1
+      cross_min_genera:
+        type: integer
+        minimum: 1
+      rarefaction_replicates:
+        type: integer
+        minimum: 1
 required:
 - quality_gate
 - clustering
