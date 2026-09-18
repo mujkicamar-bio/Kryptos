@@ -14,8 +14,8 @@ import _ctx  # noqa: F401  - puts src/ on sys.path for the plasmidann package
 import csv
 import pathlib
 import subprocess
-import tempfile
 
+from plasmidann import scratch
 from plasmidann.cascade import (explained_fraction, narrow_by_explained,
                                 is_informative, passes_significance)
 
@@ -115,7 +115,10 @@ def _as_float(v):
 
 
 if ids:
-    tmp = tempfile.mkdtemp(dir=pathlib.Path(snakemake.output.hits).parent)
+    # Anonymous: tier_search runs concurrently across cascade shards in the same
+    # output directory, and a shared scratch path would let two shards overwrite
+    # each other's intermediates.
+    tmp = scratch.scratch_dir(pathlib.Path(snakemake.output.hits).parent)
 
     if spec["method"] == "hmmer":
         raw = f"{tmp}/dom.tbl"
@@ -246,3 +249,9 @@ print(f"[{spec['id']}] queried={len(ids)} informative={len(best)} "
       f"informative_hits={sum(len(v) for v in named.values())} unnamed={len(unnamed)} "
       f"rejected_insignificant={n_rejected} carried_forward={len(keep)} "
       f"(sweep_cohort={len(sweep_ids & id_set)})")
+
+# The scratch directory is removed only here, on the ordinary path. A script that raised
+# never reaches this line, and its intermediates - the raw domtbl or m8 the tool wrote -
+# are what a tier failure is diagnosed from. Guarded: an empty tier created no directory.
+if ids:
+    scratch.release(tmp)

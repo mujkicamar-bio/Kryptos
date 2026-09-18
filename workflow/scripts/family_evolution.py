@@ -37,8 +37,8 @@ import csv
 import pathlib
 import statistics
 import subprocess
-import tempfile
 
+from plasmidann import scratch
 from plasmidann.evolution import dnds_detail, back_translate, consensus
 
 cfg = snakemake.params.evolution
@@ -64,7 +64,7 @@ with open(snakemake.input.families, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
         families.append(r)
 
-tmpdir = tempfile.mkdtemp(dir=pathlib.Path(snakemake.output[0]).parent)
+tmpdir = str(scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent))
 # The consensus carries the family's shared signal and is re-searched at S7c.
 consensus_out = open(snakemake.output.consensus, "w")
 cols = ["family_id", "n_aligned", "dnds_median", "dnds_min", "n_pairs",
@@ -245,3 +245,8 @@ consensus_out.close()
 
 print(f"families={len(families)} with_dnds={n_tested} purifying={n_purifying} "
       f"coding_signal={n_coding}")
+
+# The scratch directory is removed only here, on the ordinary path. A script that raised
+# never reaches this line, and its intermediates are what the failure is diagnosed from.
+scratch.release(tmpdir)
+

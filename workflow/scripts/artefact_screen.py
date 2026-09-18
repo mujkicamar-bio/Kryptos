@@ -44,15 +44,15 @@ import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
-import tempfile
 
+from plasmidann import scratch
 from plasmidann.cascade import passes_significance
 
 cfg = snakemake.params.artefact
 faa = snakemake.input.faa
 
 seq_ids = [l[1:].split()[0] for l in open(faa) if l[0] == ">"]
-tmp = tempfile.mkdtemp(dir=pathlib.Path(snakemake.output[0]).parent)
+tmp = scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent)
 
 # ------------------------------------------------------------------------------------
 # AntiFam
@@ -142,3 +142,8 @@ with open(snakemake.output[0], "w", newline="") as out:
 
 print(f"screened={len(seq_ids)} antifam_hits={len(antifam_hits)} "
       f"flagged={n_flagged} ({100 * n_flagged / max(len(seq_ids), 1):.3f}%)")
+
+# The scratch directory is removed only here, on the ordinary path. A script that raised
+# never reaches this line, and its intermediates are what the failure is diagnosed from.
+scratch.release(tmp)
+

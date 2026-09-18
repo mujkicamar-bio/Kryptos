@@ -26,14 +26,15 @@ import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
-import tempfile
+
+from plasmidann import scratch
 
 db = snakemake.params.db
 ids = [l[1:].split()[0] for l in open(snakemake.input.consensus) if l[0] == ">"]
 
 hits = {}
 if ids:
-    tmp = tempfile.mkdtemp(dir=pathlib.Path(snakemake.output[0]).parent)
+    tmp = scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent)
     dom = f"{tmp}/consensus.domtbl"
     # -Z pinned to the same reference as the cascade, so an E-value reported here means the
     # same thing as one reported there even though this input is a few tens of thousands of
@@ -66,3 +67,10 @@ with open(snakemake.output[0], "w", newline="") as out:
 
 print(f"consensus re-check: {len(ids)} families, {len(hits)} recognised collectively "
       f"({100 * len(hits) / max(len(ids), 1):.1f}%) - labelled, not removed")
+
+# The scratch directory is removed only here, on the ordinary path. A script that raised
+# never reaches this line, and its intermediates are what the failure is diagnosed from.
+# Guarded, because with no families to re-check no directory was created.
+if ids:
+    scratch.release(tmp)
+

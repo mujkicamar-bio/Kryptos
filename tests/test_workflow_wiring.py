@@ -185,3 +185,26 @@ def test_no_rule_reads_the_whole_corpus_fasta():
     assert not offenders, (
         "these rules read the whole corpus rather than the shards they were given, so "
         "their output covers plasmids outside the analysis scope: " + "; ".join(offenders))
+
+
+def test_every_script_that_takes_a_scratch_directory_releases_it():
+    """Six scripts created a working directory beside their output and none removed it.
+
+    On the 100-plasmid test set that left seven directories behind. At production scale
+    the same directories hold the intermediate databases of a 3.5M-protein clustering and
+    a foldseek run, so the leak is hundreds of gigabytes - and it accumulates across
+    reruns, because each attempt makes its own.
+
+    mkdtemp is banned outright rather than merely paired with a cleanup: plasmidann.scratch
+    also clears the stale directory a previous FAILURE deliberately left behind, which a
+    bare mkdtemp does not, and mmseqs refuses to start against a mismatched tmp directory.
+    """
+    offenders = []
+    for path in sorted((WORKFLOW / "scripts").glob("*.py")):
+        text = path.read_text()
+        if "tempfile.mkdtemp" in text:
+            offenders.append(f"{path.name} calls tempfile.mkdtemp directly")
+            continue
+        if "scratch.scratch_dir" in text and "scratch.release" not in text:
+            offenders.append(f"{path.name} takes a scratch directory and never releases it")
+    assert not offenders, "; ".join(offenders)

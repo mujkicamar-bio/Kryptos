@@ -56,6 +56,8 @@ import csv
 import pathlib
 import subprocess
 
+from plasmidann import scratch
+
 from darkorf import ids, status
 
 cfg = snakemake.params.clustering
@@ -140,7 +142,7 @@ with open(snakemake.output.families, "w", newline="") as out:
     writer.writeheader()
 
     for resolution, thresholds in sorted(cfg["resolutions"].items()):
-        tmp = out_dir / f"mmseqs_tmp_{resolution}"
+        tmp = scratch.scratch_dir(out_dir, f"mmseqs_tmp_{resolution}")
         prefix = str(out_dir / f"families_{resolution}")
 
         subprocess.run(
@@ -234,6 +236,10 @@ with open(snakemake.output.families, "w", newline="") as out:
                 })
 
         summary.append((resolution, len(members), n_orphan, n_dark_only))
+        # Released per resolution rather than at the end: three resolutions of a
+        # 3.5M-protein clustering hold their intermediate databases at once otherwise.
+        # A failure leaves the directory that failed, named after its resolution.
+        scratch.release(tmp)
 
 DARK_COLS = ["family_id", "representative", "n_members", "n_orfs", "n_plasmids",
              "n_mob_clusters", "family_class", "dark_member_count",

@@ -49,9 +49,11 @@ import pathlib
 import subprocess
 import sys
 
+from plasmidann import scratch
+
 cfg = snakemake.params.structure
 target_db = snakemake.params.target_db
-tmp = pathlib.Path(snakemake.output[0]).parent / "foldseek_tmp"
+tmp = scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent, "foldseek_tmp")
 
 # ---- the query set: one sequence per dark family, or every dark protein ----------------
 scope = cfg.get("scope", "representatives")
@@ -142,3 +144,8 @@ with open(snakemake.output[0], "w", newline="") as out:
     w.writerows(rows)
 
 print(f"structural matches={len(rows)}")
+
+# The scratch directory is removed only here, on the ordinary path. A script that raised
+# never reaches this line, and its intermediates are what the failure is diagnosed from.
+scratch.release(tmp)
+
