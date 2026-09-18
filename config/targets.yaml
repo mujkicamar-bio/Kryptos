@@ -100,6 +100,27 @@ orthology:
   required: false
 defence:
   required: false
+# Stage 13 (spec sections 52-53). The reference population every context enrichment is
+# measured against.
+#
+# A flat corpus background divides by one number for the whole collection. On a 5 kb
+# cryptic plasmid a +-3 neighbourhood IS the entire molecule, so everything co-occurs with
+# everything: a flat background under-corrects for small plasmids and over-corrects for
+# large ones, and small cryptic plasmids are a stratum of interest in this project.
+# Stratifying asks "is this association unusual FOR A PLASMID LIKE THIS", which is the
+# question being put.
+background:
+  # Section 52 names the covariates that matter. Each one added makes every stratum
+  # smaller, so this is a trade between matching and estimability, not a list to maximise.
+  # plasmid_length and gene_count are banded logarithmically - plasmid size spans four
+  # orders of magnitude and a linear band would pool everything above 100 kb.
+  covariates: [plasmid_length, gene_count]
+  # Below this many plasmids a stratum is too thin to estimate a rate from, and the
+  # comparison falls back to the pooled background WITH the fallback recorded on the row
+  # rather than applied silently. 20 gives a background rate a resolution of 5%, which is
+  # the coarsest that can still distinguish a common association from a rare one.
+  min_stratum_size: 20
+
 context:
   max_operon_gap: 100
   neighbourhood_window: 3

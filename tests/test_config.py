@@ -32,3 +32,29 @@ def test_cascade_thresholds_match_the_spec():
     assert config["cascade"]["narrow_at"] == 0.9
     assert config["cascade"]["min_explained"] == 0.5
     assert config["cascade"]["narrow_at"] >= config["cascade"]["min_explained"]
+
+
+def test_the_background_stratification_is_configured():
+    """Spec section 53: context enrichment is compared against an appropriate background,
+    and a stratified one is what this collection needs.
+
+    A flat corpus background divides by one number for the whole collection. On a 5 kb
+    cryptic plasmid a plus or minus three neighbourhood is the entire molecule, so a flat
+    background under-corrects for small plasmids and over-corrects for large ones - and
+    small cryptic plasmids are a stratum of interest here, which puts the error exactly
+    where it does most damage.
+
+    Which covariates to stratify on is a run-time choice, not a constant: each added
+    covariate makes every stratum smaller, and below min_stratum_size the background is
+    too thin to estimate anything from.
+    """
+    targets = yaml.safe_load((ROOT / "config" / "targets.yaml").read_text())
+    schema = yaml.safe_load(
+        (ROOT / "config" / "schemas" / "targets.schema.yaml").read_text())
+    jsonschema.validate(targets, schema)
+
+    background = targets["background"]
+    assert background["covariates"], (
+        "an empty covariate list is a pooled background wearing a stratified label")
+    assert background["min_stratum_size"] >= 2, (
+        "a stratum of one plasmid is that plasmid; it cannot be its own background")

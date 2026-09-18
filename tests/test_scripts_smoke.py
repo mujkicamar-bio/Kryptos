@@ -502,23 +502,30 @@ def _context_fixture(fixture_dir, partner_label, partner_kind="pfam_family"):
                            "database_version"],
               [["S2", "pfam", "T1", partner_kind, partner_label, "PF00000.1", "1e-40",
                 "0.9", "Pfam-A", "38.2"]])
-    return ann, fam, pmap, defence, integrons, labels_tsv
+    master = fixture_dir / "context_master.tsv"
+    write_tsv(master, ["plasmid_id", "size_bp"], [["pl1", 5000]])
+    return ann, fam, pmap, defence, integrons, labels_tsv, master
+
+
+BACKGROUND_PARAMS = {"covariates": ["plasmid_length", "gene_count"],
+                     "min_stratum_size": 20}
 
 
 def _run_context(fixture_dir, partner_label, categories=None):
-    ann, fam, pmap, defence, integrons, labels_tsv = _context_fixture(
+    ann, fam, pmap, defence, integrons, labels_tsv, master = _context_fixture(
         fixture_dir, partner_label)
     fams_out = fixture_dir / "family_context.tsv"
     bg_out = fixture_dir / "context_background.tsv"
     run_script("context_features.py", FakeSnakemake(
         input={"annotation": str(ann), "families": str(fam), "map": str(pmap),
                "defence": str(defence), "integrons": [str(integrons)],
-               "labels": str(labels_tsv)},
+               "labels": str(labels_tsv), "master": str(master)},
         output={"families": str(fams_out), "background": str(bg_out)},
         params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3,
                             "min_context_conservation": 0.50,
                             "high_confidence_conservation": 0.90,
                             "min_enrichment": 2.0},
+                "background": BACKGROUND_PARAMS,
                 "categories": categories}))
     return read_tsv(fams_out)
 
@@ -539,6 +546,137 @@ def test_context_records_the_label_the_tool_produced(fixture_dir):
     # The column exists even with no rules configured, so a later grouping can fill it
     # without changing the table's shape.
     assert "subcategories" in row
+
+
+def _stratified_fixture(fixture_dir, n_small, n_large):
+    """A collection of two size bands, each plasmid carrying a dark ORF beside a relaxase.
+
+    The dark family lives only on the SMALL plasmids. Every plasmid in the collection has
+    the association, so the corpus-wide rate is 1.0 and nothing can look enriched against
+    it; the question is which population the family is compared against.
+    """
+    ann_rows, pmap_lines, master_rows, members = [], [], [], []
+    for i in range(n_small + n_large):
+        pid = f"p{i:03d}"
+        small = i < n_small
+        # A gene-dense large plasmid and a two-gene cryptic one land in different strata
+        # on both configured covariates.
+        ann_rows.append([pid, f"{pid}|1", 100, 400, "+", "", "NONE"])
+        ann_rows.append([pid, f"{pid}|2", 430, 700, "+", "MobA_MobL", "FUNCTIONAL"])
+        pmap_lines.append(f"D{i}\t{pid}|1")
+        pmap_lines.append(f"M{i}\t{pid}|2")
+        master_rows.append([pid, 4000 if small else 150000])
+        if not small:
+            for j in range(3, 13):
+                ann_rows.append([pid, f"{pid}|{j}", 1000 * j, 1000 * j + 300, "+",
+                                 "Filler", "FUNCTIONAL"])
+                pmap_lines.append(f"X{i}_{j}\t{pid}|{j}")
+        else:
+            members.append(f"D{i}")
+
+    ann = fixture_dir / "strat_annotation.tsv"
+    write_tsv(ann, ["plasmid_id", "orf_id", "start", "end", "strand", "annot_label",
+                    "functional_class"], ann_rows)
+    fam = fixture_dir / "strat_families.tsv"
+    write_tsv(fam, ["family_id", "representative", "n_members", "n_plasmids",
+                    "n_mob_clusters", "family_class", "members"],
+              [["F1", members[0], len(members), len(members), 1, "ORPHAN",
+                ",".join(members)]])
+    pmap = fixture_dir / "strat_map.tsv"
+    pmap.write_text("\n".join(pmap_lines) + "\n")
+    defence = fixture_dir / "strat_defence.tsv"
+    write_tsv(defence, ["orf_id", "system"], [])
+    integrons = fixture_dir / "strat_integrons.tsv"
+    write_tsv(integrons, ["plasmid_id", "integron_id", "element", "start", "end",
+                          "integron_type", "annotation", "type_elt"], [])
+    labels_tsv = fixture_dir / "strat_labels.tsv"
+    write_tsv(labels_tsv, ["protein_id", "source", "tier", "kind", "label", "accession",
+                           "evidence_evalue", "evidence_coverage", "database",
+                           "database_version"],
+              [[f"M{i}", "pfam", "T1", "pfam_family", "MobA_MobL", "PF00000.1", "1e-40",
+                "0.9", "Pfam-A", "38.2"] for i in range(n_small + n_large)])
+    master = fixture_dir / "strat_master.tsv"
+    write_tsv(master, ["plasmid_id", "size_bp"], master_rows)
+    return ann, fam, pmap, defence, integrons, labels_tsv, master
+
+
+def _run_stratified(fixture_dir, n_small, n_large, min_stratum_size):
+    ann, fam, pmap, defence, integrons, labels_tsv, master = _stratified_fixture(
+        fixture_dir, n_small, n_large)
+    fams_out = fixture_dir / "strat_context.tsv"
+    bg_out = fixture_dir / "strat_background.tsv"
+    run_script("context_features.py", FakeSnakemake(
+        input={"annotation": str(ann), "families": str(fam), "map": str(pmap),
+               "defence": str(defence), "integrons": [str(integrons)],
+               "labels": str(labels_tsv), "master": str(master)},
+        output={"families": str(fams_out), "background": str(bg_out)},
+        params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3,
+                            "min_context_conservation": 0.50,
+                            "high_confidence_conservation": 0.90,
+                            "min_enrichment": 2.0},
+                "background": {"covariates": ["plasmid_length", "gene_count"],
+                               "min_stratum_size": min_stratum_size},
+                "categories": None}))
+    return read_tsv(fams_out), read_tsv(bg_out)
+
+
+def test_the_context_background_is_stratified_not_pooled(fixture_dir):
+    """Spec section 53. A family on small cryptic plasmids is compared against small
+    cryptic plasmids, not against the whole collection.
+
+    A flat background divides by one rate for everything, which under-corrects for small
+    plasmids - where a +-3 window is the entire molecule - and over-corrects for large
+    ones. Small cryptic plasmids are a stratum of interest in this project, so the flat
+    background's error lands where it does most damage.
+    """
+    rows, _ = _run_stratified(fixture_dir, n_small=30, n_large=30, min_stratum_size=20)
+    row = [r for r in rows if r["category"] == "pfam_family:MobA_MobL"][0]
+
+    assert row["normalization_method"] == "stratified_prevalence_ratio", (
+        f"the comparison was not stratified: {row['normalization_method']}")
+    assert row["background_total"] == "30", (
+        "the background should be the 30 small plasmids the family lives on, not the 60 "
+        f"in the collection; got {row['background_total']}")
+    assert "stratified on plasmid_length+gene_count" in row["background_definition"], (
+        f"the background is not described on the row: {row['background_definition']!r}")
+
+
+def test_a_thin_stratum_falls_back_to_the_pooled_background_and_says_so(fixture_dir):
+    """Spec section 52.2: a normalised value is not valid without its definition.
+
+    Adding covariates makes every stratum smaller, and at some point a stratum holds too
+    few plasmids to estimate a rate from. Falling back silently would leave two rows in
+    the same column measured against different populations with nothing to tell them
+    apart, so the fallback is recorded on the row that used it.
+    """
+    rows, _ = _run_stratified(fixture_dir, n_small=5, n_large=30, min_stratum_size=20)
+    row = [r for r in rows if r["category"] == "pfam_family:MobA_MobL"][0]
+
+    assert row["normalization_method"] == "pooled_prevalence_ratio", (
+        "a 5-plasmid stratum is below min_stratum_size and must not be used as a "
+        f"background; got {row['normalization_method']}")
+    assert row["background_total"] == "35", (
+        f"the pooled fallback should cover the whole collection; got "
+        f"{row['background_total']}")
+    assert "below min_stratum_size" in row["background_definition"], (
+        f"the fallback is not recorded on the row: {row['background_definition']!r}")
+
+
+def test_every_normalised_context_row_carries_its_normalisation_definition(fixture_dir):
+    """Spec section 52.2, stated as an absolute: 'No normalized prevalence field is valid
+    without its normalization definition.' The raw counts stay beside it (section 52.1),
+    because a normalised value alone is a number whose meaning depends entirely on a
+    choice the reader cannot see."""
+    rows, _ = _run_stratified(fixture_dir, n_small=30, n_large=30, min_stratum_size=20)
+
+    required = ["raw_count", "raw_prevalence", "background_count", "background_total",
+                "background_prevalence", "normalization_method", "normalization_version",
+                "background_definition"]
+    for row in rows:
+        missing = [c for c in required if not str(row.get(c, "")).strip()]
+        assert not missing, (
+            f"{row['family_id']}/{row['category']} is missing {missing} - a normalised "
+            "value without its definition is not a result")
 
 
 def test_context_writes_no_hand_assigned_category(fixture_dir):

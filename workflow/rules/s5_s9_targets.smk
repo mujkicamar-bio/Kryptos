@@ -414,7 +414,8 @@ rule structure_search:
 
 
 rule context_features:
-    """S8c: genomic context per ORF, aggregated to families against a background."""
+    """S8c: genomic context per ORF, aggregated to families against a STRATIFIED
+    background (spec sections 52-53)."""
     input:
         annotation=f"{OUT}/s4/plasmid_annotation.tsv",
         families=f"{OUT}/s6/dark_families.tsv",
@@ -422,11 +423,16 @@ rule context_features:
         defence=f"{OUT}/s8/defence_systems.tsv",
         integrons=expand(f"{OUT}/s8/integrons/{{shard}}.tsv", shard=SHARDS),
         labels=f"{OUT}/s4c/protein_labels.tsv",
+        master=config["input"]["master_table"],
     output:
         families=f"{OUT}/s8/family_context.tsv",
         background=f"{OUT}/s8/context_background.tsv",
     params:
         context=targets["context"],
+        # Stage 13: the reference population. A flat corpus background under-corrects for
+        # small plasmids, where a +-3 window is the whole molecule, and over-corrects for
+        # large ones - so it is weakest exactly where the artefact is strongest.
+        background=targets["background"],
         # null means no grouping: every (kind, label) is its own category. The biological
         # grouping is derived from results/s4c/protein_labels.tsv after a full annotation
         # run and enabled by pointing this at config/label_categories.yaml.

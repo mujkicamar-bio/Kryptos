@@ -36,8 +36,25 @@ On a 5 kb cryptic plasmid carrying six genes, a plus or minus three neighbourhoo
 entire plasmid. Everything co-occurs with everything, and a raw co-occurrence frequency
 would rank the smallest plasmids as the most informative when they are the least - which
 would be catastrophic here, because small cryptic plasmids are a stratum of interest. So
-every association is reported as enrichment over a corpus-wide background, and now also
-with a Fisher exact p-value and a Benjamini-Hochberg q-value.
+every association is reported as enrichment over a background, with a Fisher exact
+p-value and a Benjamini-Hochberg q-value.
+
+THE BACKGROUND IS STRATIFIED (spec sections 52-53)
+
+It used to be the whole corpus: one rate for the entire collection. That does not avoid
+the trap above, it only moves it. A flat background under-corrects for small plasmids,
+where the window is the molecule, and over-corrects for large ones - so the correction is
+weakest exactly where the artefact is strongest.
+
+A family is now compared against the plasmids in ITS OWN STRATA, banded on the covariates
+configured in targets.yaml. The question becomes "is this association unusual for a
+plasmid like this", which is the question being asked.
+
+A stratum below background.min_stratum_size is too thin to estimate a rate from, and the
+comparison falls back to the pooled collection. Section 52.2 makes that fallback something
+that has to be visible: "No normalized prevalence field is valid without its normalization
+definition." So every row carries normalization_method, normalization_version and a
+background_definition naming the stratum and its size, with the raw counts beside them.
 
 THE UNIT IS THE PLASMID
 
@@ -49,10 +66,13 @@ import _ctx  # noqa: F401
 import collections
 import csv
 
-from plasmidann import categories, enrich
+from plasmidann import background, categories, enrich
 from plasmidann.context import directons, neighbourhood, overlapping_islands
 
 cfg = snakemake.params.context
+bg_cfg = snakemake.params.background
+COVARIATES = list(bg_cfg["covariates"])
+MIN_STRATUM = int(bg_cfg["min_stratum_size"])
 cmap = categories.CategoryMap(categories.load_rules(snakemake.params.get("categories")))
 
 # ------------------------------------------------------------------------------------
@@ -182,28 +202,90 @@ for pid, genes in by_plasmid.items():
         context_of[oid] = ctx
 
 # ------------------------------------------------------------------------------------
-# Background, per PLASMID. A plasmid counts for a category if any of its ORFs has that
-# category in context. Counting ORFs instead would let one gene-dense plasmid dominate.
+# Which stratum each plasmid belongs to (Stage 13, spec section 52).
+#
+# size_bp comes from the master table because it is the record's own length; gene_count is
+# counted from THIS run's annotation, because that is the number the neighbourhood window
+# was applied to. Taking gene count from metadata instead would band a plasmid by a figure
+# the run never used.
+# ------------------------------------------------------------------------------------
+size_of = {}
+with open(snakemake.input.master, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        size_of[r["plasmid_id"]] = r.get("size_bp")
+
+stratum_of = {}
+for pid, genes in by_plasmid.items():
+    stratum_of[pid] = background.stratum_key(
+        {"size_bp": size_of.get(pid), "n_genes": len(genes)}, COVARIATES)
+
+# ------------------------------------------------------------------------------------
+# Background counts, per PLASMID, both pooled and per stratum. A plasmid counts for a
+# category if any of its ORFs has that category in context. Counting ORFs instead would
+# let one gene-dense plasmid dominate.
 # ------------------------------------------------------------------------------------
 plasmids_with = collections.Counter()
+stratum_with = collections.defaultdict(collections.Counter)
+stratum_size = collections.Counter()
+
 for pid, genes in by_plasmid.items():
     present = set()
     for g in genes:
         present |= context_of.get(g["orf_id"], set())
+    stratum = stratum_of[pid]
+    stratum_size[stratum] += 1
     # Counted on the CATEGORY alone. Counting (category, subcategory) pairs would make the
     # background depend on how finely the categories happen to be subdivided, so adding a
     # subcategory would silently change every enrichment value in the table.
     for category in {c for c, _ in present}:
         plasmids_with[category] += 1
+        stratum_with[stratum][category] += 1
 
 n_plasmids = len(by_plasmid)
 
+
+def background_for(strata, category):
+    """(count, total, method, definition) for one category against one family's strata.
+
+    A family may span several strata - it is a family precisely because it recurs - so the
+    reference population is the union of the strata its plasmids occupy. That keeps the
+    family's own plasmids inside its background, which is what makes K >= k hold and what
+    enrich.fisher_enrichment requires.
+
+    Below MIN_STRATUM plasmids the stratum cannot support a rate, and the comparison falls
+    back to the pooled collection. The fallback is returned, never applied quietly.
+    """
+    total = sum(stratum_size[st] for st in strata)
+    if total < MIN_STRATUM:
+        return (plasmids_with.get(category, 0), n_plasmids, background.METHOD_POOLED,
+                background.describe_background(
+                    COVARIATES, sorted(strata)[0] if strata else (), n_plasmids, True))
+    count = sum(stratum_with[st].get(category, 0) for st in strata)
+    # One stratum is named in full; several are summarised, because a family spanning
+    # forty strata would otherwise write forty band labels into every row.
+    if len(strata) == 1:
+        described = background.describe_background(
+            COVARIATES, next(iter(strata)), total, False)
+    else:
+        described = (f"stratified on {'+'.join(COVARIATES)}; union of {len(strata)} "
+                     f"strata the family occupies; {total} plasmids")
+    return count, total, background.METHOD_STRATIFIED, described
+
+
 with open(snakemake.output.background, "w", newline="") as out:
     w = csv.writer(out, delimiter="\t")
-    w.writerow(["category", "n_units_with_category", "n_units", "background_rate"])
+    w.writerow(["stratum", "covariates", "category", "n_units_with_category", "n_units",
+                "background_rate", "usable"])
+    # The pooled row stays, labelled as pooled. It is the fallback population, so a reader
+    # checking a row that fell back needs to find it in this file.
     for category, count in sorted(plasmids_with.items()):
-        w.writerow([category, count, n_plasmids,
-                    round(count / n_plasmids, 6) if n_plasmids else 0.0])
+        w.writerow(["POOLED", "+".join(COVARIATES), category, count, n_plasmids,
+                    round(count / n_plasmids, 6) if n_plasmids else 0.0, 1])
+    for stratum in sorted(stratum_size):
+        size = stratum_size[stratum]
+        for category, count in sorted(stratum_with[stratum].items()):
+            w.writerow(["/".join(stratum), "+".join(COVARIATES), category, count, size,
+                        round(count / size, 6), int(size >= MIN_STRATUM)])
 
 # ------------------------------------------------------------------------------------
 # Per family: one row per category present in any member's context, tested against the
@@ -211,7 +293,12 @@ with open(snakemake.output.background, "w", newline="") as out:
 # ------------------------------------------------------------------------------------
 cols = ["family_id", "category", "subcategories", "n_units", "n_units_with_category",
         "observed_rate", "background_rate", "enrichment", "odds_ratio", "p_value",
-        "q_value", "status"]
+        "q_value", "status",
+        # Stage 13 provenance. Section 52.1 keeps the raw counts; section 52.2 makes the
+        # three definition fields mandatory beside any normalised value.
+        "raw_count", "raw_prevalence", "background_count", "background_total",
+        "background_prevalence", "normalized_prevalence", "normalization_method",
+        "normalization_version", "background_definition"]
 
 n_rows = n_families = 0
 with open(snakemake.output.families, "w", newline="") as out:
@@ -242,20 +329,25 @@ with open(snakemake.output.families, "w", newline="") as out:
                 for category in {c for c, _ in present}:
                     counts[category] += 1
 
+            # The strata this family occupies. Its background is the union of them; see
+            # background_for.
+            strata = {stratum_of[pid] for pid in per_plasmid if pid in stratum_of}
+
             tested = []
             for category, k in sorted(counts.items()):
+                K, N, method, definition = background_for(strata, category)
                 tested.append((category, k, enrich.fisher_enrichment(
-                    k=k, n=n_units,
-                    K=plasmids_with.get(category, 0), N=n_plasmids)))
+                    k=k, n=n_units, K=K, N=N),
+                    background.normalise(k, n_units, K, N, method, definition)))
 
             # Corrected across the categories tested for THIS family. A family tested
             # against four hundred categories and one tested against three are not
             # comparable without it, and the open vocabulary makes that the normal case.
-            q_values = enrich.benjamini_hochberg([r["p_value"] for _, _, r in tested])
+            q_values = enrich.benjamini_hochberg([r["p_value"] for _, _, r, _ in tested])
 
-            for (category, k, result), q in zip(tested, q_values):
+            for (category, k, result, norm), q in zip(tested, q_values):
                 n_rows += 1
-                w.writerow({
+                row = {
                     "family_id": fam["family_id"], "category": category,
                     "subcategories": ",".join(sorted(subcategories.get(category, ()))),
                     "n_units": n_units, "n_units_with_category": k,
@@ -264,9 +356,17 @@ with open(snakemake.output.families, "w", newline="") as out:
                     "enrichment": result["enrichment"],
                     "odds_ratio": result["odds_ratio"],
                     "p_value": result["p_value"], "q_value": q,
-                    "status": result["status"]})
+                    "status": result["status"]}
+                row.update(norm)
+                w.writerow(row)
 
 grouping = "per label (no category rules configured)" if cmap.is_identity else "per category"
+usable = sum(1 for st in stratum_size if stratum_size[st] >= MIN_STRATUM)
 print(f"context: {n_label_rows} label rows, {len(plasmids_with)} categories over "
       f"{n_plasmids} plasmids, {n_rows} association rows for {n_families} families, "
       f"grouping is {grouping}")
+# How much of the collection the stratified background can actually serve. If few strata
+# clear the floor, most rows fell back to pooled and the stratification is nominal - which
+# is a configuration problem (too many covariates) rather than a result.
+print(f"         background stratified on {'+'.join(COVARIATES)}: {len(stratum_size)} "
+      f"strata, {usable} at or above min_stratum_size={MIN_STRATUM}")
