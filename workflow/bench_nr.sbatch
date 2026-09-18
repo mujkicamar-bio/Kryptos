@@ -29,7 +29,7 @@
 # measurement that tells them apart.
 #
 # maxRSS from measurement 2 is what sets resources.mem_mb for the T4 tier in
-# workflow/rules/s3_cascade.smk, where 64000 is currently a declared over-allocation.
+# workflow/rules/annotation_cascade.smk, where 64000 is currently a declared over-allocation.
 #
 # Query set: 2,000 and 20,000 unique PlasAnn-dark plasmid proteins sampled (seed 20260910)
 # from 8,000 non-simulated plasmids; median length 205 aa, mean 263 aa. These are NOT

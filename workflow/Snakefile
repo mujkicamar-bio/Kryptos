@@ -89,29 +89,29 @@ rule all:
     interpretable about every plasmid ORF.
     """
     input:
-        f"{OUT}/final/annotation_complete.csv",     # every ORF, every annotation
-        f"{OUT}/final/dark_families_complete.csv",  # every dark family, every evidence
-        f"{OUT}/s6/protein_families.tsv",           # Stage 5: every protein family
-        f"{OUT}/s6/plasmid_lineage.tsv",            # Stage 6: independent lineages
-        f"{OUT}/s7/recurrence.tsv",                 # Stage 7: distribution counts
-        f"{OUT}/s9/synteny.tsv",                    # Stage 9: context conservation
-        f"{OUT}/s14/family_rarity.tsv",             # Stage 14: rarity labels
-        f"{OUT}/final/dark_family_rarefaction.tsv", # Stage 14: saturation curve
-        f"{OUT}/s4/plasmid_annotation.gff3",        # S4 feature files
-        f"{OUT}/s4/plasmid_annotation.gbk",
-        f"{OUT}/s5/quality_gate.txt",               # S5 the run-halting control
+        f"{OUT}/15_report/annotation_complete.csv",     # every ORF, every annotation
+        f"{OUT}/15_report/dark_families_complete.csv",  # every dark family, every evidence
+        f"{OUT}/10_clustering/protein_families.tsv",           # Stage 5: every protein family
+        f"{OUT}/10_clustering/plasmid_lineage.tsv",            # Stage 6: independent lineages
+        f"{OUT}/11_distribution_and_evolution/recurrence.tsv",                 # Stage 7: distribution counts
+        f"{OUT}/13_synteny/synteny.tsv",                    # Stage 9: context conservation
+        f"{OUT}/14_rarity/family_rarity.tsv",             # Stage 14: rarity labels
+        f"{OUT}/15_report/dark_family_rarefaction.tsv", # Stage 14: saturation curve
+        f"{OUT}/06_annotation_tables/plasmid_annotation.gff3",        # S4 feature files
+        f"{OUT}/06_annotation_tables/plasmid_annotation.gbk",
+        f"{OUT}/09_quality_gate/quality_gate.txt",               # S5 the run-halting control
 
 
 rule annotate_only:
     """Stop after the annotated plasmidome, without building the target list."""
     input:
-        f"{OUT}/s4/plasmid_annotation.tsv",
-        f"{OUT}/s2b/artefact_flags.tsv",
+        f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
+        f"{OUT}/04_orf_qc/artefact_flags.tsv",
 
 
 include: "rules/common.smk"
-include: "rules/s3_cascade.smk"
-include: "rules/s5_s9_targets.smk"
+include: "rules/annotation_cascade.smk"
+include: "rules/evidence.smk"
 
 
 rule analysis_set:
@@ -119,7 +119,7 @@ rule analysis_set:
     input:
         config["input"]["master_table"],
     output:
-        f"{OUT}/s0/analysis_set.txt",
+        f"{OUT}/01_analysis_set/analysis_set.txt",
     params:
         exclude=config["input"]["exclude_hab_top"],
     resources:
@@ -145,7 +145,7 @@ rule orf_call:
         fasta=lambda wc: SHARD_PATHS[wc.shard],
         master=config["input"]["master_table"],
     output:
-        tsv=f"{OUT}/s1/orfs/{{shard}}.tsv",
+        tsv=f"{OUT}/02_orf_calling/orfs/{{shard}}.tsv",
     params:
         min_orf_aa=config["orf"]["min_call_length_aa"],
     conda:
@@ -162,9 +162,9 @@ rule orf_call:
 rule orf_index:
     """S1: assign orf_id once, over the complete ORF set. Never recomputed downstream."""
     input:
-        expand(f"{OUT}/s1/orfs/{{shard}}.tsv", shard=SHARDS),
+        expand(f"{OUT}/02_orf_calling/orfs/{{shard}}.tsv", shard=SHARDS),
     output:
-        f"{OUT}/s1/orf_index.tsv",
+        f"{OUT}/02_orf_calling/orf_index.tsv",
     resources:
         mem_mb=24000,
         runtime=240,
@@ -179,10 +179,10 @@ rule orf_index:
 rule dereplicate:
     """S2: exact-identity collapse. Lossless: asserted in the script, not assumed."""
     input:
-        index=f"{OUT}/s1/orf_index.tsv",
+        index=f"{OUT}/02_orf_calling/orf_index.tsv",
     output:
-        faa=f"{OUT}/s2/unique_proteins.faa",
-        map=f"{OUT}/s2/protein_map.tsv",
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
     resources:
         mem_mb=24000,
         runtime=240,
@@ -205,10 +205,10 @@ rule prepare_decoys:
     fails to resemble anything for reasons unrelated to the cascade's thresholds.
     """
     input:
-        index=f"{OUT}/s1/orf_index.tsv",
+        index=f"{OUT}/02_orf_calling/orf_index.tsv",
         shards=[SHARD_PATHS[s] for s in SHARDS],
     output:
-        faa=f"{OUT}/s2/negative_control.faa",
+        faa=f"{OUT}/03_dereplication/negative_control.faa",
     params:
         n_shuffled=config["controls"]["negative"]["n_shuffled"],
         n_reverse_complement=config["controls"]["negative"]["n_reverse_complement"],
@@ -218,7 +218,7 @@ rule prepare_decoys:
         mem_mb=8000,
         runtime=60,
     log:
-        f"{OUT}/logs/s2/prepare_decoys.log",
+        f"{OUT}/logs/03_dereplication/prepare_decoys.log",
     conda:
         "envs/plasmidann.yaml"
     script:
@@ -233,15 +233,15 @@ rule prepare_control:
     so the gate at S5 tests the real code path - narrowing, sharding, thresholds and all.
     """
     input:
-        faa=f"{OUT}/s2/unique_proteins.faa",
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
         raw=targets["quality_gate"]["control_fasta"].replace(
             "positive_control.faa", "raw.faa"),
         # Both control sets enter the query at the same point and in the same file: what
         # makes a control a control is that it takes the identical code path.
-        decoys=f"{OUT}/s2/negative_control.faa",
+        decoys=f"{OUT}/03_dereplication/negative_control.faa",
     output:
         control=targets["quality_gate"]["control_fasta"],
-        spiked=f"{OUT}/s2/cascade_input.faa",
+        spiked=f"{OUT}/03_dereplication/cascade_input.faa",
     params:
         n_controls=config["controls"]["positive"]["n"],
         min_controls=targets["quality_gate"]["min_controls"],
@@ -250,7 +250,7 @@ rule prepare_control:
         mem_mb=8000,
         runtime=30,
     log:
-        f"{OUT}/logs/s2/prepare_control.log",
+        f"{OUT}/logs/03_dereplication/prepare_control.log",
     conda:
         "envs/plasmidann.yaml"
     script:
@@ -271,10 +271,10 @@ rule artefact_screen:
     flags stay reversible and countable, and nothing is removed from the searched set.
     """
     input:
-        faa=f"{OUT}/s2/unique_proteins.faa",
-        preflight=f"{OUT}/s3/preflight.tsv",
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        preflight=f"{OUT}/05_annotation_cascade/preflight.tsv",
     output:
-        f"{OUT}/s2b/artefact_flags.tsv",
+        f"{OUT}/04_orf_qc/artefact_flags.tsv",
     params:
         artefact=cascade["artefact_screen"],
         hmmer_z=cascade["hmmer_z"],
@@ -285,6 +285,6 @@ rule artefact_screen:
         mem_mb=16000,
         runtime=480,
     log:
-        f"{OUT}/logs/s2b/artefact_screen.log",
+        f"{OUT}/logs/04_orf_qc/artefact_screen.log",
     script:
         "scripts/artefact_screen.py"

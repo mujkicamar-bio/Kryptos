@@ -2,7 +2,7 @@
 
 WHEN THIS RUNS
 
-After a full annotation run, once results/s4c/protein_labels.tsv exists. It is not part of
+After a full annotation run, once results/08_protein_labels/protein_labels.tsv exists. It is not part of
 the pipeline DAG: it is a one-off that produces something for a person to read.
 
 WHAT IT DOES, AND WHY IT STOPS WHERE IT DOES

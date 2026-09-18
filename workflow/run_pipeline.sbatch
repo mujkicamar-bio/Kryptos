@@ -48,7 +48,7 @@ export PATH="$ROOT/envs/plasmidann/bin:$PATH"
 # Pre-flight runs first in its own invocation so a missing tool or database fails in
 # seconds, before 96 cores are spent on gene calling.
 .venv/bin/snakemake -s workflow/Snakefile -j 1 --nolock \
-  --resources mem_mb=$MEM_MB results/s3/preflight.tsv
+  --resources mem_mb=$MEM_MB results/05_annotation_cascade/preflight.tsv
 
 .venv/bin/snakemake -s workflow/Snakefile \
   -j 96 \

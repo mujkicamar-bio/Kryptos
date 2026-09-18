@@ -6,7 +6,7 @@ TIER_BY_ID = {t["id"]: t for t in TIERS}
 def tier_query(wc):
     """A tier's query set is the previous tier's unresolved output, WITHIN THE SAME SHARD.
 
-    The FIRST tier queries results/s3/input/{cshard}.faa, which is the unique proteins plus
+    The FIRST tier queries results/05_annotation_cascade/input/{cshard}.faa, which is the unique proteins plus
     the spiked positive controls, split into independently resumable units. Controls must
     traverse the identical code path - the same narrowing, the same shards, the same
     thresholds - or the gate at S5 would be testing a different pipeline from the one that
@@ -18,8 +18,8 @@ def tier_query(wc):
     """
     i = TIER_IDS.index(wc.tier)
     if i == 0:
-        return f"{OUT}/s3/input/{wc.cshard}.faa"
-    return f"{OUT}/s3/{TIER_IDS[i - 1]}/{wc.cshard}/unresolved.faa"
+        return f"{OUT}/05_annotation_cascade/input/{wc.cshard}.faa"
+    return f"{OUT}/05_annotation_cascade/{TIER_IDS[i - 1]}/{wc.cshard}/unresolved.faa"
 
 
 def tier_spans(wc):
@@ -27,4 +27,4 @@ def tier_spans(wc):
     i = TIER_IDS.index(wc.tier)
     if i == 0:
         return []
-    return f"{OUT}/s3/{TIER_IDS[i - 1]}/{wc.cshard}/spans.tsv"
+    return f"{OUT}/05_annotation_cascade/{TIER_IDS[i - 1]}/{wc.cshard}/spans.tsv"

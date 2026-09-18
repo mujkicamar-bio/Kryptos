@@ -34,7 +34,7 @@ so those rules had never fired, and nobody could tell from any output.
 The curated family table is gone. Pfam-A 38.2 holds 30,134 families, of which 67 mention
 replication in their description and 42 mention conjugation; the list named 16 and 15, and
 nine of its 73 names did not exist in Pfam-A at all. Functional labels now come from the
-tools themselves, in results/s4c/protein_labels.tsv, and are grouped into categories from
+tools themselves, in results/08_protein_labels/protein_labels.tsv, and are grouped into categories from
 the observed vocabulary rather than by hand - and they LABEL a protein that stays in the
 table rather than excluding it. Nothing excludes anything by name.
 
@@ -71,7 +71,7 @@ if not control_rows and cfg.get("require_control_set", True):
     raise SystemExit(
         "S5 QUALITY GATE: no control proteins found in the annotation table.\n"
         "The controls are spiked in at S2c and must reach S3. A gate that silently skips "
-        "itself is not a gate - check that results/s2/cascade_input.faa was used as the "
+        "itself is not a gate - check that results/03_dereplication/cascade_input.faa was used as the "
         "cascade query set.")
 
 recall = control_recall(control_rows) if control_rows else 0.0

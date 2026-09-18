@@ -87,7 +87,7 @@ def test_the_cascade_is_sharded():
     """T4 searches 3.5M queries against nr. Unsharded it is a single job of several days,
     and any failure in it - a node eviction, a full filesystem - loses all of that work.
     The design requires the same shard-and-resume unit the gene caller already uses."""
-    text = (WORKFLOW / "rules" / "s3_cascade.smk").read_text()
+    text = (WORKFLOW / "rules" / "annotation_cascade.smk").read_text()
     rule = text[text.index("rule tier_search"):]
     rule = rule[:rule.index("\nrule ")]
     assert "{cshard}" in rule, (
@@ -139,7 +139,7 @@ def test_the_codon_model_stage_is_gone():
 def test_the_resolved_dag_matches_the_rules_that_exist(tmp_path):
     """The text checks above cannot see a dangling input.
 
-    Leave `busted=f"{OUT}/s7/busted.tsv"` in rule annotation_report's input block after
+    Leave `busted=f"{OUT}/11_distribution_and_evolution/busted.tsv"` in rule annotation_report's input block after
     deleting rule busted_confirm and every other test in this file still passes: the
     substring "rule busted_confirm" is gone, no script invokes the tool, and the smoke test
     drives annotation_report.py through a hand-built input dict that never had that key.

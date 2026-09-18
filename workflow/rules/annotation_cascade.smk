@@ -1,5 +1,5 @@
 # =====================================================================================
-# S3: the annotation cascade
+# The annotation cascade
 #
 # Each tier searches whatever the previous tier could not explain, and hands on the
 # residue. Tier order is authority order.
@@ -17,7 +17,7 @@ rule preflight:
     to a missing DIAMOND binary, twice.
     """
     output:
-        f"{OUT}/s3/preflight.tsv",
+        f"{OUT}/05_annotation_cascade/preflight.tsv",
     params:
         tiers=cascade["tiers"],
         artefact=cascade["artefact_screen"],
@@ -31,7 +31,7 @@ rule preflight:
         mem_mb=2000,
         runtime=10,
     log:
-        f"{OUT}/logs/s3/preflight.log",
+        f"{OUT}/logs/05_annotation_cascade/preflight.log",
     script:
         "../scripts/preflight.py"
 
@@ -43,9 +43,9 @@ rule sweep_cohort:
     confidence interval. Everything else in the run has no counterfactual.
     """
     input:
-        f"{OUT}/s2/cascade_input.faa",
+        f"{OUT}/03_dereplication/cascade_input.faa",
     output:
-        f"{OUT}/s3/sweep_cohort.txt",
+        f"{OUT}/05_annotation_cascade/sweep_cohort.txt",
     params:
         fraction=cascade["sweep_cohort_fraction"],
         seed=config["seed"],
@@ -57,7 +57,7 @@ rule sweep_cohort:
         mem_mb=8000,
         runtime=30,
     log:
-        f"{OUT}/logs/s3/sweep_cohort.log",
+        f"{OUT}/logs/05_annotation_cascade/sweep_cohort.log",
     script:
         "../scripts/sweep_cohort.py"
 
@@ -70,14 +70,14 @@ rule shard_cascade_input:
     was already sharded; the cascade was the one that was not.
     """
     input:
-        f"{OUT}/s2/cascade_input.faa",
+        f"{OUT}/03_dereplication/cascade_input.faa",
     output:
-        expand(f"{OUT}/s3/input/{{cshard}}.faa", cshard=CASCADE_SHARDS),
+        expand(f"{OUT}/05_annotation_cascade/input/{{cshard}}.faa", cshard=CASCADE_SHARDS),
     resources:
         mem_mb=8000,
         runtime=60,
     log:
-        f"{OUT}/logs/s3/shard_cascade_input.log",
+        f"{OUT}/logs/05_annotation_cascade/shard_cascade_input.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -93,12 +93,12 @@ rule tier_search:
     input:
         faa=tier_query,
         spans=tier_spans,
-        sweep=f"{OUT}/s3/sweep_cohort.txt",
-        preflight=f"{OUT}/s3/preflight.tsv",
+        sweep=f"{OUT}/05_annotation_cascade/sweep_cohort.txt",
+        preflight=f"{OUT}/05_annotation_cascade/preflight.tsv",
     output:
-        hits=f"{OUT}/s3/{{tier}}/{{cshard}}/hits.tsv",
-        unresolved=f"{OUT}/s3/{{tier}}/{{cshard}}/unresolved.faa",
-        spans=f"{OUT}/s3/{{tier}}/{{cshard}}/spans.tsv",
+        hits=f"{OUT}/05_annotation_cascade/{{tier}}/{{cshard}}/hits.tsv",
+        unresolved=f"{OUT}/05_annotation_cascade/{{tier}}/{{cshard}}/unresolved.faa",
+        spans=f"{OUT}/05_annotation_cascade/{{tier}}/{{cshard}}/spans.tsv",
     params:
         spec=lambda wc: TIER_BY_ID[wc.tier],
         # narrow_at, NOT min_explained. See the module docstring in tier_search.py.
@@ -120,7 +120,7 @@ rule tier_search:
         mem_mb=lambda wc: 64000 if TIER_BY_ID[wc.tier]["db"].endswith("nr.dmnd") else 16000,
         runtime=lambda wc: 2880 if TIER_BY_ID[wc.tier]["db"].endswith("nr.dmnd") else 1440,
     log:
-        f"{OUT}/logs/s3/{{tier}}/{{cshard}}.log",
+        f"{OUT}/logs/05_annotation_cascade/{{tier}}/{{cshard}}.log",
     script:
         "../scripts/tier_search.py"
 
@@ -132,16 +132,16 @@ rule cascade_resolve:
     interesting band has been seen by every tier - which is what makes it sweepable.
     """
     input:
-        hits=expand(f"{OUT}/s3/{{tier}}/{{cshard}}/hits.tsv",
+        hits=expand(f"{OUT}/05_annotation_cascade/{{tier}}/{{cshard}}/hits.tsv",
                     tier=TIER_IDS, cshard=CASCADE_SHARDS),
         # The last tier's spans carry the cumulative explained fraction for every protein
         # the cascade ever saw, because each tier writes forward everything it inherited.
         # One file per shard, and a protein appears in exactly one of them.
-        spans=expand(f"{OUT}/s3/{TIER_IDS[-1]}/{{cshard}}/spans.tsv",
+        spans=expand(f"{OUT}/05_annotation_cascade/{TIER_IDS[-1]}/{{cshard}}/spans.tsv",
                      cshard=CASCADE_SHARDS),
-        faa=f"{OUT}/s2/cascade_input.faa",
+        faa=f"{OUT}/03_dereplication/cascade_input.faa",
     output:
-        f"{OUT}/s3/protein_annotation.tsv",
+        f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
     params:
         thresholds=cascade,
         tier_order=TIER_IDS,
@@ -149,7 +149,7 @@ rule cascade_resolve:
         mem_mb=32000,
         runtime=480,
     log:
-        f"{OUT}/logs/s3/resolve.log",
+        f"{OUT}/logs/05_annotation_cascade/resolve.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -159,17 +159,17 @@ rule cascade_resolve:
 rule annotate_plasmids:
     """S4: the primary deliverable - every ORF with its annotation and provenance."""
     input:
-        prot=f"{OUT}/s3/protein_annotation.tsv",
-        index=f"{OUT}/s1/orf_index.tsv",
-        map=f"{OUT}/s2/protein_map.tsv",
-        artefact=f"{OUT}/s2b/artefact_flags.tsv",
+        prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
+        index=f"{OUT}/02_orf_calling/orf_index.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        artefact=f"{OUT}/04_orf_qc/artefact_flags.tsv",
     output:
-        f"{OUT}/s4/plasmid_annotation.tsv",
+        f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
     resources:
         mem_mb=24000,
         runtime=240,
     log:
-        f"{OUT}/logs/s4/annotate.log",
+        f"{OUT}/logs/06_annotation_tables/annotate.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -184,10 +184,10 @@ rule orthology:
     fraction is what makes the unknown fraction interpretable.
     """
     input:
-        prot=f"{OUT}/s3/protein_annotation.tsv",
-        faa=f"{OUT}/s2/unique_proteins.faa",
+        prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
     output:
-        f"{OUT}/s4b/orthology.tsv",
+        f"{OUT}/07_orthology/orthology.tsv",
     params:
         orthology=targets["orthology"],
     threads: 16
@@ -195,7 +195,7 @@ rule orthology:
         mem_mb=32000,
         runtime=2880,
     log:
-        f"{OUT}/logs/s4b/orthology.log",
+        f"{OUT}/logs/07_orthology/orthology.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -214,17 +214,17 @@ rule feature_files:
     100-plasmid test configuration it wrote 208,245 GenBank records.
     """
     input:
-        annotation=f"{OUT}/s4/plasmid_annotation.tsv",
+        annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
         shards=[SHARD_PATHS[s] for s in SHARDS],
         master=config["input"]["master_table"],
     output:
-        gff3=f"{OUT}/s4/plasmid_annotation.gff3",
-        genbank=f"{OUT}/s4/plasmid_annotation.gbk",
+        gff3=f"{OUT}/06_annotation_tables/plasmid_annotation.gff3",
+        genbank=f"{OUT}/06_annotation_tables/plasmid_annotation.gbk",
     resources:
         mem_mb=32000,
         runtime=480,
     log:
-        f"{OUT}/logs/s4/feature_files.log",
+        f"{OUT}/logs/06_annotation_tables/feature_files.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -243,12 +243,12 @@ rule protein_labels:
     observed, which is what makes it describable in a methods section.
     """
     input:
-        hits=expand(f"{OUT}/s3/{{tier}}/{{cshard}}/hits.tsv",
+        hits=expand(f"{OUT}/05_annotation_cascade/{{tier}}/{{cshard}}/hits.tsv",
                     tier=TIER_IDS, cshard=CASCADE_SHARDS),
-        orthology=f"{OUT}/s4b/orthology.tsv",
+        orthology=f"{OUT}/07_orthology/orthology.tsv",
         pfam_dat=config["references"]["pfam_dat"],
     output:
-        tsv=f"{OUT}/s4c/protein_labels.tsv",
+        tsv=f"{OUT}/08_protein_labels/protein_labels.tsv",
     params:
         pfam_version=config["references"]["pfam_version"],
         swissprot_version=config["references"]["swissprot_version"],
@@ -258,7 +258,7 @@ rule protein_labels:
         mem_mb=32000,
         runtime=240,
     log:
-        f"{OUT}/logs/s4c/protein_labels.log",
+        f"{OUT}/logs/08_protein_labels/protein_labels.log",
     conda:
         "../envs/plasmidann.yaml"
     script:

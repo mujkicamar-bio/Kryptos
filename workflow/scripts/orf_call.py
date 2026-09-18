@@ -7,7 +7,7 @@ TWO DEFECTS FROM v1 ARE ADDRESSED HERE.
    inputs but only ever read `orf_index.tsv`, the DAG reported success. The fix is to
    REMOVE the output rather than populate it: the protein sequence already travels in the
    `seq` column of orf_index.tsv, and the FASTA that downstream stages actually consume is
-   results/s2/unique_proteins.faa. Deleting the unused output removes the whole class of
+   results/03_dereplication/unique_proteins.faa. Deleting the unused output removes the whole class of
    failure instead of the symptom.
 
 2. Genes broken by linearising a circle. See src/darkorf/circular.py for the full

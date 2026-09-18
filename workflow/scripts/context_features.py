@@ -10,7 +10,7 @@ no MobD, and nine of its names did not exist in Pfam-A at all, so those entries 
 once matched anything and no output could have revealed it.
 
 A neighbourhood is now described by the labels the tools actually produced for the
-neighbours, read from results/s4c/protein_labels.tsv. Those labels are grouped into
+neighbours, read from results/08_protein_labels/protein_labels.tsv. Those labels are grouped into
 categories through plasmidann.categories, which with no rules configured makes each
 (kind, label) its own category. The biological grouping - replication, mobilisation,
 conjugation - is derived later from the observed vocabulary and applied here as a

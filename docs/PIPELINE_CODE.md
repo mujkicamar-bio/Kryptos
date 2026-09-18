@@ -79,8 +79,8 @@ workflow/
   Snakefile                S0-S2b rules
   rules/
     common.smk             tier chaining helpers, per shard
-    s3_cascade.smk         S3-S4 rules
-    s5_s9_targets.smk      S5-S9b rules
+    annotation_cascade.smk         S3-S4 rules
+    evidence.smk      S5-S9b rules
   scripts/                 thin I/O wrappers around src/plasmidann
     _ctx.py                shared preamble: import path, and log capture
   envs/plasmidann.yaml     the one environment
@@ -106,42 +106,42 @@ config: master_table, working_set_fasta
    |
    |  S0  analysis_set.py      exclude simulated and lab artifacts
    v
-results/s0/analysis_set.txt                        143,503 plasmid ids
+results/01_analysis_set/analysis_set.txt                        143,503 plasmid ids
    |
    |  S0  shard_fasta.py       split into 600 independently callable units
    v
-results/s1/shards/NNNN.fna
+results/02_orf_calling/shards/NNNN.fna
    |
    |  S1  orf_call.py          pyrodigal + circular-origin repair
    v
-results/s1/orfs/NNNN.tsv       plasmid_id start end strand partial spans_origin seq
+results/02_orf_calling/orfs/NNNN.tsv       plasmid_id start end strand partial spans_origin seq
    |
    |  S1  orf_index.py         assign orf_id once, over the complete set
    v
-results/s1/orf_index.tsv       + orf_id                    9,317,050 rows
+results/02_orf_calling/orf_index.tsv       + orf_id                    9,317,050 rows
    |
    |  S2  dereplicate.py       SHA-256 on the exact sequence
    v
-results/s2/unique_proteins.faa                     3,497,616 sequences
-results/s2/protein_map.tsv     seq_id -> orf_id,orf_id,...
+results/03_dereplication/unique_proteins.faa                     3,497,616 sequences
+results/03_dereplication/protein_map.tsv     seq_id -> orf_id,orf_id,...
    |
    +---> S2b artefact_screen.py  AntiFam + tantan
-   |     results/s2b/artefact_flags.tsv
+   |     results/04_orf_qc/artefact_flags.tsv
    |
    |  S3  sweep_cohort.py      2% that bypass narrowing
    |      tier_search.py       once per tier, chained
    v
-results/s3/T{n}/hits.tsv       one row per hit, carrying its own thresholds
-results/s3/T{n}/spans.tsv      cumulative merged informative spans
-results/s3/T{n}/unresolved.faa the next tier's input
+results/05_annotation_cascade/T{n}/hits.tsv       one row per hit, carrying its own thresholds
+results/05_annotation_cascade/T{n}/spans.tsv      cumulative merged informative spans
+results/05_annotation_cascade/T{n}/unresolved.faa the next tier's input
    |
    |  S3  cascade_resolve.py   one row per unique protein
    v
-results/s3/protein_annotation.tsv
+results/05_annotation_cascade/protein_annotation.tsv
    |
    |  S4  annotate_plasmids.py join back out to every ORF
    v
-results/s4/plasmid_annotation.tsv                  the primary deliverable
+results/06_annotation_tables/plasmid_annotation.tsv                  the primary deliverable
 ```
 
 ### Invariants held across the flow
@@ -326,7 +326,7 @@ Two v1 defects addressed:
   600 files were empty, and the DAG reported success because `dereplicate` declared them as
   inputs but only ever read `orf_index.tsv`. The fix **removes the output** rather than
   populating it - protein sequence already travels in the `seq` column, and the FASTA that
-  downstream stages consume is `results/s2/unique_proteins.faa`. Deleting an unused output
+  downstream stages consume is `results/03_dereplication/unique_proteins.faa`. Deleting an unused output
   removes the class of failure; populating it would have removed only the symptom.
 * **The length floor off by one.** pyrodigal's `min_gene` counts the stop codon, so
   `min_aa * 3` set the real floor one residue below the declared value. Now `(min_aa + 1) * 3`.
@@ -475,7 +475,7 @@ collection.
 
 Groups `(kind, label)` pairs into functional categories from `config/label_categories.yaml`.
 That file **ships empty**: the categories are derived from the vocabulary observed in
-`results/s4c/protein_labels.tsv` after a full annotation run, which is the only way they can
+`results/08_protein_labels/protein_labels.tsv` after a full annotation run, which is the only way they can
 cover the scope. With no rules, every `(kind, label)` is its own category, so the enrichment
 machinery runs from the first run and applying the grouping later is a configuration change.
 
@@ -731,10 +731,10 @@ Clustal W and checks what came back rather than what the process said.
 `rule all` produces **complete annotation, not a shortlist**:
 
 ```
-results/final/annotation_complete.csv       one row per ORF, 9.3M rows
-results/final/dark_families_complete.csv    one row per dark family
-results/s4/plasmid_annotation.gff3 / .gbk   the feature files
-results/s5/quality_gate.txt                 the run-halting control
+results/15_report/annotation_complete.csv       one row per ORF, 9.3M rows
+results/15_report/dark_families_complete.csv    one row per dark family
+results/06_annotation_tables/plasmid_annotation.gff3 / .gbk   the feature files
+results/09_quality_gate/quality_gate.txt                 the run-halting control
 ```
 
 Nothing in those tables is filtered or ranked. Every ORF appears, artefact-flagged ones

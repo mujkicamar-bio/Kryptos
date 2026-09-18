@@ -19,14 +19,14 @@ rule clonal_registry:
     """
     input:
         master=config["input"]["master_table"],
-        ids=f"{OUT}/s0/analysis_set.txt",
+        ids=f"{OUT}/01_analysis_set/analysis_set.txt",
     output:
-        f"{OUT}/s0/clonal_registry.tsv",
+        f"{OUT}/01_analysis_set/clonal_registry.tsv",
     resources:
         mem_mb=4000,
         runtime=60,
     log:
-        f"{OUT}/logs/s0/clonal_registry.log",
+        f"{OUT}/logs/01_analysis_set/clonal_registry.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -36,18 +36,18 @@ rule clonal_registry:
 rule quality_gate:
     """S5: halts the run if known plasmid biology comes out dark (SC2)."""
     input:
-        prot=f"{OUT}/s3/protein_annotation.tsv",
-        artefact=f"{OUT}/s2b/artefact_flags.tsv",
+        prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
+        artefact=f"{OUT}/04_orf_qc/artefact_flags.tsv",
     output:
-        flags=f"{OUT}/s5/target_eligibility.tsv",
-        report=f"{OUT}/s5/quality_gate.txt",
+        flags=f"{OUT}/09_quality_gate/target_eligibility.tsv",
+        report=f"{OUT}/09_quality_gate/quality_gate.txt",
     params:
         gate=targets["quality_gate"],
     resources:
         mem_mb=8000,
         runtime=60,
     log:
-        f"{OUT}/logs/s5/quality_gate.log",
+        f"{OUT}/logs/09_quality_gate/quality_gate.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -57,18 +57,18 @@ rule quality_gate:
 rule dark_set:
     """S6a: the proteins that are screening candidates at all."""
     input:
-        flags=f"{OUT}/s5/target_eligibility.tsv",
-        faa=f"{OUT}/s2/unique_proteins.faa",
-        map=f"{OUT}/s2/protein_map.tsv",
-        index=f"{OUT}/s1/orf_index.tsv",
+        flags=f"{OUT}/09_quality_gate/target_eligibility.tsv",
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        index=f"{OUT}/02_orf_calling/orf_index.tsv",
     output:
-        faa=f"{OUT}/s6/dark_proteins.faa",
-        ids=f"{OUT}/s6/dark_ids.txt",
+        faa=f"{OUT}/10_clustering/dark_proteins.faa",
+        ids=f"{OUT}/10_clustering/dark_ids.txt",
     resources:
         mem_mb=16000,
         runtime=120,
     log:
-        f"{OUT}/logs/s6/dark_set.log",
+        f"{OUT}/logs/10_clustering/dark_set.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -85,7 +85,7 @@ rule plasmid_lineage:
     input:
         shards=[SHARD_PATHS[s] for s in SHARDS],
     output:
-        tsv=f"{OUT}/s6/plasmid_lineage.tsv",
+        tsv=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     params:
         lineage=targets["lineage"],
     threads: 16
@@ -93,7 +93,7 @@ rule plasmid_lineage:
         mem_mb=32000,
         runtime=720,
     log:
-        f"{OUT}/logs/s6/plasmid_lineage.log",
+        f"{OUT}/logs/10_clustering/plasmid_lineage.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -111,14 +111,14 @@ rule protein_families:
     dark-family subset at the primary resolution that the dark stages read.
     """
     input:
-        faa=f"{OUT}/s2/unique_proteins.faa",
-        dark_ids=f"{OUT}/s6/dark_ids.txt",
-        map=f"{OUT}/s2/protein_map.tsv",
-        registry=f"{OUT}/s0/clonal_registry.tsv",
-        lineage=f"{OUT}/s6/plasmid_lineage.tsv",
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
+        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     output:
-        families=f"{OUT}/s6/protein_families.tsv",
-        dark_families=f"{OUT}/s6/dark_families.tsv",
+        families=f"{OUT}/10_clustering/protein_families.tsv",
+        dark_families=f"{OUT}/10_clustering/dark_families.tsv",
     params:
         clustering=targets["clustering"],
     threads: 16
@@ -126,7 +126,7 @@ rule protein_families:
         mem_mb=64000,
         runtime=1440,
     log:
-        f"{OUT}/logs/s6/protein_families.log",
+        f"{OUT}/logs/10_clustering/protein_families.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -141,12 +141,12 @@ rule rarity:
     bound (spec section 55).
     """
     input:
-        recurrence=f"{OUT}/s7/recurrence.tsv",
-        dark_families=f"{OUT}/s6/dark_families.tsv",
-        map=f"{OUT}/s2/protein_map.tsv",
+        recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
+        dark_families=f"{OUT}/10_clustering/dark_families.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
     output:
-        rarity=f"{OUT}/s14/family_rarity.tsv",
-        rarefaction=f"{OUT}/final/dark_family_rarefaction.tsv",
+        rarity=f"{OUT}/14_rarity/family_rarity.tsv",
+        rarefaction=f"{OUT}/15_report/dark_family_rarefaction.tsv",
     params:
         rarity=targets["rarity"],
         seed=config["seed"],
@@ -154,7 +154,7 @@ rule rarity:
         mem_mb=16000,
         runtime=240,
     log:
-        f"{OUT}/logs/s14/rarity.log",
+        f"{OUT}/logs/14_rarity/rarity.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -169,18 +169,18 @@ rule synteny:
     adjacency. Six measurements, kept separate (spec section 42).
     """
     input:
-        annotation=f"{OUT}/s4/plasmid_annotation.tsv",
-        families=f"{OUT}/s6/dark_families.tsv",
-        map=f"{OUT}/s2/protein_map.tsv",
+        annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
+        families=f"{OUT}/10_clustering/dark_families.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
     output:
-        tsv=f"{OUT}/s9/synteny.tsv",
+        tsv=f"{OUT}/13_synteny/synteny.tsv",
     params:
         context=targets["context"],
     resources:
         mem_mb=32000,
         runtime=480,
     log:
-        f"{OUT}/logs/s9/synteny.log",
+        f"{OUT}/logs/13_synteny/synteny.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -194,18 +194,18 @@ rule recurrence:
     must never be treated as independent biological observations."
     """
     input:
-        families=f"{OUT}/s6/protein_families.tsv",
-        map=f"{OUT}/s2/protein_map.tsv",
-        registry=f"{OUT}/s0/clonal_registry.tsv",
-        lineage=f"{OUT}/s6/plasmid_lineage.tsv",
+        families=f"{OUT}/10_clustering/protein_families.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
+        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
         master=config["input"]["master_table"],
     output:
-        tsv=f"{OUT}/s7/recurrence.tsv",
+        tsv=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
     resources:
         mem_mb=16000,
         runtime=240,
     log:
-        f"{OUT}/logs/s7/recurrence.log",
+        f"{OUT}/logs/11_distribution_and_evolution/recurrence.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -215,17 +215,17 @@ rule recurrence:
 rule extract_cds:
     """S7a: recover nucleotide CDS - dN/dS needs codons, and we store protein only."""
     input:
-        ids=f"{OUT}/s6/dark_ids.txt",
-        map=f"{OUT}/s2/protein_map.tsv",
-        index=f"{OUT}/s1/orf_index.tsv",
+        ids=f"{OUT}/10_clustering/dark_ids.txt",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        index=f"{OUT}/02_orf_calling/orf_index.tsv",
         shards=[SHARD_PATHS[s] for s in SHARDS],
     output:
-        f"{OUT}/s7/dark_cds.fna",
+        f"{OUT}/11_distribution_and_evolution/dark_cds.fna",
     resources:
         mem_mb=16000,
         runtime=240,
     log:
-        f"{OUT}/logs/s7/extract_cds.log",
+        f"{OUT}/logs/11_distribution_and_evolution/extract_cds.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -235,15 +235,15 @@ rule extract_cds:
 rule family_evolution:
     """S7b: dN/dS per family - the strongest evidence a dark ORF is a real protein."""
     input:
-        families=f"{OUT}/s6/dark_families.tsv",
-        faa=f"{OUT}/s6/dark_proteins.faa",
-        cds=f"{OUT}/s7/dark_cds.fna",
+        families=f"{OUT}/10_clustering/dark_families.tsv",
+        faa=f"{OUT}/10_clustering/dark_proteins.faa",
+        cds=f"{OUT}/11_distribution_and_evolution/dark_cds.fna",
     output:
-        tsv=f"{OUT}/s7/family_evolution.tsv",
+        tsv=f"{OUT}/11_distribution_and_evolution/family_evolution.tsv",
         # The family consensus, built from the protein alignment this rule already makes.
         # S7c re-searches it: a family can be collectively recognisable while every member
         # individually misses the cut, and Pavlopoulos removed 6.5% of clusters that way.
-        consensus=f"{OUT}/s7/family_consensus.faa",
+        consensus=f"{OUT}/11_distribution_and_evolution/family_consensus.faa",
     params:
         evolution=targets["evolution"],
     threads: 16
@@ -251,7 +251,7 @@ rule family_evolution:
         mem_mb=16000,
         runtime=2880,
     log:
-        f"{OUT}/logs/s7/family_evolution.log",
+        f"{OUT}/logs/11_distribution_and_evolution/family_evolution.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -265,9 +265,9 @@ rule consensus_recheck:
     `collectively_novel = 0` plus the name of what it matched.
     """
     input:
-        consensus=f"{OUT}/s7/family_consensus.faa",
+        consensus=f"{OUT}/11_distribution_and_evolution/family_consensus.faa",
     output:
-        f"{OUT}/s7/consensus_recheck.tsv",
+        f"{OUT}/11_distribution_and_evolution/consensus_recheck.tsv",
     params:
         db=TIER_BY_ID[TIER_IDS[0]]["db"],
         args=TIER_BY_ID[TIER_IDS[0]]["args"],
@@ -277,7 +277,7 @@ rule consensus_recheck:
         mem_mb=16000,
         runtime=240,
     log:
-        f"{OUT}/logs/s7/consensus_recheck.log",
+        f"{OUT}/logs/11_distribution_and_evolution/consensus_recheck.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -292,9 +292,9 @@ rule defence_search:
     phase 1 asks a per-protein question that depends on identity alone.
     """
     input:
-        faa=f"{OUT}/s2/unique_proteins.faa",
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
     output:
-        tsv=f"{OUT}/s8/defence_components.tsv",
+        tsv=f"{OUT}/12_context_and_structure/defence_components.tsv",
     params:
         models_dir=config["references"]["macsyfinder_models"],
         # When false and the models are absent, the stage records NOT_RUN rather than
@@ -306,7 +306,7 @@ rule defence_search:
         mem_mb=16000,
         runtime=720,
     log:
-        f"{OUT}/logs/s8/defence_search.log",
+        f"{OUT}/logs/12_context_and_structure/defence_search.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -321,17 +321,17 @@ rule defence_gembase:
     any model's quorum - which is roughly a 4-5x reduction in what phase 2 must read.
     """
     input:
-        components=f"{OUT}/s8/defence_components.tsv",
-        map=f"{OUT}/s2/protein_map.tsv",
-        index=f"{OUT}/s1/orf_index.tsv",
+        components=f"{OUT}/12_context_and_structure/defence_components.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        index=f"{OUT}/02_orf_calling/orf_index.tsv",
     output:
-        faa=f"{OUT}/s8/defence_candidates.faa",
-        map=f"{OUT}/s8/defence_gembase_map.tsv",
+        faa=f"{OUT}/12_context_and_structure/defence_candidates.faa",
+        map=f"{OUT}/12_context_and_structure/defence_gembase_map.tsv",
     resources:
         mem_mb=24000,
         runtime=180,
     log:
-        f"{OUT}/logs/s8/defence_gembase.log",
+        f"{OUT}/logs/12_context_and_structure/defence_gembase.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -346,10 +346,10 @@ rule defence_systems:
     circular. Under linear topology a system spanning the origin is invisible.
     """
     input:
-        faa=f"{OUT}/s8/defence_candidates.faa",
-        map=f"{OUT}/s8/defence_gembase_map.tsv",
+        faa=f"{OUT}/12_context_and_structure/defence_candidates.faa",
+        map=f"{OUT}/12_context_and_structure/defence_gembase_map.tsv",
     output:
-        tsv=f"{OUT}/s8/defence_systems.tsv",
+        tsv=f"{OUT}/12_context_and_structure/defence_systems.tsv",
     params:
         models_dir=config["references"]["macsyfinder_models"],
         required=targets["defence"]["required"],
@@ -358,7 +358,7 @@ rule defence_systems:
         mem_mb=16000,
         runtime=1440,
     log:
-        f"{OUT}/logs/s8/defence_systems.log",
+        f"{OUT}/logs/12_context_and_structure/defence_systems.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -370,13 +370,13 @@ rule integrons:
     input:
         fasta=lambda wc: SHARD_PATHS[wc.shard],
     output:
-        f"{OUT}/s8/integrons/{{shard}}.tsv",
+        f"{OUT}/12_context_and_structure/integrons/{{shard}}.tsv",
     threads: 4
     resources:
         mem_mb=8000,
         runtime=240,
     log:
-        f"{OUT}/logs/s8/integrons/{{shard}}.log",
+        f"{OUT}/logs/12_context_and_structure/integrons/{{shard}}.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -391,10 +391,10 @@ rule structure_search:
     query count is the cost of this stage.
     """
     input:
-        faa=f"{OUT}/s6/dark_proteins.faa",
-        families=f"{OUT}/s6/dark_families.tsv",
+        faa=f"{OUT}/10_clustering/dark_proteins.faa",
+        families=f"{OUT}/10_clustering/dark_families.tsv",
     output:
-        f"{OUT}/s8/structure_hits.tsv",
+        f"{OUT}/12_context_and_structure/structure_hits.tsv",
     params:
         structure=targets["structure"],
         target_db=config.get("foldseek_db", "data/refs/foldseek/pdb"),
@@ -406,7 +406,7 @@ rule structure_search:
         mem_mb=32000,
         runtime=1440,
     log:
-        f"{OUT}/logs/s8/structure.log",
+        f"{OUT}/logs/12_context_and_structure/structure.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -417,16 +417,16 @@ rule context_features:
     """S8c: genomic context per ORF, aggregated to families against a STRATIFIED
     background (spec sections 52-53)."""
     input:
-        annotation=f"{OUT}/s4/plasmid_annotation.tsv",
-        families=f"{OUT}/s6/dark_families.tsv",
-        map=f"{OUT}/s2/protein_map.tsv",
-        defence=f"{OUT}/s8/defence_systems.tsv",
-        integrons=expand(f"{OUT}/s8/integrons/{{shard}}.tsv", shard=SHARDS),
-        labels=f"{OUT}/s4c/protein_labels.tsv",
+        annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
+        families=f"{OUT}/10_clustering/dark_families.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        defence=f"{OUT}/12_context_and_structure/defence_systems.tsv",
+        integrons=expand(f"{OUT}/12_context_and_structure/integrons/{{shard}}.tsv", shard=SHARDS),
+        labels=f"{OUT}/08_protein_labels/protein_labels.tsv",
         master=config["input"]["master_table"],
     output:
-        families=f"{OUT}/s8/family_context.tsv",
-        background=f"{OUT}/s8/context_background.tsv",
+        families=f"{OUT}/12_context_and_structure/family_context.tsv",
+        background=f"{OUT}/12_context_and_structure/context_background.tsv",
     params:
         context=targets["context"],
         # Stage 13: the reference population. A flat corpus background under-corrects for
@@ -434,14 +434,14 @@ rule context_features:
         # large ones - so it is weakest exactly where the artefact is strongest.
         background=targets["background"],
         # null means no grouping: every (kind, label) is its own category. The biological
-        # grouping is derived from results/s4c/protein_labels.tsv after a full annotation
+        # grouping is derived from results/08_protein_labels/protein_labels.tsv after a full annotation
         # run and enabled by pointing this at config/label_categories.yaml.
         categories=config["references"]["label_categories"],
     resources:
         mem_mb=32000,
         runtime=480,
     log:
-        f"{OUT}/logs/s8/context.log",
+        f"{OUT}/logs/12_context_and_structure/context.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
@@ -456,30 +456,30 @@ rule annotation_report:
     rather than one baked into a rule. Nothing is filtered and nothing is ranked.
     """
     input:
-        annotation=f"{OUT}/s4/plasmid_annotation.tsv",
-        map=f"{OUT}/s2/protein_map.tsv",
-        orthology=f"{OUT}/s4b/orthology.tsv",
-        families=f"{OUT}/s6/dark_families.tsv",
-        evolution=f"{OUT}/s7/family_evolution.tsv",
-        recheck=f"{OUT}/s7/consensus_recheck.tsv",
-        context=f"{OUT}/s8/family_context.tsv",
-        structure=f"{OUT}/s8/structure_hits.tsv",
+        annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        orthology=f"{OUT}/07_orthology/orthology.tsv",
+        families=f"{OUT}/10_clustering/dark_families.tsv",
+        evolution=f"{OUT}/11_distribution_and_evolution/family_evolution.tsv",
+        recheck=f"{OUT}/11_distribution_and_evolution/consensus_recheck.tsv",
+        context=f"{OUT}/12_context_and_structure/family_context.tsv",
+        structure=f"{OUT}/12_context_and_structure/structure_hits.tsv",
         # Stages 7, 9 and 14 produced these and nothing read them. A stage whose output
         # never reaches the deliverable is a stage whose cost is paid and whose evidence
         # is not available to the reader the deliverable exists for.
-        recurrence=f"{OUT}/s7/recurrence.tsv",
-        synteny=f"{OUT}/s9/synteny.tsv",
-        rarity=f"{OUT}/s14/family_rarity.tsv",
+        recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
+        synteny=f"{OUT}/13_synteny/synteny.tsv",
+        rarity=f"{OUT}/14_rarity/family_rarity.tsv",
     output:
-        annotation=f"{OUT}/final/annotation_complete.csv",
-        families=f"{OUT}/final/dark_families_complete.csv",
+        annotation=f"{OUT}/15_report/annotation_complete.csv",
+        families=f"{OUT}/15_report/dark_families_complete.csv",
     params:
         evolution=targets["evolution"],
     resources:
         mem_mb=32000,
         runtime=240,
     log:
-        f"{OUT}/logs/final/annotation_report.log",
+        f"{OUT}/logs/15_report/annotation_report.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
