@@ -93,3 +93,46 @@ def gembase_id(plasmid_id, position):
     position 10 would sort before position 2.
     """
     return f"{plasmid_id.replace('_', '-')}_{position:05d}"
+
+
+def parse_all_systems(paths):
+    """Component hits from MacSyFinder's own all_systems.tsv files.
+
+    Phase 1 runs `--db-type unordered` - report components, do not call systems - and
+    MacSyFinder does not write best_solution.tsv in that mode. Two things followed from
+    reading defense-finder's post-treatment output instead, and neither was visible:
+
+      * defense-finder's post-treatment opens best_solution.tsv unconditionally and raises
+        FileNotFoundError, so a search that HAD found systems in all three model families
+        exited non-zero and halted the stage.
+      * the parser looked for *defense_finder_genes.tsv, which that same post-treatment
+        step produces, so it never existed. Without the crash the stage would have written
+        an empty table - and an empty defence table reads as "this collection has no
+        defence systems", which is a claim about the biology rather than about the parser.
+
+    all_systems.tsv is MacSyFinder's own output and carries everything phase 1 needs.
+    `model_fqn` is the tool's model identity, cited rather than guessed.
+
+    The file opens with '#' comment lines and a blank line before its header, and a family
+    that matched nothing is a file of comments alone. Both are handled here rather than by
+    each caller.
+    """
+    rows = []
+    for path in paths:
+        with open(path, newline="") as fh:
+            lines = [l for l in fh if l.strip() and not l.startswith("#")]
+        if not lines:
+            continue
+        header = lines[0].rstrip("\n").split("\t")
+        for line in lines[1:]:
+            fields = dict(zip(header, line.rstrip("\n").split("\t")))
+            seq_id = fields.get("hit_id", "")
+            if not seq_id:
+                continue
+            rows.append({
+                "seq_id": seq_id,
+                "component": fields.get("gene_name", ""),
+                "model": fields.get("model_fqn", ""),
+                "hit_evalue": fields.get("hit_i_eval", ""),
+            })
+    return rows

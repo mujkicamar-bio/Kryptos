@@ -108,3 +108,80 @@ def test_underscores_in_a_plasmid_id_do_not_break_the_replicon_split():
     replicon, position = gid.rsplit("_", 1)
     assert replicon == "COMPASS-AB007909.1"
     assert position == "00001"
+
+
+# ------------------------------------------------------------------------------------
+# Phase 1 reads MacSyFinder's own all_systems.tsv.
+#
+# `--db-type unordered` is the mode phase 1 needs - report components, do not call systems
+# - and MacSyFinder does not write best_solution.tsv in it. Two consequences followed, and
+# both were invisible in the output:
+#
+#   1. defense-finder's post-treatment step opens best_solution.tsv unconditionally and
+#      raises FileNotFoundError, so a search that had just found systems in all three
+#      model families exited non-zero.
+#   2. phase 1 then looked for *defense_finder_genes.tsv, which is a POST-TREATMENT
+#      output and therefore never existed. Even without the crash it would have written
+#      an empty table, and an empty defence table reads as "this collection has no
+#      defence systems" rather than as "the parser found no file".
+# ------------------------------------------------------------------------------------
+
+ALL_SYSTEMS = """\
+# macsyfinder 2.1.4 
+# models : defense-finder-models-3.1.0
+# defense-finder run --db-type unordered
+# Likely Systems found:
+
+replicon\thit_id\tgene_name\thit_pos\tmodel_fqn\tsys_id\tsys_wholeness\thit_i_eval
+unique_proteins\t2171fc6c\tClover__CloA\t55\tdefense-finder-models/DefenseFinder/Clover/Clover\tunique_proteins_Clover_41\t1.000\t3.3e-188
+unique_proteins\t284ca90c\tClover__CloB\t54\tdefense-finder-models/DefenseFinder/Clover/Clover\tunique_proteins_Clover_41\t1.000\t3.6e-82
+"""
+
+
+def test_component_hits_are_read_from_all_systems(tmp_path):
+    """The columns phase 1 needs are all in MacSyFinder's own output: hit_id names the
+    protein, gene_name the component, model_fqn the model it belongs to, hit_i_eval the
+    significance. model_fqn in particular is the tool's cited model identity rather than
+    the guess the previous parser recorded as `model_unverified`."""
+    from plasmidann.defence import parse_all_systems
+
+    path = tmp_path / "all_systems.tsv"
+    path.write_text(ALL_SYSTEMS)
+
+    rows = parse_all_systems([path])
+
+    assert len(rows) == 2
+    assert rows[0]["seq_id"] == "2171fc6c"
+    assert rows[0]["component"] == "Clover__CloA"
+    assert rows[0]["model"] == "defense-finder-models/DefenseFinder/Clover/Clover"
+    assert rows[0]["hit_evalue"] == "3.3e-188"
+
+
+def test_the_macsyfinder_comment_header_is_not_parsed_as_data(tmp_path):
+    """all_systems.tsv opens with four '#' lines and a blank line before its header. A
+    parser that took the first line as the header would read every row as one field and
+    silently produce nothing."""
+    from plasmidann.defence import parse_all_systems
+
+    path = tmp_path / "all_systems.tsv"
+    path.write_text(ALL_SYSTEMS)
+
+    rows = parse_all_systems([path])
+
+    assert all(r["seq_id"] and not r["seq_id"].startswith("#") for r in rows)
+
+
+def test_a_model_family_that_found_nothing_contributes_no_rows(tmp_path):
+    """MacSyFinder writes an all_systems.tsv with only its comment header for a family
+    that matched nothing. That is a real and common outcome - it is what crashed
+    defense-finder's post-treatment - and it must read as zero rows, not as an error."""
+    from plasmidann.defence import parse_all_systems
+
+    empty = tmp_path / "empty_all_systems.tsv"
+    empty.write_text("# macsyfinder 2.1.4 \n# models : CasFinder-3.1.0\n"
+                     "# No Systems found\n")
+    full = tmp_path / "all_systems.tsv"
+    full.write_text(ALL_SYSTEMS)
+
+    assert parse_all_systems([empty]) == []
+    assert len(parse_all_systems([empty, full])) == 2
