@@ -1192,11 +1192,10 @@ def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
 
 # --- the deliverable: complete annotations, not a shortlist ---------------------------
 
-def test_the_report_carries_every_orf_and_every_family(fixture_dir):
-    """The pipeline's output is every annotation it could produce, in a form you can sort
-    and filter yourself. Nothing is dropped for being artefactual, ORPHAN, or evidence-free,
-    and nothing is ranked - selecting candidates is a decision made on this table, not one
-    baked into a rule."""
+def _report_fixture(fixture_dir):
+    """Two dark families: F1 an ORPHAN with nothing measurable, F2 a family
+    with evidence on every axis. Every table the report joins is built here so
+    that both report tests see the same collection."""
     ann = fixture_dir / "plasmid_annotation.tsv"
     write_tsv(ann, ["orf_id", "plasmid_id", "start", "end", "strand", "annot_label",
                     "functional_class", "artefact_flag"],
@@ -1232,16 +1231,68 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description"],
               [["S1", "L", "ko03430", "mobA", "Relaxase"]])
+    recur = fixture_dir / "recurrence.tsv"
+    write_tsv(recur, ["family_id", "family_resolution", "representative",
+                      "plasmid_occurrence_count", "unique_plasmid_count",
+                      "independent_plasmid_cluster_count", "independent_cluster_status",
+                      "host_count", "species_count", "genus_count", "MOB_count",
+                      "habitat_count", "database_record_count", "database_source_count"],
+              [["F1", "broad", "S2", 1, 1, 1, "SUCCESS", 1, 1, 1, 1, 1, 1, 1],
+               # 40 gene copies on 9 records that are only 2 independent lineages: the
+               # shape section 34.2 exists to keep visible.
+               ["F2", "broad", "S3", 40, 9, 2, "SUCCESS", 3, 3, 2, 3, 2, 9, 1]])
+    syn = fixture_dir / "synteny.tsv"
+    write_tsv(syn, ["family_id", "n_occurrences", "context_recurrence",
+                    "left_neighbor_conservation", "right_neighbor_conservation",
+                    "neighborhood_conservation", "operon_like_conservation",
+                    "synteny_conservation", "modal_left", "modal_right", "modal_synteny",
+                    "status"],
+              [["F1", 1, 0, "", "", "", "", "", "", "", "", "TOO_FEW_MEMBERS"],
+               ["F2", 9, 9, 0.9, 0.7, 0.8, 0.6, 0.7, "mobA", "repA", "mobA|repA",
+                "SUCCESS"]])
+    rarity_tsv = fixture_dir / "family_rarity.tsv"
+    write_tsv(rarity_tsv, ["family_id", "rarity_labels",
+                           "independent_plasmid_cluster_count", "unique_plasmid_count",
+                           "MOB_count", "host_count", "genus_count", "rarity_version",
+                           "rare_max_lineages", "widely_conserved_min_lineages"],
+              [["F1", "RARE,LINEAGE_SPECIFIC", 1, 1, 1, 1, 1, "1", 3, 50],
+               ["F2", "RARE,CROSS_MOB", 2, 9, 3, 3, 2, "1", 3, 50]])
 
+    return (ann, pmap, fams, evo, rec, ctx, struct, orth, recur, syn,
+            rarity_tsv)
+
+
+def _run_report(fixture_dir, *tables):
+    """Drive annotation_report.py. With no tables passed, build the standard fixture.
+
+    Two tests need the deliverable written: one checks what is in it, the other checks
+    what must never be (spec section 76). Sharing a written file between them would make
+    the second silently skip whenever it ran alone.
+    """
+    if not tables:
+        tables = _report_fixture(fixture_dir)
+    ann, pmap, fams, evo, rec, ctx, struct, orth, recur, syn, rarity_tsv = tables
     out_ann = fixture_dir / "annotation_complete.csv"
     out_fam = fixture_dir / "dark_families_complete.csv"
     run_script("annotation_report.py", FakeSnakemake(
         input={"annotation": str(ann), "map": str(pmap), "families": str(fams),
                "evolution": str(evo), "recheck": str(rec),
-               "context": str(ctx), "structure": str(struct), "orthology": str(orth)},
+               "context": str(ctx), "structure": str(struct), "orthology": str(orth),
+               "recurrence": str(recur), "synteny": str(syn),
+               "rarity": str(rarity_tsv)},
         output={"annotation": str(out_ann), "families": str(out_fam)},
         params={"prioritisation": {"min_reality_lines": 2, "min_mob_clusters": 2},
                 "evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5}}))
+    return out_ann, out_fam
+
+
+def test_the_report_carries_every_orf_and_every_family(fixture_dir):
+    """The pipeline's output is every annotation it could produce, in a form you can sort
+    and filter yourself. Nothing is dropped for being artefactual, ORPHAN, or evidence-free,
+    and nothing is ranked - selecting candidates is a decision made on this table, not one
+    baked into a rule."""
+    out_ann, out_fam = _run_report(fixture_dir)
+
 
     import csv as _csv
     orfs = list(_csv.DictReader(open(out_ann)))
@@ -1280,6 +1331,22 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "top_q_value", "high_confidence",
         "cons_defence", "cons_integron",
         "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
+        # Stage 7: seven counts, never collapsed into one.
+        "plasmid_occurrence_count", "unique_plasmid_count",
+        "independent_plasmid_cluster_count", "independent_cluster_status",
+        "host_count", "species_count", "genus_count", "MOB_count", "habitat_count",
+        "database_record_count", "database_source_count",
+        # Stage 9: six conservation measurements, kept apart because they fail apart.
+        "context_recurrence", "n_occurrences", "left_neighbor_conservation",
+        "right_neighbor_conservation", "neighborhood_conservation",
+        "operon_like_conservation", "synteny_conservation", "modal_left", "modal_right",
+        "modal_synteny", "synteny_status",
+        # Stage 14: descriptors, not a ranking.
+        "rarity_labels", "rarity_version",
+        # Stage 15: dimensions counted, never scored.
+        "evidence_dimensions_present", "evidence_dimension_count",
+        "supporting_observations_count", "supporting_observations_are_not_independent",
+        "functional_hypothesis", "functional_hypothesis_support",
     ]
     assert list(fam_rows["F2"]) == FAMILY_COLUMNS, (
         f"family table columns changed: {list(fam_rows['F2'])}")
@@ -1296,6 +1363,64 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     carried = set(by_orf["p1|3"]) - annotation_cols - join_and_orthology
     assert carried == CARRIED_TO_ORFS, (
         f"family evidence carried to the ORF table changed: {sorted(carried)}")
+
+    # --- Stage 7: the counts stay apart ---------------------------------------------
+    # Section 34.2: "Database record counts must never be treated as independent
+    # biological observations." F2 is 40 gene copies on 9 records that are 2 lineages. If
+    # any of those three numbers can be read off another, the distinction is gone.
+    assert fam_rows["F2"]["plasmid_occurrence_count"] == "40"
+    assert fam_rows["F2"]["unique_plasmid_count"] == "9"
+    assert fam_rows["F2"]["independent_plasmid_cluster_count"] == "2", (
+        "the independent-lineage count is what a recurrence claim needs, and it is not "
+        "the record count")
+
+    # --- Stage 9: synteny, with its own status name ---------------------------------
+    assert fam_rows["F2"]["synteny_conservation"] == "0.7"
+    assert fam_rows["F1"]["synteny_status"] == "TOO_FEW_MEMBERS", (
+        "one occurrence is perfectly conserved with itself; that must read as a status, "
+        "not as a conservation of 1.0")
+
+    # --- Stage 14: labels are descriptors -------------------------------------------
+    assert fam_rows["F1"]["rarity_labels"] == "RARE,LINEAGE_SPECIFIC"
+    assert fam_rows["F1"]["rarity_version"] == "1", (
+        "a label whose definition can change must travel with the version that made it")
+
+    # --- Stage 15: dimensions counted, never scored ----------------------------------
+    dims = fam_rows["F2"]["evidence_dimensions_present"].split(",")
+    assert "EVOLUTIONARY_CONSERVATION" in dims, "dnds_status is a measurement"
+    assert "DISTRIBUTION" in dims, "independent_cluster_status is a measurement"
+    assert "GENOMIC_CONTEXT" in dims, "top_hypothesis is a measurement"
+    assert fam_rows["F2"]["evidence_dimension_count"] == str(len(dims))
+    assert fam_rows["F2"]["supporting_observations_are_not_independent"] == "1", (
+        "the observation count must carry its own warning, because a column selected "
+        "into a downstream ranking takes the warning with it")
+    assert fam_rows["F2"]["functional_hypothesis"] == "defence_associated", (
+        "a dark ORF recurrently beside a defence system is defence_associated")
+    assert fam_rows["F2"]["darkness_state"], (
+        "the hypothesis must not have changed what the protein IS (section 57)")
+
+
+def test_the_report_has_no_composite_score_or_rank(fixture_dir):
+    """Spec section 76 draws the Layer C boundary: the core pipeline produces no
+    top_1000, no candidate_score, no novelty_score and no experimental_rank.
+
+    Section 2.3 gives the reason, and it is not tidiness. Two proteins with the same total
+    can be entirely different bets - one with overwhelming evidence that it is a real
+    protein and no idea what it does, the other with a sharp hypothesis resting on almost
+    nothing - and those demand different experiments. A composite destroys exactly the
+    information a screening decision needs.
+
+    evidence_dimension_count is a count of distinct measurements present, which is why it
+    is allowed where a score is not.
+    """
+    import csv as _csv
+    _, out_fam = _run_report(fixture_dir)
+    columns = next(iter(_csv.DictReader(open(out_fam))))
+
+    forbidden = {"candidate_score", "novelty_score", "experimental_rank", "priority",
+                 "rank", "score", "total_score", "composite"}
+    assert not (set(columns) & forbidden), (
+        f"a ranking column reappeared in the deliverable: {set(columns) & forbidden}")
 
 
 # --- S1: origin repair is wired through the script, not only the library --------------

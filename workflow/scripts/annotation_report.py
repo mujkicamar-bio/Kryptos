@@ -13,7 +13,10 @@ Two files, because there are two natural units:
                               its orthology terms, and - where the ORF is dark - the
                               evidence assembled for its family.
   dark_families_complete.csv  one row per dark family. The selection surface: every piece
-                              of evidence S6-S8 produced, side by side.
+                              of evidence the run produced, side by side - annotation,
+                              evolution, context, structure, distribution (Stage 7),
+                              synteny (Stage 9), rarity (Stage 14) and the Stage 15
+                              evidence dimensions.
 
 CSV, not TSV, because these are the files that get opened in a spreadsheet. Every field is
 quoted by csv.writer where it needs to be, which matters: a DIAMOND stitle is free text and
@@ -25,11 +28,23 @@ Every ORF appears, including artefact-flagged ones. Every dark family appears, i
 ORPHANs and families that failed every test. Absence of evidence is written as an explicit
 status - TOO_FEW_MEMBERS, NO_DIVERGENCE, NO_SIGNAL - never as a blank that reads as a failed
 test. Choosing what to do with all that is the report's job, and the report is you.
+
+Spec section 76 draws the boundary as a list of columns that must NOT be here:
+candidate_score, novelty_score, experimental_rank, top_1000. Section 2.3 gives the reason,
+and it is not tidiness - two proteins with the same composite can be entirely different
+bets, one with overwhelming evidence that it is a real protein and no idea what it does,
+the other with a sharp hypothesis resting on almost nothing. Those demand different
+experiments, and a single number destroys the distinction.
+
+evidence_dimension_count counts DISTINCT MEASUREMENTS present, which is why it belongs
+here where a score does not. supporting_observations_count is reported beside it and
+labelled, in the column name itself, as not independent.
 """
 import _ctx  # noqa: F401
 import collections
 import csv
 
+from plasmidann import integration
 from plasmidann.evidence import reality_lines, darkness_state, reality_thresholds
 
 # check_reality_config went with Layer C: it validated that min_reality_lines - a SELECTION
@@ -83,6 +98,9 @@ def index_context(path):
 context = index_context(snakemake.input.context)
 structure = index(snakemake.input.structure, "seq_id")
 orthology = index(snakemake.input.orthology, "seq_id")
+recurrence = index(snakemake.input.recurrence, "family_id")
+synteny = index(snakemake.input.synteny, "family_id")
+rarity = index(snakemake.input.rarity, "family_id")
 
 # Which unique protein each ORF is, and which family each unique protein belongs to.
 seq_of_orf = {}
@@ -120,7 +138,42 @@ FAMILY_COLS = [
     # the neighbour.
     "cons_defence", "cons_integron",
     "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
+    # Stage 7 (section 34): SEVEN counts, never collapsed. A family on forty copies of one
+    # redeposited plasmid is one observation, and reading only the first of these numbers
+    # is how a reader concludes otherwise.
+    "plasmid_occurrence_count", "unique_plasmid_count",
+    "independent_plasmid_cluster_count", "independent_cluster_status",
+    "host_count", "species_count", "genus_count", "MOB_count", "habitat_count",
+    "database_record_count", "database_source_count",
+    # Stage 9 (section 42): six conservation measurements, kept apart because they fail
+    # apart - a conserved left neighbour with a variable right one is a real arrangement
+    # that a single averaged context score would hide.
+    "context_recurrence", "n_occurrences", "left_neighbor_conservation",
+    "right_neighbor_conservation", "neighborhood_conservation",
+    "operon_like_conservation", "synteny_conservation", "modal_left", "modal_right",
+    "modal_synteny", "synteny_status",
+    # Stage 14 (section 54): descriptors, not a ranking. RARE is not better than
+    # WIDELY_CONSERVED. The version travels because a label's definition can change.
+    "rarity_labels", "rarity_version",
+    # Stage 15 (sections 56-57): dimensions counted, never scored.
+    "evidence_dimensions_present", "evidence_dimension_count",
+    "supporting_observations_count", "supporting_observations_are_not_independent",
+    "functional_hypothesis", "functional_hypothesis_support",
 ]
+
+# Stage 7 and Stage 14 both report the distribution counts, because each stage needs them.
+# The report takes them from Stage 7, which is where they are computed; taking rarity's
+# copies as well would put the same number in the row twice under one name, and whichever
+# was merged last would win silently if the two ever disagreed.
+RARITY_COLS = ("rarity_labels", "rarity_version")
+
+# S9 writes a bare `status`. Every stage does, which is exactly why it cannot be merged
+# under that name: the family row already carries dnds_status and independent_cluster_status
+# and a third would overwrite by accident rather than by decision.
+SYNTENY_COLS = ("n_occurrences", "context_recurrence", "left_neighbor_conservation",
+                "right_neighbor_conservation", "neighborhood_conservation",
+                "operon_like_conservation", "synteny_conservation", "modal_left",
+                "modal_right", "modal_synteny")
 
 family_rows = {}
 with open(snakemake.output.families, "w", newline="") as out:
@@ -136,7 +189,23 @@ with open(snakemake.output.families, "w", newline="") as out:
                   "n_members": fam["n_members"],
                   "structural_match": struct.get("target", "")}
         n, fired, implied = reality_lines(record, THRESHOLDS)
+        rec = recurrence.get(fid, {})
+        syn = synteny.get(fid, {})
+        rar = rarity.get(fid, {})
         row = {**fam, **evo, **recheck.get(fid, {}), **ctx,
+               # Explicit column lists rather than a dict merge: recurrence carries its own
+               # `representative` and synteny its own `status`, and merging wholesale would
+               # overwrite the family's representative and one of the row's other statuses
+               # without anything failing.
+               **{c: rec.get(c, "") for c in FAMILY_COLS
+                  if c in ("plasmid_occurrence_count", "unique_plasmid_count",
+                           "independent_plasmid_cluster_count",
+                           "independent_cluster_status", "host_count", "species_count",
+                           "genus_count", "MOB_count", "habitat_count",
+                           "database_record_count", "database_source_count")},
+               **{c: syn.get(c, "") for c in SYNTENY_COLS},
+               "synteny_status": syn.get("status", ""),
+               **{c: rar.get(c, "") for c in RARITY_COLS},
                "reality_n": n,
                "reality_lines": "+".join(fired) or "none",
                "reality_lines_implied": "+".join(implied) or "none",
@@ -144,6 +213,15 @@ with open(snakemake.output.families, "w", newline="") as out:
                "structural_match": struct.get("target", ""),
                "structural_description": struct.get("target_description", ""),
                "structure_evalue": struct.get("evalue", "")}
+
+        # Stage 15 reads the assembled row, so it sees exactly the evidence a reader sees.
+        # Computing it from the source tables instead would let the two drift, and the
+        # dimension count is a claim ABOUT this row.
+        row.update(integration.evidence_summary(row))
+        hypothesis, support = integration.functional_hypothesis(row)
+        row["functional_hypothesis"] = hypothesis
+        row["functional_hypothesis_support"] = support
+
         family_rows[fid] = row
         w.writerow(row)
 

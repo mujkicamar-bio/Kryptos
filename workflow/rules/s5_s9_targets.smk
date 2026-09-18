@@ -464,6 +464,12 @@ rule annotation_report:
         recheck=f"{OUT}/s7/consensus_recheck.tsv",
         context=f"{OUT}/s8/family_context.tsv",
         structure=f"{OUT}/s8/structure_hits.tsv",
+        # Stages 7, 9 and 14 produced these and nothing read them. A stage whose output
+        # never reaches the deliverable is a stage whose cost is paid and whose evidence
+        # is not available to the reader the deliverable exists for.
+        recurrence=f"{OUT}/s7/recurrence.tsv",
+        synteny=f"{OUT}/s9/synteny.tsv",
+        rarity=f"{OUT}/s14/family_rarity.tsv",
     output:
         annotation=f"{OUT}/final/annotation_complete.csv",
         families=f"{OUT}/final/dark_families_complete.csv",
