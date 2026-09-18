@@ -19,16 +19,23 @@ flags travel as attributes so a reader can act on them; the record stays complet
 
 ONE PASS OVER EACH INPUT
 
-The annotation table is held indexed by plasmid, and the FASTA is streamed once. Reading the
-annotation per shard instead would be 600 scans of a 9.3M-row file, which is the quadratic
-pattern this pipeline has already had to fix twice.
+The annotation table is held indexed by plasmid, and the shards are streamed once. Reading
+the annotation per shard instead would be 600 scans of a 9.3M-row file, which is the
+quadratic pattern this pipeline has already had to fix twice.
+
+THE SCOPE IS THE SHARDS
+
+This stage used to stream the whole working-set FASTA and write a record for every sequence
+in it. That is the corpus, not the run: on the 100-plasmid test configuration it produced
+208,245 GenBank records and 11.9 GB. The TSV beside it was correctly scoped, so every count
+a reader would think to check looked right.
 """
 import _ctx  # noqa: F401
 import collections
 import csv
-import gzip
 
 from plasmidann.features import gff3_features, gff3_attributes, genbank_location
+from plasmidann.shards import iter_fasta
 
 # ------------------------------------------------------------------------------------
 # Topology and length, from the master table. Length decides where a join() wraps, so it
@@ -88,14 +95,9 @@ n_features = n_records = 0
 with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w") as gbk:
     gff.write("##gff-version 3\n")
 
-    name, chunks = None, []
-
-    def flush():
+    def write_record(name, seq):
         """Write one plasmid's GFF3 and GenBank records."""
         global n_features, n_records
-        if name is None:
-            return
-        seq = "".join(chunks)
         # The record's own length. size_bp from the master table is authoritative where the
         # two disagree, because that is what S1 used when it wrapped the coordinates.
         L = length_of.get(name, len(seq))
@@ -130,13 +132,7 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
             gbk.write(f"{i * 60 + 1:>9} {blocks}\n")
         gbk.write("//\n")
 
-    with gzip.open(snakemake.input.fasta, "rt") as fh:
-        for line in fh:
-            if line[0] == ">":
-                flush()
-                name, chunks = line[1:].split()[0], []
-            else:
-                chunks.append(line.strip())
-    flush()
+    for name, sequence in iter_fasta(snakemake.input.shards):
+        write_record(name, sequence)
 
 print(f"feature files: {n_records} records, {n_features} GFF3 features")

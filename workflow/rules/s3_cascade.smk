@@ -208,10 +208,14 @@ rule feature_files:
     160,375 ORFs were reconstructed across the origin of a circular plasmid and carry
     start > end. GFF3 forbids that and GenBank has dedicated syntax for it, so the same
     gene is written two different ways - see plasmidann.features.
+
+    Takes the SHARDS, not the corpus FASTA. Reading the corpus made the scope of these two
+    files a property of a config path rather than of the input the run was given: on the
+    100-plasmid test configuration it wrote 208,245 GenBank records.
     """
     input:
         annotation=f"{OUT}/s4/plasmid_annotation.tsv",
-        fasta=config["input"]["working_set_fasta"],
+        shards=[SHARD_PATHS[s] for s in SHARDS],
         master=config["input"]["master_table"],
     output:
         gff3=f"{OUT}/s4/plasmid_annotation.gff3",

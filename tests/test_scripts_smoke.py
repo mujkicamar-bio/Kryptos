@@ -772,7 +772,7 @@ def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
     gff = fixture_dir / "plasmid_annotation.gff3"
     gbk = fixture_dir / "plasmid_annotation.gbk"
     run_script("feature_files.py", FakeSnakemake(
-        input={"annotation": str(ann), "fasta": str(fasta), "master": str(master)},
+        input={"annotation": str(ann), "shards": [str(fasta)], "master": str(master)},
         output={"gff3": str(gff), "genbank": str(gbk)}))
 
     lines = [l for l in gff.read_text().splitlines() if not l.startswith("#")]
@@ -792,6 +792,48 @@ def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
     assert "atgcatgc" in text.lower().replace(" ", ""), "no sequence written"
 
 
+def test_feature_files_cover_the_shards_and_nothing_else(fixture_dir):
+    """One record per sequence in the shards, whether or not it carries an annotation.
+
+    This stage used to read the whole corpus FASTA, so on a 100-plasmid run it emitted
+    208,245 GenBank records. The scope has to come from the shards the run was handed. A
+    shard plasmid with no called ORFs still gets a record - it is in the analysis set and
+    the answer for it is "no features", which is not the same as the record being absent.
+    """
+    ann = fixture_dir / "scope.tsv"
+    write_tsv(ann, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                    "spans_origin", "annot_label", "functional_class", "annot_tier",
+                    "artefact_flag"],
+              [["in1|1", "in1", 10, 60, "+", 0, 0, "", "NONE", "", 0],
+               # A row for a plasmid that is NOT in the shards: the annotation table may
+               # be wider than this run's scope, and that must not put it in the output.
+               ["out1|1", "out1", 10, 60, "+", 0, 0, "", "NONE", "", 0]])
+    master = fixture_dir / "scope_master.tsv"
+    write_tsv(master, ["plasmid_id", "topology", "size_bp"],
+              [["in1", "circular", 200], ["in2", "linear", 200], ["out1", "linear", 200]])
+
+    shard_a = fixture_dir / "shard_a.fna"
+    write_fasta(shard_a, [("in1", "ATGC" * 50)])
+    shard_b = fixture_dir / "shard_b.fna"
+    write_fasta(shard_b, [("in2", "GGCC" * 50)])
+
+    gff = fixture_dir / "scope.gff3"
+    gbk = fixture_dir / "scope.gbk"
+    run_script("feature_files.py", FakeSnakemake(
+        input={"annotation": str(ann), "shards": [str(shard_a), str(shard_b)],
+               "master": str(master)},
+        output={"gff3": str(gff), "genbank": str(gbk)}))
+
+    loci = [l.split()[1] for l in gbk.read_text().splitlines() if l.startswith("LOCUS")]
+    assert loci == ["in1", "in2"], (
+        f"expected one record per shard sequence, got {loci} - a record for a plasmid "
+        "outside the shards means the stage is reading something wider than its input")
+
+    regions = [l.split()[1] for l in gff.read_text().splitlines()
+               if l.startswith("##sequence-region")]
+    assert regions == ["in1", "in2"], f"GFF3 scope disagrees with GenBank: {regions}"
+
+
 def test_a_dark_orf_is_written_without_a_fabricated_product(fixture_dir):
     """A dark ORF has no product. `product=` asserts it has one that is blank, and
     `product=hypothetical protein` fabricates an annotation the cascade did not make."""
@@ -809,7 +851,7 @@ def test_a_dark_orf_is_written_without_a_fabricated_product(fixture_dir):
 
     gff = fixture_dir / "o.gff3"
     run_script("feature_files.py", FakeSnakemake(
-        input={"annotation": str(ann), "fasta": str(fasta), "master": str(master)},
+        input={"annotation": str(ann), "shards": [str(fasta)], "master": str(master)},
         output={"gff3": str(gff), "genbank": str(fixture_dir / "o.gbk")}))
 
     row = [l for l in gff.read_text().splitlines() if not l.startswith("#")][0]

@@ -6,7 +6,10 @@ input:
   # The analysis set: the master table with the locked artifact exclusions already applied.
   # The plasmid count is NOT recorded here - it is derived at runtime and written to the
   # manifest (spec §3.1), because a hard-coded denominator silently goes stale.
-  working_set_fasta: data/plasmidscope_primary/provenance/working_set.fna.gz
+  #
+  # There is deliberately no corpus FASTA here. Every stage that needs sequence reads the
+  # shards, so the analysis scope is the input the run was handed rather than a path in
+  # this file - the feature stage once wrote 208,245 records for a 100-plasmid run.
   master_table: data/plasmidscope_primary/analysis_set.tsv
   # The plasmid shards, PREPARED OUTSIDE THE PIPELINE. Every FASTA in this directory is a
   # shard; its name is the file name without the extension. The pipeline no longer creates

@@ -17,7 +17,6 @@
 #               positives to measure recall at 1% resolution; below that a single
 #               failure is a 1% swing.
 input:
-  working_set_fasta: data/plasmidscope_primary/provenance/working_set.fna.gz
   master_table: data/plasmidscope_primary/analysis_set.tsv
   shard_dir: data/shards_test
   exclude_hab_top:

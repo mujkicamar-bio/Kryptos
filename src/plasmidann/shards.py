@@ -30,6 +30,7 @@ burned by exactly that class of failure - four stages once reported success whil
 nothing - so an empty shard set is refused at workflow load time, before any job is
 scheduled.
 """
+import gzip
 import pathlib
 import re
 
@@ -90,3 +91,36 @@ def discover_shards(directory):
             f"no FASTA shards found in {directory} (looked for {', '.join(SHARD_SUFFIXES)}). "
             "An empty shard set would let every stage succeed while writing nothing.")
     return {name: str(found[name]) for name in sorted(found)}
+
+
+def iter_fasta(paths):
+    """Yield (plasmid_id, sequence) for every record across `paths`, in file order.
+
+    THE SHARDS ARE THE ANALYSIS SCOPE
+
+    Two stages need sequence rather than coordinates - the feature files and the CDS
+    extraction for dN/dS - and both used to stream the whole working-set FASTA instead.
+    That made the scope of their output a property of a config path rather than of the
+    input the run was handed: on a 100-plasmid configuration the feature stage wrote
+    208,245 GenBank records, because the corpus is what it read.
+
+    Plain or gzipped, decided per file, because discover_shards accepts both and a
+    collection may be half converted. Handling only one would make an added compressed
+    batch yield no sequence while still being discovered as a shard - a silent skip.
+
+    The identifier is the header up to the first whitespace. Everything after it is
+    description, and plasmid_id is the join key for every table in the run.
+    """
+    for path in paths:
+        opener = gzip.open if str(path).endswith(".gz") else open
+        name, chunks = None, []
+        with opener(path, "rt") as fh:
+            for line in fh:
+                if line.startswith(">"):
+                    if name is not None:
+                        yield name, "".join(chunks)
+                    name, chunks = line[1:].split()[0], []
+                else:
+                    chunks.append(line.strip())
+        if name is not None:
+            yield name, "".join(chunks)

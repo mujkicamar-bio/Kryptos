@@ -218,7 +218,7 @@ rule extract_cds:
         ids=f"{OUT}/s6/dark_ids.txt",
         map=f"{OUT}/s2/protein_map.tsv",
         index=f"{OUT}/s1/orf_index.tsv",
-        fasta=config["input"]["working_set_fasta"],
+        shards=[SHARD_PATHS[s] for s in SHARDS],
     output:
         f"{OUT}/s7/dark_cds.fna",
     resources:

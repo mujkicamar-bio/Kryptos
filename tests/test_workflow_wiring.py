@@ -161,3 +161,27 @@ def test_the_resolved_dag_matches_the_rules_that_exist(tmp_path):
     assert "busted_confirm" not in jobs, "the DAG still schedules the removed stage"
     for rule in ("family_evolution", "consensus_recheck", "annotation_report"):
         assert rule in jobs, f"{rule} is missing from the resolved DAG"
+
+
+def test_no_rule_reads_the_whole_corpus_fasta():
+    """The shards define the analysis scope; the corpus FASTA does not.
+
+    rule feature_files streamed config["input"]["working_set_fasta"] and wrote one record
+    per sequence it found there. On the 100-plasmid test configuration that produced
+    208,245 GenBank records - 11.9 GB - for a run that had been asked to look at 100
+    plasmids. The TSV written by the same stage was correctly scoped, which is what kept
+    the defect out of sight: every count a reader checks came from the TSV.
+
+    A rule that needs sequence must take the shards, because those are what the run was
+    given. Reading the corpus instead makes the analysis scope a property of a file path
+    in the config rather than of the input the pipeline was handed.
+    """
+    offenders = []
+    for path in SMK:
+        for match in re.finditer(
+                r"(\w+)\s*=\s*config\[[\"']input[\"']\]\[[\"']working_set_fasta[\"']\]",
+                path.read_text()):
+            offenders.append(f"{path.name} takes {match.group(1)}=working_set_fasta")
+    assert not offenders, (
+        "these rules read the whole corpus rather than the shards they were given, so "
+        "their output covers plasmids outside the analysis scope: " + "; ".join(offenders))

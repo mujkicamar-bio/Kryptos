@@ -80,3 +80,50 @@ def test_a_name_that_cannot_be_a_wildcard_is_an_error(tmp_path):
 
     with pytest.raises(SystemExit, match="cannot"):
         shards.discover_shards(tmp_path)
+
+
+# ------------------------------------------------------------------------------------
+# iter_fasta: the shards are the analysis scope, so every stage that needs sequence
+# reads them rather than the corpus. Two stages do, which is why this lives here and not
+# in either script.
+# ------------------------------------------------------------------------------------
+
+def test_iter_fasta_reads_plain_and_gzipped_shards_alike(tmp_path):
+    """A shard directory may hold either, and SHARD_SUFFIXES already accepts both.
+
+    If the reader handled only one, adding a compressed batch to an uncompressed
+    collection would make the pipeline skip it silently - the file is discovered, so the
+    shard exists, and it simply yields no sequence.
+    """
+    plain = tmp_path / "a.fna"
+    plain.write_text(">p1 some description\nACGT\nACGT\n>p2\nTTTT\n")
+    zipped = tmp_path / "b.fna.gz"
+    with gzip.open(zipped, "wt") as fh:
+        fh.write(">p3\nGGGG\n")
+
+    records = list(shards.iter_fasta([plain, zipped]))
+    assert records == [("p1", "ACGTACGT"), ("p2", "TTTT"), ("p3", "GGGG")]
+
+
+def test_iter_fasta_takes_the_identifier_only_from_the_header(tmp_path):
+    """Everything after the first whitespace is description, not identity.
+
+    plasmid_id is the join key for every table in the run, so a description carried into
+    it makes every lookup miss - and that failure presents as an unannotated plasmid
+    rather than as an error.
+    """
+    path = tmp_path / "c.fna"
+    path.write_text(">NZ_CP012345.1 Escherichia coli plasmid pX, complete sequence\nACGT\n")
+
+    assert list(shards.iter_fasta([path])) == [("NZ_CP012345.1", "ACGT")]
+
+
+def test_iter_fasta_yields_nothing_for_an_empty_shard(tmp_path):
+    """An empty shard is not an error here. discover_shards already refuses a directory
+    with no shards in it; a single empty file is a batch that happened to be filtered to
+    nothing upstream, and the stages that read it should produce no rows rather than
+    stop the run."""
+    path = tmp_path / "d.fna"
+    path.write_text("")
+
+    assert list(shards.iter_fasta([path])) == []

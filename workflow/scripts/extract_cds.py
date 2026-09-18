@@ -2,7 +2,8 @@
 
 dN/dS needs codons, and the pipeline stores protein only - but orf_index.tsv carries
 plasmid_id, start, end, strand and spans_origin, which is enough to recover the CDS from
-the source FASTA.
+the shards. The shards rather than the corpus FASTA: they are what the run was given, and
+every other stage that needs sequence reads them.
 
 Two details that are easy to get wrong and silently corrupt every downstream estimate:
 
@@ -17,7 +18,8 @@ Two details that are easy to get wrong and silently corrupt every downstream est
 """
 import _ctx  # noqa: F401
 import csv
-import gzip
+
+from plasmidann.shards import iter_fasta
 
 COMPLEMENT = str.maketrans("ACGTNacgtn", "TGCANtgcan")
 
@@ -46,15 +48,13 @@ with open(snakemake.input.index, newline="") as fh:
             continue
         needed.setdefault(r["plasmid_id"], []).append((sid, r))
 
-opener = gzip.open if str(snakemake.input.fasta).endswith(".gz") else open
 n_written = n_origin = 0
 
 with open(snakemake.output[0], "w") as out:
-    def emit(pid, chunks):
+    def emit(pid, seq):
         global n_written, n_origin
-        if pid is None or pid not in needed:
+        if pid not in needed:
             return
-        seq = "".join(chunks)
         L = len(seq)
         for sid, r in needed[pid]:
             start, end = int(r["start"]), int(r["end"])
@@ -71,15 +71,8 @@ with open(snakemake.output[0], "w") as out:
             out.write(f">{sid}\n{nt}\n")
             n_written += 1
 
-    pid, buf = None, []
-    with opener(snakemake.input.fasta, "rt") as fh:
-        for line in fh:
-            if line[0] == ">":
-                emit(pid, buf)
-                pid, buf = line[1:].split()[0], []
-            else:
-                buf.append(line.strip())
-        emit(pid, buf)
+    for pid, seq in iter_fasta(snakemake.input.shards):
+        emit(pid, seq)
 
 print(f"CDS written={n_written} of {len(wanted)} dark proteins "
       f"(origin-spanning={n_origin})")
