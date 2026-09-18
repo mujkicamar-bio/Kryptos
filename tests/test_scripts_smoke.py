@@ -690,6 +690,106 @@ def test_every_normalised_context_row_carries_its_normalisation_definition(fixtu
             "value without its definition is not a result")
 
 
+def test_a_plasmid_carrying_a_category_away_from_the_family_does_not_break_the_test(
+        fixture_dir):
+    """The background and the family measure the same plasmid by different rules.
+
+    The background counts a plasmid for a category if ANY of its ORFs has that category in
+    context. The family counts it only if one of the FAMILY's ORFs does. So a plasmid where
+    the category sits beside some other gene is background-positive and family-negative,
+    and the 2x2 the Fisher test builds - family against the rest of the corpus - then has
+    a negative cell: rest_without = (N - n) - (K - k) < 0.
+
+    The pooled corpus background hid this. N was the whole collection, so N - n was large
+    enough to absorb the discrepancy and the cell stayed positive by luck rather than by
+    construction. Against a stratum of 36 it went negative on the first real run.
+
+    The fix is to derive the corpus counts from the REST of the population explicitly,
+    which is what the test is comparing against anyway.
+    """
+    # Three plasmids. On all three a relaxase is present. On p0 and p1 the family's dark
+    # ORF is beside it; on p2 the family's ORF is far away and a DIFFERENT dark ORF is
+    # beside it - so p2 is background-positive and family-negative.
+    ann_rows, pmap_lines, master_rows, members = [], [], [], []
+    for i in range(3):
+        pid = f"m{i}"
+        master_rows.append([pid, 5000])
+        if i < 2:
+            ann_rows += [[pid, f"{pid}|1", 100, 400, "+", "", "NONE"],
+                         [pid, f"{pid}|2", 430, 700, "+", "MobA_MobL", "FUNCTIONAL"]]
+            pmap_lines += [f"D{i}\t{pid}|1", f"M{i}\t{pid}|2"]
+        else:
+            # The family's ORF, with three intervening genes so the relaxase is outside
+            # its +-3 window; then an unrelated dark ORF right beside the relaxase.
+            ann_rows += [[pid, f"{pid}|1", 100, 400, "+", "", "NONE"]]
+            pmap_lines += [f"D{i}\t{pid}|1"]
+            for j, label in enumerate(["Filler", "Filler", "Filler"], start=2):
+                ann_rows.append([pid, f"{pid}|{j}", 1000 * j, 1000 * j + 300, "+",
+                                 label, "FUNCTIONAL"])
+                pmap_lines.append(f"F{i}_{j}\t{pid}|{j}")
+            ann_rows += [[pid, f"{pid}|5", 6000, 6300, "+", "", "NONE"],
+                         [pid, f"{pid}|6", 6400, 6700, "+", "MobA_MobL", "FUNCTIONAL"]]
+            pmap_lines += [f"O{i}\t{pid}|5", f"M{i}\t{pid}|6"]
+        members.append(f"D{i}")
+
+    # Four more plasmids in the collection that carry the relaxase beside a dark ORF but
+    # hold no member of this family. Without them the family covers the whole background,
+    # fisher_enrichment returns NOT_APPLICABLE before the 2x2 is built, and the negative
+    # cell is never reached.
+    for i in range(3, 7):
+        pid = f"m{i}"
+        master_rows.append([pid, 5000])
+        ann_rows += [[pid, f"{pid}|1", 100, 400, "+", "", "NONE"],
+                     [pid, f"{pid}|2", 430, 700, "+", "MobA_MobL", "FUNCTIONAL"]]
+        pmap_lines += [f"X{i}\t{pid}|1", f"M{i}\t{pid}|2"]
+
+    ann = fixture_dir / "mix_annotation.tsv"
+    write_tsv(ann, ["plasmid_id", "orf_id", "start", "end", "strand", "annot_label",
+                    "functional_class"], ann_rows)
+    fam = fixture_dir / "mix_families.tsv"
+    write_tsv(fam, ["family_id", "representative", "n_members", "n_plasmids",
+                    "n_mob_clusters", "family_class", "members"],
+              [["F1", "D0", 3, 3, 1, "FAMILY", ",".join(members)]])
+    pmap = fixture_dir / "mix_map.tsv"
+    pmap.write_text("\n".join(pmap_lines) + "\n")
+    defence = fixture_dir / "mix_defence.tsv"
+    write_tsv(defence, ["orf_id", "system"], [])
+    integrons = fixture_dir / "mix_integrons.tsv"
+    write_tsv(integrons, ["plasmid_id", "integron_id", "element", "start", "end",
+                          "integron_type", "annotation", "type_elt"], [])
+    labels_tsv = fixture_dir / "mix_labels.tsv"
+    write_tsv(labels_tsv, ["protein_id", "source", "tier", "kind", "label", "accession",
+                           "evidence_evalue", "evidence_coverage", "database",
+                           "database_version"],
+              [[f"M{i}", "pfam", "T1", "pfam_family", "MobA_MobL", "PF00000.1", "1e-40",
+                "0.9", "Pfam-A", "38.2"] for i in range(7)])
+    master = fixture_dir / "mix_master.tsv"
+    write_tsv(master, ["plasmid_id", "size_bp"], master_rows)
+
+    fams_out = fixture_dir / "mix_context.tsv"
+    bg_out = fixture_dir / "mix_background.tsv"
+    run_script("context_features.py", FakeSnakemake(
+        input={"annotation": str(ann), "families": str(fam), "map": str(pmap),
+               "defence": str(defence), "integrons": [str(integrons)],
+               "labels": str(labels_tsv), "master": str(master)},
+        output={"families": str(fams_out), "background": str(bg_out)},
+        params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3,
+                            "min_context_conservation": 0.50,
+                            "high_confidence_conservation": 0.90,
+                            "min_enrichment": 2.0},
+                "background": {"covariates": ["plasmid_length", "gene_count"],
+                               "min_stratum_size": 2},
+                "categories": None}))
+
+    rows = {r["category"]: r for r in read_tsv(fams_out)}
+    row = rows["pfam_family:MobA_MobL"]
+    assert row["n_units"] == "3"
+    assert row["n_units_with_category"] == "2", (
+        "the third plasmid carries the relaxase outside the family ORF's window, so the "
+        "family count must be 2 while the background count for that plasmid is 1")
+    assert row["status"], "the row was not produced at all"
+
+
 def test_context_writes_no_hand_assigned_category(fixture_dir):
     """The standing constraint at the stage that used to break it. backbone_adjacent and
     ta_candidate were classes assigned by a hand-written list of 73 Pfam family names -

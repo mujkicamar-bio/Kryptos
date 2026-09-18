@@ -227,6 +227,10 @@ for pid, genes in by_plasmid.items():
 plasmids_with = collections.Counter()
 stratum_with = collections.defaultdict(collections.Counter)
 stratum_size = collections.Counter()
+# Which categories each plasmid carries ANYWHERE. Needed because the background and a
+# family measure the same plasmid by different rules - see background_for - and the
+# difference has to be subtracted out rather than left to cancel by luck.
+categories_on_plasmid = {}
 
 for pid, genes in by_plasmid.items():
     present = set()
@@ -237,39 +241,72 @@ for pid, genes in by_plasmid.items():
     # Counted on the CATEGORY alone. Counting (category, subcategory) pairs would make the
     # background depend on how finely the categories happen to be subdivided, so adding a
     # subcategory would silently change every enrichment value in the table.
-    for category in {c for c, _ in present}:
+    flat = {c for c, _ in present}
+    categories_on_plasmid[pid] = flat
+    for category in flat:
         plasmids_with[category] += 1
         stratum_with[stratum][category] += 1
 
 n_plasmids = len(by_plasmid)
 
 
-def background_for(strata, category):
-    """(count, total, method, definition) for one category against one family's strata.
+def background_for(strata, category, family_plasmids, k):
+    """(K, N, method, definition) for one category against one family's strata.
 
     A family may span several strata - it is a family precisely because it recurs - so the
-    reference population is the union of the strata its plasmids occupy. That keeps the
-    family's own plasmids inside its background, which is what makes K >= k hold and what
-    enrich.fisher_enrichment requires.
+    reference population is the union of the strata its plasmids occupy.
+
+    THE TWO COUNTS MEASURE THE SAME PLASMID DIFFERENTLY
+
+    The background counts a plasmid for a category if ANY of its ORFs has that category in
+    context. The family counts it only if one of the FAMILY's ORFs does. A plasmid where
+    the category sits beside some other gene is therefore background-positive and
+    family-negative - and fisher_enrichment builds its 2x2 as the family against the REST
+    of the population, so that plasmid was being counted as present in the rest while
+    already being excluded from it. rest_without = (N - n) - (K - k) then goes NEGATIVE.
+
+    The pooled corpus background hid this: N was the whole collection, so the discrepancy
+    was absorbed by a large N - n and the cell stayed positive by luck. Against a stratum
+    of 36 it went negative on the first real run.
+
+    So the rest of the population is counted explicitly, by its own rule, and the nested
+    pair the caller needs is rebuilt from it: K = rest_with + k, N = rest_size + n. That is
+    consistent by construction and it is the same 2x2 the test was always meant to be.
 
     Below MIN_STRATUM plasmids the stratum cannot support a rate, and the comparison falls
     back to the pooled collection. The fallback is returned, never applied quietly.
     """
     total = sum(stratum_size[st] for st in strata)
-    if total < MIN_STRATUM:
-        return (plasmids_with.get(category, 0), n_plasmids, background.METHOD_POOLED,
-                background.describe_background(
-                    COVARIATES, sorted(strata)[0] if strata else (), n_plasmids, True))
-    count = sum(stratum_with[st].get(category, 0) for st in strata)
-    # One stratum is named in full; several are summarised, because a family spanning
-    # forty strata would otherwise write forty band labels into every row.
-    if len(strata) == 1:
+    pooled = total < MIN_STRATUM
+
+    if pooled:
+        bg_count, bg_total = plasmids_with.get(category, 0), n_plasmids
         described = background.describe_background(
-            COVARIATES, next(iter(strata)), total, False)
+            COVARIATES, sorted(strata)[0] if strata else (), n_plasmids, True)
+        method = background.METHOD_POOLED
     else:
-        described = (f"stratified on {'+'.join(COVARIATES)}; union of {len(strata)} "
-                     f"strata the family occupies; {total} plasmids")
-    return count, total, background.METHOD_STRATIFIED, described
+        bg_count, bg_total = sum(stratum_with[st].get(category, 0) for st in strata), total
+        # One stratum is named in full; several are summarised, because a family spanning
+        # forty strata would otherwise write forty band labels into every row.
+        if len(strata) == 1:
+            described = background.describe_background(
+                COVARIATES, next(iter(strata)), total, False)
+        else:
+            described = (f"stratified on {'+'.join(COVARIATES)}; union of {len(strata)} "
+                         f"strata the family occupies; {total} plasmids")
+        method = background.METHOD_STRATIFIED
+
+    # The family's own plasmids, removed from the background by the BACKGROUND's rule, and
+    # added back by the FAMILY's. Only plasmids actually in the background population are
+    # subtracted: a family plasmid outside it was never counted there.
+    in_background = [p for p in family_plasmids
+                     if pooled or stratum_of.get(p) in strata]
+    family_in_bg = sum(1 for p in in_background
+                       if category in categories_on_plasmid.get(p, ()))
+    rest_with = bg_count - family_in_bg
+    rest_size = bg_total - len(in_background)
+
+    return rest_with + k, rest_size + len(family_plasmids), method, described
 
 
 with open(snakemake.output.background, "w", newline="") as out:
@@ -335,7 +372,8 @@ with open(snakemake.output.families, "w", newline="") as out:
 
             tested = []
             for category, k in sorted(counts.items()):
-                K, N, method, definition = background_for(strata, category)
+                K, N, method, definition = background_for(
+                    strata, category, set(per_plasmid), k)
                 tested.append((category, k, enrich.fisher_enrichment(
                     k=k, n=n_units, K=K, N=N),
                     background.normalise(k, n_units, K, N, method, definition)))
