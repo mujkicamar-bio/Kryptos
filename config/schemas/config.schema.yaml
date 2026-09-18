@@ -62,4 +62,18 @@ properties:
   controls:
     type: object
     required: [positive, negative]
+    properties:
+      positive:
+        type: object
+        required: [raw_faa, n]
+      negative:
+        # Every one of these is load-bearing: n_shuffled and n_reverse_complement decide
+        # whether the cascade gets a false-positive measurement at all, and min_length
+        # decides whether that measurement means anything.
+        type: object
+        required: [n_shuffled, n_reverse_complement, min_length]
+        properties:
+          n_shuffled: {type: integer, minimum: 0}
+          n_reverse_complement: {type: integer, minimum: 0}
+          min_length: {type: integer, minimum: 1}
   seed: {type: integer}

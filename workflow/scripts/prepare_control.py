@@ -20,6 +20,13 @@ noise to the bench while looking entirely reasonable.
 
 Controls are excluded from the dark set at S6 by their prefix: they are instrumentation,
 not candidates.
+
+THE NEGATIVE CONTROLS ARE SPIKED HERE TOO
+
+S2d builds the decoys; this stage is where both control sets enter the query. They have to
+be spiked at the same point and into the same file, because the property that makes a
+control a control is that it traverses the identical code path - the same narrowing, the
+same shards, the same thresholds - as a real protein.
 """
 import _ctx  # noqa: F401
 import random
@@ -76,8 +83,9 @@ with open(snakemake.output.control, "w") as out:
         acc = header.split("|")[1] if "|" in header else f"u{i}"
         out.write(f">{CONTROL_PREFIX}{i:05d}_{acc}\n{seq}\n")
 
-# The spiked file is what the cascade actually searches.
-n_real = 0
+# The spiked file is what the cascade actually searches: the unique proteins, the positive
+# controls, and the negative controls from S2d.
+n_real = n_decoys = 0
 with open(snakemake.output.spiked, "w") as out:
     for line in open(snakemake.input.faa):
         out.write(line)
@@ -85,9 +93,12 @@ with open(snakemake.output.spiked, "w") as out:
     for i, (header, seq) in enumerate(records, start=1):
         acc = header.split("|")[1] if "|" in header else f"u{i}"
         out.write(f">{CONTROL_PREFIX}{i:05d}_{acc}\n{seq}\n")
+    for line in open(snakemake.input.decoys):
+        out.write(line)
+        n_decoys += line[0] == ">"
 
-print(f"controls={len(records)} spiked into {n_real} proteins "
-      f"(total {n_real + len(records)})")
+print(f"controls={len(records)} decoys={n_decoys} spiked into {n_real} proteins "
+      f"(total {n_real + len(records) + n_decoys})")
 # Enough controls to measure recall at the resolution the gate demands: at
 # min_control_recall = 0.99, fewer than 100 makes a single failure a 1% swing.
 # From config/targets.yaml, not a literal here: this governs a run-halting gate.

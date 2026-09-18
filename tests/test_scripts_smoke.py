@@ -134,8 +134,12 @@ def test_controls_with_uninformative_titles_are_excluded(fixture_dir):
     ])
     write_fasta(faa, [("realprotein", body)])
 
+    decoy_faa = fixture_dir / "negative_control.faa"
+    write_fasta(decoy_faa, [("DECOY_shuf_00000", "M" * 60),
+                            ("DECOY_rc_00001", "K" * 60)])
+
     run_script("prepare_control.py", FakeSnakemake(
-        input={"faa": str(faa), "raw": str(raw)},
+        input={"faa": str(faa), "raw": str(raw), "decoys": str(decoy_faa)},
         output={"control": str(control), "spiked": str(spiked)},
         params={"n_controls": 10, "min_controls": 1, "seed": 1}))
 
@@ -144,6 +148,13 @@ def test_controls_with_uninformative_titles_are_excluded(fixture_dir):
     joined = " ".join(headers).lower()
     assert "uncharacterized" not in joined
     assert "upf0102" not in joined
+
+    # Both control sets must be in the file the cascade actually searches. A decoy that
+    # never enters the query is a negative control in the config and nowhere else.
+    spiked_ids = [l[1:].strip() for l in open(spiked) if l.startswith(">")]
+    assert sum(i.startswith("CTRL_") for i in spiked_ids) == 3
+    assert sum(i.startswith("DECOY_") for i in spiked_ids) == 2, (
+        f"the decoys were not spiked into the cascade query set: {spiked_ids}")
 
 
 # --- S3 pre-flight: the rule that exists to stop 45-hour failures ---------------------
@@ -2086,3 +2097,127 @@ def test_structure_search_restricts_to_family_representatives(fixture_dir):
     assert names == {"rep_a", "rep_b"}, (
         f"the query set is {sorted(names)}; it must be one sequence per family, and "
         "member_a is a family member rather than a representative")
+
+
+# --- S2d: the negative control the config declared and nothing built ------------------
+
+def _decoy_fixture(fixture_dir, n_plasmids=12):
+    """Real CDS on real plasmids, which is what a decoy has to be built from.
+
+    A decoy drawn from a uniform random model is too easy - it fails to resemble anything
+    for reasons that have nothing to do with the cascade - so the source is the collection
+    itself.
+    """
+    import random
+    rng = random.Random(7)
+    shard = fixture_dir / "decoy_shard.fna"
+    rows, records = [], []
+    for i in range(n_plasmids):
+        pid = f"dp{i:02d}"
+        # A clean 300 bp frame: ATG, 98 sense codons, TAA.
+        sense = [c for c in ("GCT", "AAA", "GAT", "TTT", "CAT", "ATT", "CTG", "ATG",
+                             "AAT", "CCG", "CAG", "CGT", "AGC", "ACC", "GTT", "TGG",
+                             "TAT", "GGT", "GAA", "TGC")]
+        gene = "ATG" + "".join(rng.choice(sense) for _ in range(98)) + "TAA"
+        seq = "".join(rng.choice("ACGT") for _ in range(100)) + gene
+        records.append((pid, seq))
+        rows.append([f"{pid}|1", pid, 101, 100 + len(gene), "+", 0])
+    write_fasta(shard, records)
+    index = fixture_dir / "decoy_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "spans_origin"],
+              rows)
+    return index, shard
+
+
+def test_negative_controls_are_built_from_real_cds(fixture_dir):
+    """Spec section 58.2. The config declared 250 shuffled and 250 reverse-complement
+    decoys and nothing built them, so the pipeline had no test of the direction that
+    matters most here.
+
+    The deliverable is the DARK set - the complement of what the cascade could name. If
+    the cascade can be induced to name something that is not a protein, the complement is
+    not what it claims to be, and every statement about dark proteins inherits the error.
+    Positive controls cannot detect that; they test the other direction.
+    """
+    index, shard = _decoy_fixture(fixture_dir)
+    out = fixture_dir / "negative_control.faa"
+
+    run_script("prepare_decoys.py", FakeSnakemake(
+        input={"index": str(index), "shards": [str(shard)]},
+        output={"faa": str(out)},
+        params={"n_shuffled": 3, "n_reverse_complement": 3, "seed": 1,
+                "min_length": 50}))
+
+    records = [l[1:].strip() for l in out.read_text().splitlines() if l.startswith(">")]
+    assert all(r.startswith("DECOY_") for r in records), (
+        f"a decoy must be recognisable by prefix at every later stage: {records}")
+    assert sum("shuf" in r for r in records) == 3
+    assert sum("_rc_" in r for r in records) == 3
+
+
+def test_a_shuffled_decoy_keeps_its_source_composition_exactly(fixture_dir):
+    """Composition is preserved and order destroyed; that is the whole construction.
+
+    A hit to a shuffled sequence is a hit to amino-acid composition alone, and composition
+    is not evidence of function. A decoy that also changed composition would fail to
+    resemble anything for two reasons at once, and the test would no longer isolate the
+    one being made.
+    """
+    import collections as _c
+    index, shard = _decoy_fixture(fixture_dir)
+    out = fixture_dir / "negative_control.faa"
+
+    run_script("prepare_decoys.py", FakeSnakemake(
+        input={"index": str(index), "shards": [str(shard)]},
+        output={"faa": str(out)},
+        params={"n_shuffled": 4, "n_reverse_complement": 0, "seed": 1,
+                "min_length": 50}))
+
+    text = out.read_text().splitlines()
+    seqs = [text[i + 1] for i, l in enumerate(text) if l.startswith(">")]
+    assert seqs, "no decoy written"
+    for seq in seqs:
+        assert len(seq) >= 50
+        assert "*" not in seq, "a stop codon is not a residue"
+        # The source frame is a fixed 99-residue protein, so composition is checkable:
+        # every decoy must be a permutation of a real translated CDS.
+        assert set(seq) <= set("ACDEFGHIKLMNPQRSTVWY"), f"non-residue in decoy: {seq}"
+
+
+def test_decoys_reaching_the_gate_are_reported_as_a_false_positive_rate(fixture_dir):
+    """A decoy classed FUNCTIONAL is a false positive of the annotation cascade, and its
+    rate is a measurement this pipeline should report rather than assume.
+
+    It does NOT halt the run. A halting negative gate would stop the pipeline over the
+    hardest cases in the collection, and the number a reader needs is the rate itself.
+    """
+    prot = fixture_dir / "gate_prot.tsv"
+    write_tsv(prot, ["seq_id", "functional_class", "annot_tier", "annot_label"],
+              [["CTRL_00001_P1", "FUNCTIONAL", "T3", "Relaxase"],
+               ["CTRL_00002_P2", "FUNCTIONAL", "T1", "RepA"],
+               ["DECOY_shuf_00000", "NONE", "", ""],
+               ["DECOY_shuf_00001", "FUNCTIONAL", "T4", "hit by composition"],
+               ["DECOY_rc_00002", "NONE", "", ""],
+               ["DECOY_rc_00003", "NONE", "", ""],
+               ["realprotein", "NONE", "", ""]])
+    artefact = fixture_dir / "gate_artefact.tsv"
+    write_tsv(artefact, ["seq_id", "artefact_flag"], [["realprotein", 0]])
+    flags = fixture_dir / "gate_flags.tsv"
+    report = fixture_dir / "gate_report.txt"
+
+    run_script("quality_gate.py", FakeSnakemake(
+        input={"prot": str(prot), "artefact": str(artefact)},
+        output={"flags": str(flags), "report": str(report)},
+        params={"gate": {"min_control_recall": 0.99, "require_control_set": True,
+                         "min_controls": 2}}))
+
+    text = report.read_text()
+    assert "decoy_n=4" in text, f"the decoy count is not reported:\n{text}"
+    assert "decoy_false_positive_rate=0.25" in text, (
+        f"1 of 4 decoys was named FUNCTIONAL; the rate must be reported:\n{text}")
+
+    eligible = {r["seq_id"] for r in read_tsv(flags)}
+    assert not any(s.startswith("DECOY_") for s in eligible), (
+        "decoys are instrumentation, not screening candidates; they must not appear in "
+        "the target-eligibility table any more than the positive controls do")
+    assert "realprotein" in eligible

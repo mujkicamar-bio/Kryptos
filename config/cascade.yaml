@@ -54,11 +54,15 @@ partial_at: 0.5
 # anything upstream changes. Measured: the same alignment reports 4.1e-36 / 4.1e-35 /
 # 4.1e-34 at 200 / 2,000 / 20,000 queries.
 #
-# The value is the number of unique protein sequences in the analysis set, so an E-value
-# means "expected false positives across the whole study".
+# The value is the number of sequences the cascade actually searches, so an E-value means
+# "expected false positives across the whole study".
 #   9,317,050 ORFs -> 3,497,616 unique proteins (results/s2/unique_proteins.faa)
-# Recompute and update this if S1/S2 are re-run on a different analysis set.
-hmmer_z: 3497616
+#   + 500 spiked positive controls + 500 decoys = 3,498,616
+# The controls are part of the searched set by design - they have to take the identical
+# code path - so they are part of -Z. Recompute and update this if S1/S2 are re-run on a
+# different analysis set, or if either controls count changes;
+# plasmidann.cascade.check_hmmer_z refuses a mismatch at load time and names the value.
+hmmer_z: 3498616
 
 # DIAMOND reports at most this many targets per query. A sixth threshold that was
 # hardcoded in workflow/scripts/tier_search.py in v1.

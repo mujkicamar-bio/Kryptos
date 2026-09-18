@@ -2,9 +2,10 @@
 #
 # Differs from config/cascade.yaml in exactly two ways, both forced by the set size:
 #
-#   hmmer_z  5404, the number of sequences actually searched: 5,304 unique proteins
-#            plus the 100 spiked positive controls this configuration asks for. It
-#            therefore has to change whenever controls.positive.n changes, and
+#   hmmer_z  5504, the number of sequences actually searched: 5,304 unique proteins,
+#            plus the 100 spiked positive controls and the 100 decoys this
+#            configuration asks for. It therefore has to change whenever
+#            controls.positive.n or controls.negative changes, and
 #            plasmidann.cascade.check_hmmer_z refuses the mismatch with the value to
 #            set. hmmsearch reports
 #            E = (sequences searched) x P(score | null), so a -Z pinned to the
@@ -23,7 +24,7 @@ min_explained: 0.5
 min_coverage: 0.5
 full_at: 0.8
 partial_at: 0.5
-hmmer_z: 5404
+hmmer_z: 5504
 max_target_seqs: 5
 sweep_cohort_fraction: 0.02
 tiers:

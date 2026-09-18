@@ -1,5 +1,14 @@
 """S5: the quality gate. Halts the run if the cascade has a recall problem.
 
+TWO CONTROLS, ONE OF THEM HALTING
+
+The positive control halts the run; the negative control is measured and reported. That
+asymmetry is deliberate. A recall failure means "unannotated" carries no information, so
+everything downstream is void and the run should stop. A decoy that slipped through is a
+number the reader needs in order to interpret the dark set, not a reason to discard a
+collection - and a halting negative gate would stop the pipeline over the hardest
+sequences in it.
+
 POSITIVE CONTROL (success criterion SC2)
     Known plasmid biology is run through the same cascade as everything else and must come
     out FUNCTIONAL. ECLIPSE recovered 99.2-100% of 246 virulence, 42 AMR and 75 essential
@@ -82,6 +91,30 @@ shallow = sum(n for t, n in by_tier.items() if t in ("T1", "T2"))
 shallow_fraction = round(shallow / len(control_rows), 4) if control_rows else 0.0
 
 # ------------------------------------------------------------------------------------
+# Negative control: decoys built at S2d from real plasmid CDS, searched by every tier
+# under the same thresholds as everything else (spec section 58.2).
+#
+# Expected behaviour is DARK. A decoy classed FUNCTIONAL is a false positive of the
+# annotation cascade - the cascade named something that is not a protein - and since the
+# deliverable is the complement of what the cascade could name, that rate is what tells a
+# reader how clean the complement is.
+#
+# Reported, never halting. See the two-controls note at the top.
+# ------------------------------------------------------------------------------------
+DECOY_PREFIX = "DECOY_"
+decoy_rows = [r for r in rows if r["seq_id"].startswith(DECOY_PREFIX)]
+decoy_named = [r for r in decoy_rows if r["functional_class"] == "FUNCTIONAL"]
+decoy_fpr = (round(len(decoy_named) / len(decoy_rows), 4) if decoy_rows else "")
+
+# Broken down by construction, because they fail for different reasons. A shuffled decoy
+# that gets named was named on COMPOSITION alone; a reverse-complement decoy that gets
+# named is the shadow-ORF artefact the QC stage exists to flag. One rate hides which.
+by_class = collections.Counter(
+    "shuffled" if "_shuf_" in r["seq_id"] else "reverse_complement" for r in decoy_rows)
+named_by_class = collections.Counter(
+    "shuffled" if "_shuf_" in r["seq_id"] else "reverse_complement" for r in decoy_named)
+
+# ------------------------------------------------------------------------------------
 # Artefact flags from S2b and edge-partial ORFs are the other two exclusions.
 # ------------------------------------------------------------------------------------
 artefact_ids = set()
@@ -97,7 +130,7 @@ with open(snakemake.output.flags, "w", newline="") as out:
     w.writeheader()
     for r in rows:
         sid = r["seq_id"]
-        if sid.startswith(CONTROL_PREFIX):
+        if sid.startswith(CONTROL_PREFIX) or sid.startswith(DECOY_PREFIX):
             continue          # instrumentation, not a candidate
         reasons = []
         if sid in artefact_ids:
@@ -114,7 +147,8 @@ with open(snakemake.output.flags, "w", newline="") as out:
 
 summary = (f"proteins={len(rows)} artefact={len(artefact_ids)} "
            f"target_eligible={n_eligible} control_n={len(control_rows)} "
-           f"control_recall={recall}")
+           f"control_recall={recall} decoy_n={len(decoy_rows)} "
+           f"decoy_false_positive_rate={decoy_fpr}")
 with open(snakemake.output.report, "w") as out:
     out.write(summary + "\n")
     out.write(f"min_control_recall={cfg['min_control_recall']}\n")
@@ -123,6 +157,19 @@ with open(snakemake.output.report, "w") as out:
         out.write(f"  {tier}\t{n}\n")
     out.write(f"resolved at T1 or T2 (curated Pfam path)\t{shallow}/{len(control_rows)}"
               f"\t{shallow_fraction}\n")
+    out.write("\nnegative controls (decoys): expected DARK, reported not halting\n")
+    if not decoy_rows:
+        out.write("  NONE REACHED THE GATE - the cascade has no false-positive "
+                  "measurement for this run\n")
+    for construction in sorted(by_class):
+        n = by_class[construction]
+        named = named_by_class.get(construction, 0)
+        out.write(f"  {construction}\t{named}/{n}\t{round(named / n, 4)}\n")
+    if decoy_named:
+        out.write(f"\ndecoys named FUNCTIONAL ({len(decoy_named)}):\n")
+        for r in decoy_named[:50]:
+            out.write(f"  {r['seq_id']}\t{r.get('annot_tier', '')}\t"
+                      f"{r.get('annot_label', '')}\n")
     if failed:
         out.write(f"\ncontrols NOT classed FUNCTIONAL ({len(failed)}):\n")
         for sid in failed[:50]:

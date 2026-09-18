@@ -194,6 +194,37 @@ rule dereplicate:
         "scripts/dereplicate.py"
 
 
+rule prepare_decoys:
+    """S2d: the negative controls (spec section 58.2).
+
+    config declared 250 shuffled and 250 reverse-complement decoys, plasmidann.decoys held
+    the construction, and no rule called it - so the pipeline ran with one of its two
+    controls missing and no output said so.
+
+    Built from this collection's own CDS, because a decoy from a uniform random model
+    fails to resemble anything for reasons unrelated to the cascade's thresholds.
+    """
+    input:
+        index=f"{OUT}/s1/orf_index.tsv",
+        shards=[SHARD_PATHS[s] for s in SHARDS],
+    output:
+        faa=f"{OUT}/s2/negative_control.faa",
+    params:
+        n_shuffled=config["controls"]["negative"]["n_shuffled"],
+        n_reverse_complement=config["controls"]["negative"]["n_reverse_complement"],
+        min_length=config["controls"]["negative"]["min_length"],
+        seed=config["seed"],
+    resources:
+        mem_mb=8000,
+        runtime=60,
+    log:
+        f"{OUT}/logs/s2/prepare_decoys.log",
+    conda:
+        "envs/plasmidann.yaml"
+    script:
+        "scripts/prepare_decoys.py"
+
+
 rule prepare_control:
     """S2c: build the spike-in positive control and the cascade's actual query set.
 
@@ -205,6 +236,9 @@ rule prepare_control:
         faa=f"{OUT}/s2/unique_proteins.faa",
         raw=targets["quality_gate"]["control_fasta"].replace(
             "positive_control.faa", "raw.faa"),
+        # Both control sets enter the query at the same point and in the same file: what
+        # makes a control a control is that it takes the identical code path.
+        decoys=f"{OUT}/s2/negative_control.faa",
     output:
         control=targets["quality_gate"]["control_fasta"],
         spiked=f"{OUT}/s2/cascade_input.faa",

@@ -53,5 +53,6 @@ controls:
   negative:
     n_shuffled: 50
     n_reverse_complement: 50
+    min_length: 50
 seed: 20260916
 cascade_config: config/test/cascade.yaml

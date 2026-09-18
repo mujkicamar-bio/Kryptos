@@ -99,6 +99,10 @@ controls:
     # and must not receive a confident functional annotation.
     n_shuffled: 250
     n_reverse_complement: 250
+    # A decoy shorter than this is not a test of the cascade: nothing would name it, so it
+    # would pass the negative control for a reason that has nothing to do with the
+    # pipeline behaving correctly. 50 matches the control length floor.
+    min_length: 50
 
 # Seed for every stochastic step, so a rerun selects the identical sample (spec §61).
 seed: 20260916
