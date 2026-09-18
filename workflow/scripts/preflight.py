@@ -30,7 +30,13 @@ orthology = snakemake.params.get("orthology") or {}
 orthology_required = bool(orthology.get("required"))
 
 # method -> the executable that method actually invokes
-EXECUTABLE = {"hmmer": "hmmsearch", "diamond": "diamond"}
+EXECUTABLE = {"hmmer": "hmmsearch", "diamond": "diamond", "pharokka": None}
+
+# What a pharokka database directory must hold for protein mode: the phage families as an
+# MMseqs2 profile database and as HMMER3 profiles, the annotation table that names and
+# categorises them, and the CARD and VFDB databases searched in the same run.
+PHAROKKA_DB_FILES = ("phrogs_profile_db", "all_phrogs.h3m", "phrog_annot_v4.tsv",
+                     "CARD", "vfdb")
 
 problems = []
 resolved = {}
@@ -59,6 +65,17 @@ for tier in tiers:
     if db in checked_dbs:
         continue
     checked_dbs.add(db)
+    if tier["method"] == "pharokka":
+        # pharokka lives in its own environment and is named by path, not found on PATH.
+        exe = tier.get("exe", "")
+        if not (exe and os.access(exe, os.X_OK)):
+            problems.append(f"{tier['id']}: pharokka executable not found or not "
+                            f"executable: {exe!r} - build workflow/envs/pharokka.yaml")
+        missing = [f for f in PHAROKKA_DB_FILES if not os.path.exists(os.path.join(db, f))]
+        if missing:
+            problems.append(f"{tier['id']}: pharokka database {db} is missing "
+                            f"{', '.join(missing)} - run `pharokka install -o {db}`")
+        continue
     if not os.path.exists(db):
         problems.append(f"{tier['id']}: database not found: {db}")
     elif tier["method"] == "hmmer" and not os.path.exists(db + ".h3i"):
@@ -103,7 +120,9 @@ with open(snakemake.output[0], "w") as out:
         out.write(f"{tool}\t{resolved[tool]}\n")
     out.write("\ndatabase\tsize_bytes\n")
     for db in sorted(checked_dbs | {artefact["antifam_db"]}):
-        out.write(f"{db}\t{os.path.getsize(db)}\n")
+        # A pharokka database is a directory; report the size of its profile database.
+        path = os.path.join(db, "phrogs_profile_db") if os.path.isdir(db) else db
+        out.write(f"{db}\t{os.path.getsize(path) if os.path.exists(path) else 0}\n")
     out.write(f"\nstructure_required\t{structure_required}\n")
 
 print(f"pre-flight OK: {len(resolved)} tool(s), {len(checked_dbs) + 1} database(s)")

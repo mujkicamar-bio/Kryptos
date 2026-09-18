@@ -12,6 +12,8 @@ from the observed vocabulary. The kind is not decoration: 'repA' as a gene symbo
 'RepA_N' as a Pfam family are different statements with different reliability, and a
 grouping that cannot tell them apart cannot be audited.
 """
+import pytest
+
 from plasmidann import labels
 
 
@@ -20,7 +22,8 @@ def test_a_pfam_hit_yields_the_family_the_accession_the_description_and_the_clan
     pfam = {"RepA_N": {"accession": "PF06970.19",
                        "description": "Replication initiator protein A (RepA) N-terminus",
                        "type": "Domain", "clan": "CL0123"}}
-    row = {"tier": "T1", "label": "RepA_N", "target_accession": "PF06970.19",
+    row = {"tier": "T1", "source": "pfam", "label": "RepA_N",
+           "target_accession": "PF06970.19",
            "informative": "True"}
 
     out = labels.labels_from_hit(row, pfam=pfam)
@@ -40,7 +43,8 @@ def test_a_pfam_family_with_no_clan_emits_no_clan_label():
         "accession": "PF03135.20",
         "description": "CagE, TrbE, VirB family, component of type IV transporter system",
         "type": "Family", "clan": ""}}
-    row = {"tier": "T1", "label": "CagE_TrbE_VirB", "target_accession": "PF03135.20",
+    row = {"tier": "T1", "source": "pfam", "label": "CagE_TrbE_VirB",
+           "target_accession": "PF03135.20",
            "informative": "True"}
 
     kinds = {d["kind"] for d in labels.labels_from_hit(row, pfam=pfam)}
@@ -53,7 +57,8 @@ def test_a_pfam_family_absent_from_the_release_still_yields_the_family_name():
     """A family name the installed release does not know is a real event - a database
     mismatch - and the name must survive so the mismatch is visible in the table rather
     than silently dropping the hit."""
-    row = {"tier": "T2", "label": "Not_In_Pfam", "target_accession": "PF99999.1",
+    row = {"tier": "T2", "source": "pfam", "label": "Not_In_Pfam",
+           "target_accession": "PF99999.1",
            "informative": "True"}
 
     out = labels.labels_from_hit(row, pfam={})
@@ -66,7 +71,7 @@ def test_a_diamond_hit_yields_the_product_name_and_the_accession():
     swissprot and 'ACC product name [organism]' for nr - verified against the installed
     database. The product name is the label; the organism is not a functional statement
     and is not emitted as one."""
-    row = {"tier": "T3", "informative": "True",
+    row = {"tier": "T3", "source": "swissprot", "informative": "True",
            "target_accession": "P62554.1",
            "label": "P62554.1 RecName: Full=Toxin CcdB; AltName: Full=Protein LetD "
                     "[Escherichia coli K-12]"}
@@ -80,7 +85,7 @@ def test_a_diamond_hit_yields_the_product_name_and_the_accession():
 def test_an_nr_hit_yields_the_pgap_product_name():
     """On WP_ accessions the product name comes from PGAP's controlled vocabulary, which
     will be the largest single source of role-bearing names in the collection."""
-    row = {"tier": "T4", "informative": "True",
+    row = {"tier": "T4", "source": "nr", "informative": "True",
            "target_accession": "WP_000813620.1",
            "label": "WP_000813620.1 type II toxin-antitoxin system RelE/ParE family "
                     "toxin [Escherichia coli]"}
@@ -95,7 +100,7 @@ def test_the_multispecies_prefix_is_removed_from_an_nr_product():
     """'MULTISPECIES: relaxase' and 'relaxase' are the same product, and keeping the
     prefix would split every widespread protein into two labels - exactly the proteins a
     grouping most needs to see as one."""
-    row = {"tier": "T4", "informative": "True", "target_accession": "WP_1.1",
+    row = {"tier": "T4", "source": "nr", "informative": "True", "target_accession": "WP_1.1",
            "label": "WP_1.1 MULTISPECIES: conjugal transfer protein TraG "
                     "[Enterobacteriaceae]"}
 
@@ -109,7 +114,8 @@ def test_an_uninformative_hit_yields_no_label():
     protein, which the cascade already records as dark evidence, and it must never enter
     the functional vocabulary - a 'hypothetical protein' category would be the most
     frequent, and so the most apparently enriched, context feature in the run."""
-    row = {"tier": "T4", "informative": "False", "target_accession": "WP_2.1",
+    row = {"tier": "T4", "source": "nr", "informative": "False",
+           "target_accession": "WP_2.1",
            "label": "WP_2.1 hypothetical protein [Escherichia coli]"}
 
     assert labels.labels_from_hit(row) == []
@@ -119,7 +125,7 @@ def test_an_unparsable_title_still_yields_the_whole_title_as_the_product():
     """nr titles are not uniform and this parser will meet shapes it was not shown. The
     honest fallback is the whole string: a dropped label is invisible, a strange label is
     not."""
-    row = {"tier": "T4", "informative": "True", "target_accession": "",
+    row = {"tier": "T4", "source": "nr", "informative": "True", "target_accession": "",
            "label": "something with no recognisable structure"}
 
     by_kind = {d["kind"]: d["label"] for d in labels.labels_from_hit(row)}
@@ -197,13 +203,15 @@ def test_every_emitted_kind_is_declared():
                        "clan": "CL0123"}}
     emitted = set()
     emitted |= {d["kind"] for d in labels.labels_from_hit(
-        {"tier": "T1", "label": "RepA_N", "target_accession": "PF1.1",
+        {"tier": "T1", "source": "pfam", "label": "RepA_N", "target_accession": "PF1.1",
          "informative": "True"}, pfam=pfam)}
     emitted |= {d["kind"] for d in labels.labels_from_hit(
-        {"tier": "T3", "label": "P1.1 RecName: Full=Toxin CcdB [E. coli]",
+        {"tier": "T3", "source": "swissprot",
+         "label": "P1.1 RecName: Full=Toxin CcdB [E. coli]",
          "target_accession": "P1.1", "informative": "True"})}
     emitted |= {d["kind"] for d in labels.labels_from_hit(
-        {"tier": "T4", "label": "W1.1 relaxase [E. coli]", "target_accession": "W1.1",
+        {"tier": "T4", "source": "nr", "label": "W1.1 relaxase [E. coli]",
+         "target_accession": "W1.1",
          "informative": "True"})}
     emitted |= {d["kind"] for d in labels.labels_from_orthology(
         {"seq_id": "p", "cog_category": "L", "preferred_name": "repA",
@@ -227,3 +235,63 @@ def test_no_extraction_function_assigns_a_biological_role():
                  "backbone"}
 
     assert not (labels.KINDS & forbidden)
+
+
+# ------------------------------------------------------------------------------------
+# The kind is decided by the hit's SOURCE, which every hits.tsv row now carries.
+#
+# It used to be decided by tier id: T1 and T2 were Pfam, T3 was Swiss-Prot, anything else
+# nr. Inserting a tier - which the specification's cascade order requires - shifted every
+# tier below it, and every Swiss-Prot hit would have been labelled as an nr product with
+# nothing failing. The database a tier searches is declared in config and travels with
+# the row; the code no longer guesses it from the row's position.
+# ------------------------------------------------------------------------------------
+
+def test_a_swissprot_hit_is_recognised_by_its_source_not_its_tier_id():
+    row = {"tier": "T4", "source": "swissprot", "informative": "True",
+           "target_accession": "P62554.1",
+           "label": "P62554.1 RecName: Full=Toxin CcdB; AltName: Full=Protein LetD "
+                    "[Escherichia coli K-12]"}
+
+    by_kind = {d["kind"]: d["label"] for d in labels.labels_from_hit(row)}
+
+    assert by_kind == {"swissprot_product": "Toxin CcdB"}, (
+        "Swiss-Prot at T4 was read as nr: the label kind is being guessed from tier "
+        "position instead of read from the row's source")
+
+
+def test_a_pharokka_hit_yields_the_annotation_and_the_category():
+    """Two labels from one hit, because they are two different statements: what the family
+    is called, and which functional group the database puts it in. The category is the
+    grouping PHROGs' curators made; it is carried as a label like any other so the
+    category map can use it or not."""
+    row = {"tier": "T3", "source": "pharokka", "informative": "True",
+           "target_accession": "phrog_164", "label": "ParA-like partition protein",
+           "category": "DNA, RNA and nucleotide metabolism"}
+
+    by_kind = {d["kind"]: d["label"] for d in labels.labels_from_hit(row)}
+
+    assert by_kind == {"pharokka_annotation": "ParA-like partition protein",
+                       "pharokka_category": "DNA, RNA and nucleotide metabolism"}
+
+
+def test_card_and_vfdb_hits_from_the_pharokka_tier_have_their_own_kinds():
+    card = {"tier": "T3", "source": "card", "informative": "True",
+            "target_accession": "ARO:3000873", "label": "TEM beta-lactamase",
+            "category": "antibiotic inactivation"}
+    vfdb = {"tier": "T3", "source": "vfdb", "informative": "True",
+            "target_accession": "VFG000001", "label": "type IV pilus", "category": ""}
+
+    assert {d["kind"] for d in labels.labels_from_hit(card)} == {
+        "card_gene_family", "card_mechanism"}
+    assert {d["kind"] for d in labels.labels_from_hit(vfdb)} == {"vfdb_factor"}
+
+
+def test_a_row_without_a_source_is_refused():
+    """A hits.tsv from before the source column would be read with every label kind
+    wrong. Refusing it names the problem; guessing from the tier id reintroduces the
+    defect this replaces."""
+    row = {"tier": "T1", "informative": "True", "target_accession": "PF00000",
+           "label": "RepA_N"}
+    with pytest.raises(ValueError):
+        labels.labels_from_hit(row)

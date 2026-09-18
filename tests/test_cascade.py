@@ -174,3 +174,36 @@ def test_homology_depth_reports_the_uninformative_depth_when_nothing_named_it():
                    tier_order=["T1", "T2", "T3", "T4"])
     assert out["functional_class"] == "UNCHARACTERIZED_HOMOLOG"
     assert out["homology_depth"] == 3
+
+
+def test_a_family_assignment_without_coordinates_is_functional_not_domain_only():
+    """The pharokka tier reports a family, an annotation and an E-value, and no span:
+    pharokka deletes its alignment tables on exit. The families are whole-protein
+    clusters, so the hit is a family-level assignment, not a domain. Classing it
+    DOMAIN_ONLY because explained is 0 would say "a fragment of this protein matched",
+    which is the opposite of what the tool reported."""
+    hits = [{"tier": "T3", "label": "ParA-like partition protein", "coverage": "",
+             "evalue": "1e-42", "start": "", "end": ""}]
+
+    r = classify(hits, explained=0.0, min_coverage=0.5, tier_order=TIERS)
+
+    assert r["functional_class"] == "FUNCTIONAL"
+    assert r["annot_tier"] == "T3"
+    assert r["span_measured"] == 0, (
+        "the row must say its completeness was not measured, so that a reader does not "
+        "take explained_fraction=0 for a fragment")
+
+
+def test_a_measured_span_still_governs_when_one_is_present():
+    """A Pfam domain covering a third of the protein AND a family assignment: FUNCTIONAL,
+    because the family says the whole protein is known. But the span WAS measured, and
+    the row says so."""
+    hits = [{"tier": "T1", "label": "HTH_3", "coverage": 0.33, "evalue": "1e-10",
+             "start": 1, "end": 40},
+            {"tier": "T3", "label": "ParA-like partition protein", "coverage": "",
+             "evalue": "1e-42", "start": "", "end": ""}]
+
+    r = classify(hits, explained=0.33, min_coverage=0.5, tier_order=TIERS)
+
+    assert r["functional_class"] == "FUNCTIONAL"
+    assert r["span_measured"] == 1

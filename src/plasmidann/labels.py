@@ -54,9 +54,15 @@ KINDS = frozenset({
     "pfam_family",        # RepA_N            the family name, as tier_search records it
     "pfam_description",   # 'Replication initiator protein A (RepA) N-terminus'
     "pfam_clan",          # CL0123            families too divergent to align as one
-    # DIAMOND, tier T3 (NCBI rendering of Swiss-Prot) and tier T4 (nr)
+    # DIAMOND against NCBI's rendering of Swiss-Prot, and against nr
     "swissprot_product",  # 'Toxin CcdB'      from 'RecName: Full=...'
     "pgap_product",       # 'conjugal transfer protein TraG'
+    # pharokka in protein mode: the phage families, plus CARD and VFDB from the same run
+    "pharokka_annotation",  # 'terminase large subunit'   the family's own name
+    "pharokka_category",    # 'head and packaging'        the curators' functional group
+    "card_gene_family",     # 'TEM beta-lactamase'        CARD's AMR gene family
+    "card_mechanism",       # 'antibiotic inactivation'   CARD's resistance mechanism
+    "vfdb_factor",          # 'type IV pilus'             VFDB's virulence factor'
     # eggNOG-mapper, S4b
     "gene_symbol",        # repA, traG, mobA  the most systematic axis available
     "cog_category",       # L, D, V           one label per letter
@@ -74,14 +80,12 @@ KINDS = frozenset({
     "integron_type",      # complete, In0, CALIN
 })
 
-# Tiers whose label is a Pfam family name rather than a sequence title. Taken from the tier
-# method in config/cascade.yaml: the hmmer tiers search Pfam-A and report family names.
-_PFAM_TIERS = frozenset({"T1", "T2"})
-
-# The tier whose database is NCBI's rendering of Swiss-Prot. Its titles carry
-# 'RecName: Full=<name>;' rather than the UniProt 'OS=/GN=/PE=' structure, and notably no
-# gene symbol - verified against the installed database, not assumed.
-_SWISSPROT_TIERS = frozenset({"T3"})
+# Every hits.tsv row carries the SOURCE its tier searched, declared per tier in
+# config/cascade.yaml. The kind used to be decided from the tier id - T1 and T2 were Pfam,
+# T3 was Swiss-Prot, anything else nr - and inserting a tier, which the specification's
+# cascade order does, shifted every tier below it: every Swiss-Prot hit would have been
+# labelled as an nr product with nothing failing. The row now says what it is.
+SOURCES = frozenset({"pfam", "pharokka", "card", "vfdb", "swissprot", "nr"})
 
 # NCBI marks a title shared by several organisms with this prefix. 'MULTISPECIES: relaxase'
 # and 'relaxase' are the same product, so keeping the prefix would split every widespread
@@ -154,14 +158,20 @@ def labels_from_hit(row, pfam=None):
     if not _informative(row):
         return []
 
-    tier = row.get("tier", "")
+    source = (row.get("source") or "").strip()
+    if source not in SOURCES:
+        raise ValueError(
+            f"hits.tsv row for {row.get('query')!r} at tier {row.get('tier')!r} has "
+            f"source {source!r}, which is not one of {sorted(SOURCES)}. The label kind "
+            "is decided by the source; a row without one cannot be labelled correctly.")
+
     label = (row.get("label") or "").strip()
     accession = (row.get("target_accession") or "").strip()
     if not label:
         return []
 
     out = []
-    if tier in _PFAM_TIERS:
+    if source == "pfam":
         out.append({"kind": "pfam_family", "label": label, "accession": accession})
         meta = (pfam or {}).get(label)
         if meta:
@@ -173,10 +183,26 @@ def labels_from_hit(row, pfam=None):
                             "accession": accession})
         return out
 
+    category = (row.get("category") or "").strip()
+    if source == "pharokka":
+        out.append({"kind": "pharokka_annotation", "label": label, "accession": accession})
+        if category:
+            out.append({"kind": "pharokka_category", "label": category,
+                        "accession": accession})
+        return out
+    if source == "card":
+        out.append({"kind": "card_gene_family", "label": label, "accession": accession})
+        if category:
+            out.append({"kind": "card_mechanism", "label": category,
+                        "accession": accession})
+        return out
+    if source == "vfdb":
+        return [{"kind": "vfdb_factor", "label": label, "accession": accession}]
+
     parsed = parse_ncbi_title(label)
     if not parsed["product"]:
         return []
-    kind = "swissprot_product" if tier in _SWISSPROT_TIERS else "pgap_product"
+    kind = "swissprot_product" if source == "swissprot" else "pgap_product"
     return [{"kind": kind, "label": parsed["product"],
              "accession": accession or parsed["accession"]}]
 

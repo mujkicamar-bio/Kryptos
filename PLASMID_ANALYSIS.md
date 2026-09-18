@@ -694,9 +694,13 @@ pharokka_hit
 pharokka_family_id
 pharokka_annotation
 pharokka_category
-pharokka_score
 pharokka_evalue
-pharokka_query_coverage
+
+No query coverage or alignment span is required, because pharokka does not report one: it
+deletes its raw alignment tables on exit. A hit is therefore a FAMILY-LEVEL assignment -
+the families are whole-protein clusters - and is treated as such: FUNCTIONAL when the
+family is named, with annot_completeness recorded as NOT_MEASURED rather than derived from
+a span that was never observed.
 
 pharokka belongs to the broader sequence/domain homology evidence dimension.
 

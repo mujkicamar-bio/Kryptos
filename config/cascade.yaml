@@ -89,6 +89,7 @@ sweep_cohort_fraction: 0.02
 tiers:
   - id: T1
     method: hmmer
+    source: pfam
     db: data/refs/pfam/Pfam-A.hmm
     args: "--cut_ga"
     max_evalue: null
@@ -98,6 +99,7 @@ tiers:
 
   - id: T2
     method: hmmer
+    source: pfam
     db: data/refs/pfam/Pfam-A.hmm
     args: "-E 1e-5 --domE 1e-5 --incdomE 1e-5"
     max_evalue: 1.0e-5
@@ -120,7 +122,27 @@ tiers:
       the record.
 
   - id: T3
+    method: pharokka
+    source: pharokka
+    db: data/refs/pharokka
+    exe: envs/pharokka/bin/pharokka
+    args: ""
+    # pharokka's own default for every search it runs, and the same floor as the DIAMOND
+    # tiers. Applied by pharokka itself, to MMseqs2 and pyhmmer alike.
+    max_evalue: 1.0e-5
+    note: >
+      The phage tier (spec section 18): pharokka in protein mode, against the prokaryotic
+      virus protein families as a MMseqs2 profile database and as HMMER3 profiles, plus
+      CARD and VFDB in the same run. Placed before Swiss-Prot so it searches only what
+      Pfam could not explain. A hit carries a family, an annotation, a functional
+      category and an E-value, and NO alignment span - pharokka deletes its raw
+      alignments on exit - so it is a family-level assignment: FUNCTIONAL if the family
+      is named, with annot_completeness NOT_MEASURED. Most families are named
+      'hypothetical protein', which is_informative rejects here exactly as elsewhere.
+
+  - id: T4
     method: diamond
+    source: swissprot
     db: /sw/data/diamond_databases/Blast/latest/swissprot.dmnd
     args: "--very-sensitive"
     max_evalue: 1.0e-5
@@ -128,8 +150,9 @@ tiers:
       Swiss-Prot, 264 MB. Highest label quality available and nearly free; measured to
       clear 16.3% of Pfam's residue in seconds.
 
-  - id: T4
+  - id: T5
     method: diamond
+    source: nr
     db: /sw/data/diamond_databases/Blast/latest/nr.dmnd
     args: "--very-sensitive"
     max_evalue: 1.0e-5

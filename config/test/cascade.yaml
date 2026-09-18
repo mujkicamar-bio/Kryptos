@@ -30,6 +30,7 @@ sweep_cohort_fraction: 0.02
 tiers:
 - id: T1
   method: hmmer
+  source: pfam
   db: data/refs/pfam/Pfam-A.hmm
   args: --cut_ga
   max_evalue: null
@@ -39,6 +40,7 @@ tiers:
     '
 - id: T2
   method: hmmer
+  source: pfam
   db: data/refs/pfam/Pfam-A.hmm
   args: -E 1e-5 --domE 1e-5 --incdomE 1e-5
   max_evalue: 1.0e-05
@@ -61,7 +63,19 @@ tiers:
 
     '
 - id: T3
+  method: pharokka
+  source: pharokka
+  db: data/refs/pharokka
+  exe: envs/pharokka/bin/pharokka
+  args: ''
+  max_evalue: 1.0e-05
+  note: 'The phage tier, identical to production: pharokka is small enough that there is
+    no reason to substitute anything, and the point of the smoke run is the real tier.
+
+    '
+- id: T4
   method: diamond
+  source: swissprot
   db: /sw/data/diamond_databases/Blast/latest/swissprot.dmnd
   args: --very-sensitive
   max_evalue: 1.0e-05

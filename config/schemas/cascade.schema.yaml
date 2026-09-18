@@ -75,8 +75,18 @@ properties:
           pattern: "^T[0-9]+$"
         method:
           type: string
-          enum: [hmmer, diamond]
+          enum: [hmmer, pharokka, diamond]
+        # The database the tier searches, as every hits.tsv row will carry it. It decides
+        # a label's kind downstream; reading it from the row replaces guessing it from the
+        # tier's position, which broke the moment a tier was inserted.
+        source:
+          type: string
+          enum: [pfam, pharokka, swissprot, nr]
         db:
+          type: string
+        # pharokka tiers only: the executable, by path. pharokka runs in its own
+        # environment and is not on the pipeline's PATH.
+        exe:
           type: string
         args:
           type: string
@@ -87,7 +97,7 @@ properties:
           exclusiveMinimum: 0
         note:
           type: string
-      required: [id, method, db, args, max_evalue]
+      required: [id, method, source, db, args, max_evalue]
 
   artefact_screen:
     type: object

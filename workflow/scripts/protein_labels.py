@@ -46,10 +46,6 @@ _DATABASE = {
     "eggnog": ("eggNOG", "eggnog_version"),
 }
 
-# Tier to source. The hmmer tiers search Pfam-A; T3 is NCBI's rendering of Swiss-Prot and
-# T4 is nr. Taken from config/cascade.yaml rather than inferred from the label text.
-_TIER_SOURCE = {"T1": "pfam", "T2": "pfam", "T3": "swissprot", "T4": "nr"}
-
 params = snakemake.params
 pfam = pfam_meta.load(snakemake.input.pfam_dat)
 
@@ -100,15 +96,11 @@ for path in snakemake.input.hits:
     with open(path, newline="") as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
             n_hits += 1
-            source = _TIER_SOURCE.get(row.get("tier", ""))
-            if source is None:
-                # A tier this script does not know about would otherwise be silently
-                # dropped, which is how a whole database's labels go missing.
-                raise SystemExit(
-                    f"protein_labels: tier {row.get('tier')!r} has no source mapping. "
-                    "Add it to _TIER_SOURCE when a tier is added to config/cascade.yaml.")
+            # The source travels with the row, declared per tier in config/cascade.yaml.
+            # It used to be looked up from the tier id here, which broke the moment a tier
+            # was inserted. labels_from_hit refuses a row without one.
             for entry in labels.labels_from_hit(row, pfam=pfam):
-                add(row["query"], source, row.get("tier", ""), entry,
+                add(row["query"], row["source"], row.get("tier", ""), entry,
                     evalue=row.get("evalue", ""), coverage=row.get("coverage", ""))
 
 # ------------------------------------------------------------------------------------

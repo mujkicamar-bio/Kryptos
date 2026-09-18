@@ -44,10 +44,12 @@ named = collections.defaultdict(list)
 for f in snakemake.input.hits:
     with open(f, newline="") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
-            r["coverage"] = float(r["coverage"])
+            r["coverage"] = float(r["coverage"]) if r["coverage"] else ""
             r["target_coverage"] = float(r["target_coverage"]) if r["target_coverage"] else None
-            r["start"] = int(r["start"])
-            r["end"] = int(r["end"])
+            # Empty for a tier that reports no alignment span (pharokka). Left as the
+            # empty string rather than coerced: cascade.classify reads '' as "no span".
+            r["start"] = int(r["start"]) if r["start"] else ""
+            r["end"] = int(r["end"]) if r["end"] else ""
             by_query[r["query"]].append(r)
             if not is_informative(r["label"]):
                 unnamed[r["query"]].append(r)
@@ -104,15 +106,24 @@ with open(snakemake.output[0], "w", newline="") as out:
         labels = [x["label"] for x in u]
 
         # Dark coverage: the same merge, over the spans of hits that named nothing.
-        dcf = explained_fraction(length, uninformative_spans(u))
+        dcf = explained_fraction(length, uninformative_spans(
+            [x for x in u if x["start"] != "" and x["end"] != ""]))
+
+        classified = classify(by_query.get(sid, []), explained=ef,
+                              min_coverage=cfg["min_coverage"], tier_order=tier_order)
+        span_measured = classified.pop("span_measured")
 
         w.writerow({
             "seq_id": sid,
-            **classify(by_query.get(sid, []), explained=ef,
-                       min_coverage=cfg["min_coverage"], tier_order=tier_order),
+            **classified,
             "explained_fraction": ef,
-            "annot_completeness": completeness(ef, full_at=cfg["full_at"],
-                                               partial_at=cfg["partial_at"]),
+            # NOT_MEASURED when the class rests on a family-level assignment alone: the
+            # explained fraction is then 0 because nothing measured it, and reporting
+            # completeness NONE would read as "nothing matched" on a protein whose whole
+            # family is known. Spec section 2.9: absence of a measurement is a status.
+            "annot_completeness": (
+                completeness(ef, full_at=cfg["full_at"], partial_at=cfg["partial_at"])
+                if span_measured else "NOT_MEASURED"),
             # min_explained as a reported flag rather than a filter: the protein is in the
             # table either way, and this column can be recomputed at any threshold.
             "meets_min_explained": int(ef >= cfg["min_explained"]),

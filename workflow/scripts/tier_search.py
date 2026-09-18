@@ -12,10 +12,11 @@ Four defects found in review are fixed here; each is marked FIX in place.
 """
 import _ctx  # noqa: F401  - puts src/ on sys.path for the plasmidann package
 import csv
+import os
 import pathlib
 import subprocess
 
-from plasmidann import scratch
+from plasmidann import pharokka, scratch
 from plasmidann.cascade import (explained_fraction, narrow_by_explained,
                                 is_informative, passes_significance)
 
@@ -56,8 +57,14 @@ unnamed = {}   # every uninformative hit, kept as evidence someone else has seen
 n_rejected = 0 # hits dropped for insignificance - reported, so the gate is visible
 
 
-def record(q, label, qcov, tcov, ev, start, end, tlen, accession=""):
+def record(q, label, qcov, tcov, ev, start, end, tlen, accession="", source=None,
+           category=""):
     """Admit one parsed hit, or reject it.
+
+    `start`/`end` may be None for a tier that reports no alignment span - the pharokka
+    tier, whose raw alignments the tool deletes on exit. Such a hit contributes no span
+    to `explained`; it is a family-level assignment, and cascade.classify treats it as one.
+    The columns are written empty rather than invented.
 
     FIX (significance gate). Nothing enters until it clears the tier's declared
     max_evalue. Previously an insignificant domain could contribute a span, push a protein
@@ -71,8 +78,10 @@ def record(q, label, qcov, tcov, ev, start, end, tlen, accession=""):
         return
 
     qlen[q] = tlen
+    spanned = start is not None and end is not None
     if is_informative(label):
-        spans.setdefault(q, []).append((start, end))
+        if spanned:
+            spans.setdefault(q, []).append((start, end))
         # FIX (keep EVERY informative hit, not one per tier). Two documented claims depend
         # on this and neither could hold while the others were discarded:
         #
@@ -84,9 +93,11 @@ def record(q, label, qcov, tcov, ev, start, end, tlen, accession=""):
         #     exactly the multi-domain proteins it exists for - a replication initiator
         #     carrying RepA_N and Bac_RepA_C being the case that matters most here.
         hit = {"query": q, "label": label, "target_accession": accession,
-               "coverage": round(qcov, 4),
-               "target_coverage": round(tcov, 4), "evalue": ev,
-               "informative": True, "start": start, "end": end}
+               "coverage": round(qcov, 4) if qcov is not None else "",
+               "target_coverage": round(tcov, 4) if tcov is not None else "",
+               "evalue": ev, "informative": True,
+               "start": start if spanned else "", "end": end if spanned else "",
+               "source": source or spec["source"], "category": category}
         named.setdefault(q, []).append(hit)
         # FIX (best hit by significance, not width). A longer alignment is not a better
         # identification. Measured: 15.4% of labels change. The case that settled it was
@@ -102,9 +113,11 @@ def record(q, label, qcov, tcov, ev, start, end, tlen, accession=""):
         # spans and could not tell those apart.
         unnamed.setdefault(q, []).append(
             {"query": q, "label": label, "target_accession": accession,
-             "coverage": round(qcov, 4),
-             "target_coverage": round(tcov, 4), "evalue": ev, "informative": False,
-             "start": start, "end": end})
+             "coverage": round(qcov, 4) if qcov is not None else "",
+             "target_coverage": round(tcov, 4) if tcov is not None else "",
+             "evalue": ev, "informative": False,
+             "start": start if spanned else "", "end": end if spanned else "",
+             "source": source or spec["source"], "category": category})
 
 
 def _as_float(v):
@@ -160,6 +173,33 @@ if ids:
                    (int(f[16]) - int(f[15]) + 1) / hlen if hlen else 0.0,
                    f[12], a, b, tlen, accession=f[4])
 
+    elif spec["method"] == "pharokka":
+        # The phage tier (spec section 18): pharokka in protein mode, used as its authors
+        # ship it. It runs in its own environment, named by `exe`; pharokka checks for its
+        # helpers on PATH, so that environment's bin directory is put there for the call.
+        # See plasmidann.pharokka for what the output does and does not carry.
+        exe = pathlib.Path(spec["exe"]).resolve()
+        outdir = f"{tmp}/pharokka"
+        evalue_flag = "" if max_evalue is None else f"-e {max_evalue} "
+        subprocess.run(
+            f"{exe} proteins -i {faa} -o {outdir} -d {spec['db']} -t {snakemake.threads} "
+            f"-f -p tier {evalue_flag}{spec.get('args', '')}",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env={**os.environ, "PATH": f"{exe.parent}:{os.environ.get('PATH', '')}"})
+
+        merged = pathlib.Path(outdir) / "tier_full_merged_output.tsv"
+        if not merged.exists():
+            raise SystemExit(
+                f"[{spec['id']}] pharokka exited 0 but wrote no {merged.name}. See "
+                f"{outdir}/logs; the scratch directory is kept.")
+        for hit in pharokka.parse_merged(merged.read_text()):
+            # No span: start and end are None, and record() writes them empty. The label
+            # goes through is_informative exactly as at every other tier, so a family
+            # named 'hypothetical protein' does not make a dark protein annotated.
+            record(hit["query"], hit["label"], None, None, hit["evalue"], None, None,
+                   hit["query_length"], accession=hit["family_id"],
+                   source=hit["source"], category=hit["category"])
+
     elif spec["method"] == "diamond":
         raw = f"{tmp}/res.m8"
         # FIX (declared DIAMOND threshold). v1 declared none, so the operative cutoff was
@@ -211,8 +251,13 @@ if ids:
 # It is a flag rather than a separate file because the other hits are not runners-up to be
 # discarded: they are the rest of the protein's domain architecture, and the merged coverage
 # that decides FUNCTIONAL versus DOMAIN_ONLY is built from all of them.
+# `source` is the database the tier searched, declared per tier in config: it is what
+# decides a label's kind downstream, and reading it from the row replaces guessing it from
+# the tier's position. `category` is the functional group a database assigns to a family
+# where it has one (pharokka, CARD); empty elsewhere.
 cols = ["query", "label", "target_accession", "coverage", "target_coverage", "evalue",
-        "informative", "is_best", "start", "end", "tier", "threshold", "max_evalue"]
+        "informative", "is_best", "start", "end", "tier", "source", "category",
+        "threshold", "max_evalue"]
 with open(snakemake.output.hits, "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()

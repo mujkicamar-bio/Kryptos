@@ -154,13 +154,23 @@ def classify(hits, explained, min_coverage, tier_order):
     if not hits:
         return {"annot_tier": None, "annot_label": None, "functional_class": "NONE",
                 "homology_depth": None, "annot_qcov": None, "annot_tcov": None,
-                "annot_evalue": None, "n_informative_hits": 0}
+                "annot_evalue": None, "n_informative_hits": 0, "span_measured": 1}
 
     informative = [h for h in hits if is_informative(h.get("label"))]
+    # A hit with no coordinates is a FAMILY-LEVEL assignment from a tool that reports no
+    # alignment span - the pharokka tier, whose families are whole-protein clusters and
+    # whose raw alignments are deleted on exit. It says the whole protein belongs to a
+    # named family. Classing it DOMAIN_ONLY because `explained` is 0 would say "a fragment
+    # matched", the opposite of what was reported. So such a hit is FUNCTIONAL on its own,
+    # and the row records that its completeness was NOT measured rather than measured as 0.
+    family_level = [h for h in informative if not _has_span(h)]
     if informative:
         # Strongest evidence wins; cascade order breaks ties, since it is authority order.
         best = min(informative, key=lambda h: (_evalue_of(h), tier_order.index(h["tier"])))
-        cls = "FUNCTIONAL" if explained >= min_coverage else "DOMAIN_ONLY"
+        if explained >= min_coverage or family_level:
+            cls = "FUNCTIONAL"
+        else:
+            cls = "DOMAIN_ONLY"
         depth_from = informative
     else:
         # Nothing named it anywhere. Show the most authoritative record of having seen it.
@@ -190,7 +200,23 @@ def classify(hits, explained, min_coverage, tier_order):
         # 0.9 explained by one domain and 0.9 explained by six fragments are different
         # claims. Reported so the reader of the table can tell them apart.
         "n_informative_hits": len(informative),
+        # 0 when the class rests on a family-level assignment alone: explained_fraction
+        # is then 0 because nothing MEASURED it, not because nothing matched, and
+        # cascade_resolve reports completeness as NOT_MEASURED on that signal.
+        "span_measured": int(bool(informative) and (explained > 0 or not family_level)
+                             or not informative),
     }
+
+
+def _has_span(hit):
+    """Whether a hit carries alignment coordinates.
+
+    hits.tsv always has the start and end columns; a tier that reports no span writes them
+    EMPTY, and csv.DictReader hands that back as ''. So the signal is an explicitly empty
+    coordinate. A hit dict with no such key at all is treated as spanned - that is the
+    shape of every hit before the column existed, and of the fixtures written for it.
+    """
+    return hit.get("start", 0) != "" and hit.get("end", 0) != ""
 
 
 # ---------------------------------------------------------------------------------

@@ -176,7 +176,7 @@ def test_preflight_checks_every_tool_the_workflow_runs(fixture_dir):
 
     run_script("preflight.py", FakeSnakemake(
         output=[str(out)],
-        params={"tiers": [{"id": "T1", "method": "hmmer", "db": str(db),
+        params={"tiers": [{"id": "T1", "method": "hmmer", "source": "pfam", "db": str(db),
                            "args": "--cut_ga", "max_evalue": None}],
                 "artefact": {"antifam_db": str(antifam)},
                 "structure": {"required": False},
@@ -210,7 +210,7 @@ def test_preflight_fails_when_a_downstream_tool_is_missing(fixture_dir, monkeypa
     with pytest.raises(SystemExit) as exc:
         run_script("preflight.py", FakeSnakemake(
             output=[str(fixture_dir / "preflight.tsv")],
-            params={"tiers": [{"id": "T1", "method": "hmmer", "db": str(db),
+            params={"tiers": [{"id": "T1", "method": "hmmer", "source": "pfam", "db": str(db),
                                "args": "--cut_ga", "max_evalue": None}],
                     "artefact": {"antifam_db": str(antifam)},
                     "structure": {"required": False},
@@ -399,7 +399,7 @@ def test_a_diamond_tier_without_an_evalue_criterion_runs(fixture_dir):
                "preflight": ""},
         output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
                 "spans": str(out.parent / "spans.tsv")},
-        params={"spec": {"id": "T3", "method": "diamond", "db": str(db),
+        params={"spec": {"id": "T3", "method": "diamond", "source": "swissprot", "db": str(db),
                          "args": "--very-sensitive", "max_evalue": None},
                 "narrow_at": 0.9, "hmmer_z": 3497616, "max_target_seqs": 5},
         threads=1))
@@ -425,7 +425,7 @@ def test_a_tier_carries_forward_what_it_could_not_explain(fixture_dir):
         input={"faa": str(faa), "spans": [], "sweep": "", "preflight": ""},
         output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
                 "spans": str(out.parent / "spans.tsv")},
-        params={"spec": {"id": "T3", "method": "diamond", "db": str(db),
+        params={"spec": {"id": "T3", "method": "diamond", "source": "swissprot", "db": str(db),
                          "args": "--very-sensitive", "max_evalue": 1.0e-5},
                 "narrow_at": 0.9, "hmmer_z": 3497616, "max_target_seqs": 5},
         threads=1))
@@ -452,11 +452,13 @@ def test_every_informative_label_survives_into_the_resolved_row(fixture_dir):
     filter."""
     hits = fixture_dir / "hits.tsv"
     write_tsv(hits, ["query", "label", "coverage", "target_coverage", "evalue",
-                     "informative", "is_best", "start", "end", "tier", "threshold",
-                     "max_evalue"],
-              [["P1", "RepA_N", 0.45, 0.9, "1e-20", True, 0, 1, 45, "T1", "--cut_ga", ""],
+                     "informative", "is_best", "start", "end", "tier", "source",
+                     "category", "threshold", "max_evalue"],
+              [["P1", "RepA_N", 0.45, 0.9, "1e-20", True, 0, 1, 45, "T1", "pfam", "",
+                "--cut_ga", ""],
                ["P1", "MULTISPECIES: replication protein [Enterobacteriaceae]", 0.95,
-                0.9, "1e-90", True, 1, 1, 95, "T4", "--very-sensitive", "1e-05"]])
+                0.9, "1e-90", True, 1, 1, 95, "T4", "nr", "", "--very-sensitive",
+                "1e-05"]])
     spans = fixture_dir / "spans.tsv"
     write_tsv(spans, ["seq_id", "qlen", "intervals", "explained_fraction"],
               [["P1", 100, "1-95", 0.95]])
@@ -977,7 +979,7 @@ def test_every_domain_of_a_multi_domain_protein_is_recorded(fixture_dir):
         input={"faa": str(faa), "spans": [], "sweep": "", "preflight": ""},
         output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
                 "spans": str(out.parent / "spans.tsv")},
-        params={"spec": {"id": "T3", "method": "diamond", "db": str(db),
+        params={"spec": {"id": "T3", "method": "diamond", "source": "swissprot", "db": str(db),
                          "args": "--very-sensitive", "max_evalue": 1.0e-3},
                 "narrow_at": 0.9, "hmmer_z": 3497616, "max_target_seqs": 5},
         threads=1))
@@ -1612,7 +1614,7 @@ def test_tier_search_keeps_the_subject_accession(fixture_dir):
                "preflight": str(preflight)},
         output={"hits": str(hits), "unresolved": str(fixture_dir / "un.faa"),
                 "spans": str(fixture_dir / "spans_out.tsv")},
-        params={"spec": {"id": "T3", "method": "diamond", "db": str(dmnd),
+        params={"spec": {"id": "T3", "method": "diamond", "source": "swissprot", "db": str(dmnd),
                          "args": "--fast", "max_evalue": 1e-5},
                 "narrow_at": 0.9, "hmmer_z": 1000, "max_target_seqs": 5},
         threads=1))
@@ -1682,14 +1684,14 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
 
     hits = fixture_dir / "hits.tsv"
     write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
-                     "evalue", "informative", "is_best", "start", "end", "tier",
-                     "threshold", "max_evalue"],
+                     "evalue", "informative", "is_best", "start", "end", "tier", "source",
+                     "category", "threshold", "max_evalue"],
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
-                "T1", "--cut_ga", ""],
+                "T1", "pfam", "", "--cut_ga", ""],
                ["s1", "P62554.1 RecName: Full=Toxin CcdB [Escherichia coli]", "P62554.1",
-                0.8, 0.9, "1e-30", "True", 1, 1, 90, "T3", "--fast", "1e-5"],
+                0.8, 0.9, "1e-30", "True", 1, 1, 90, "T3", "swissprot", "", "--fast", "1e-5"],
                ["s2", "WP_1.1 hypothetical protein [Escherichia coli]", "WP_1.1",
-                0.95, 0.9, "1e-20", "False", 1, 1, 95, "T4", "--fast", "1e-10"]])
+                0.95, 0.9, "1e-20", "False", 1, 1, 95, "T4", "nr", "", "--fast", "1e-10"]])
 
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
@@ -1733,10 +1735,10 @@ def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
     grouping built on it cannot be described in a methods section."""
     hits = fixture_dir / "hits.tsv"
     write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
-                     "evalue", "informative", "is_best", "start", "end", "tier",
-                     "threshold", "max_evalue"],
+                     "evalue", "informative", "is_best", "start", "end", "tier", "source",
+                     "category", "threshold", "max_evalue"],
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
-                "T1", "--cut_ga", ""]])
+                "T1", "pfam", "", "--cut_ga", ""]])
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec",
@@ -1764,12 +1766,12 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
     categories are counted."""
     hits = fixture_dir / "hits.tsv"
     write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
-                     "evalue", "informative", "is_best", "start", "end", "tier",
-                     "threshold", "max_evalue"],
+                     "evalue", "informative", "is_best", "start", "end", "tier", "source",
+                     "category", "threshold", "max_evalue"],
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-10", "True", 1, 1, 100,
-                "T1", "--cut_ga", ""],
+                "T1", "pfam", "", "--cut_ga", ""],
                ["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
-                "T2", "-E 1e-5", "1e-5"]])
+                "T2", "pfam", "", "-E 1e-5", "1e-5"]])
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec",
@@ -2321,3 +2323,40 @@ def test_decoys_reaching_the_gate_are_reported_as_a_false_positive_rate(fixture_
         "decoys are instrumentation, not screening candidates; they must not appear in "
         "the target-eligibility table any more than the positive controls do")
     assert "realprotein" in eligible
+
+
+# --- the phage tier reports no span, and the table must say so -------------------------
+
+def test_a_family_level_hit_resolves_functional_with_completeness_not_measured(fixture_dir):
+    """The pharokka tier reports a family, an annotation and an E-value and no coordinates.
+    A protein named by it alone must come out FUNCTIONAL - the family says the whole
+    protein is known - and its completeness must read NOT_MEASURED, not NONE. NONE would
+    say "nothing matched" on a protein whose whole family is known (spec section 2.9:
+    absence of a measurement is a status, never a zero)."""
+    hits = fixture_dir / "phage_hits.tsv"
+    write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
+                     "evalue", "informative", "is_best", "start", "end", "tier", "source",
+                     "category", "threshold", "max_evalue"],
+              [["P1", "ParA-like partition protein", "phrog_164", "", "", "1e-42", True,
+                1, "", "", "T3", "pharokka", "DNA, RNA and nucleotide metabolism", "",
+                "1e-05"]])
+    spans = fixture_dir / "phage_spans.tsv"
+    write_tsv(spans, ["seq_id", "qlen", "intervals", "explained_fraction"],
+              [["P1", 250, "", 0.0]])
+    faa = fixture_dir / "phage.faa"
+    write_fasta(faa, [("P1", "M" * 250)])
+    out = fixture_dir / "phage_annotation.tsv"
+
+    run_script("cascade_resolve.py", FakeSnakemake(
+        input={"hits": [str(hits)], "spans": [str(spans)], "faa": str(faa)},
+        output=[str(out)],
+        params={"thresholds": {"min_coverage": 0.5, "min_explained": 0.5,
+                               "narrow_at": 0.9, "full_at": 0.8, "partial_at": 0.5},
+                "tier_order": ["T1", "T2", "T3", "T4"]}))
+
+    row = read_tsv(out)[0]
+    assert row["functional_class"] == "FUNCTIONAL", row
+    assert row["annot_tier"] == "T3"
+    assert row["annot_completeness"] == "NOT_MEASURED", (
+        f"completeness must say it was not measured, got {row['annot_completeness']!r}")
+    assert row["explained_fraction"] == "0.0"
