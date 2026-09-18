@@ -26,6 +26,8 @@ REQUIRED_TOOLS = [
      "why": "the Swiss-Prot and nr cascade tiers"},
     {"name": "tantan", "stage": "S2b",
      "why": "low-complexity masking; without it every protein reports 0 masked"},
+    {"name": "mash", "stage": "Stage 6",
+     "why": "plasmid lineage clustering - sequence independence, separate from MOB class"},
     {"name": "mmseqs", "stage": "S6b",
      "why": "deep-homology clustering into families; nothing downstream has families"},
     {"name": "mafft", "stage": "S7b",

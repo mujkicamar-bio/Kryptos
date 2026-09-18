@@ -620,10 +620,13 @@ def test_structure_search_reports_what_the_match_actually_is(fixture_dir):
                        "TMLLLQLPHIGQVQAGVWPAAVRESVPSLL")])
     out = fixture_dir / "structure_hits.tsv"
 
+    # scope: all, so the test searches the query it wrote rather than resolving family
+    # representatives. The representative path is covered by its own test below.
     run_script("structure_search.py", FakeSnakemake(
-        input={"faa": str(faa)},
+        input={"faa": str(faa), "families": str(fixture_dir / "unused_families.tsv")},
         output=[str(out)],
-        params={"structure": {"max_evalue": 1.0e-3, "min_plddt": 70, "required": True},
+        params={"structure": {"max_evalue": 1.0e-3, "min_plddt": 70, "required": True,
+                              "scope": "all"},
                 "target_db": FOLDSEEK_DB, "prostt5": PROSTT5},
         threads=4))
 
@@ -641,40 +644,52 @@ def test_structure_search_reports_what_the_match_actually_is(fixture_dir):
 @requires("mmseqs")
 def test_a_conserved_protein_on_many_plasmids_is_not_reported_as_a_singleton(fixture_dir):
     """Clustering runs on the DEREPLICATED set, so a protein whose sequence is identical on
-    two hundred plasmids is ONE member. It clusters alone, is labelled ORPHAN, and fails
-    the `is_family` reality test - while being one of the most strongly conserved things in
-    the collection.
+    two hundred plasmids is ONE member. It clusters alone and is labelled ORPHAN - while
+    being one of the most strongly conserved things in the collection.
 
     That is defensible as a definition: it is not a family of divergent homologs. It is not
-    defensible as a REPORT, because `n_members: 1` reads as "seen once". The ORF count has
-    to be there too, or a reader cannot tell a genuine singleton from a protein carried by
-    two hundred plasmids."""
-    faa = fixture_dir / "dark_proteins.faa"
+    defensible as a REPORT, because `family_size: 1` reads as "seen once". The ORF count
+    has to be there too, or a reader cannot tell a genuine singleton from a protein carried
+    by two hundred plasmids."""
+    faa = fixture_dir / "unique_proteins.faa"
     write_fasta(faa, [("S1", "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEK"),
                       ("S2", "MQQTTLNRSDEIVWCAPGHKGGAFLNDVWRDNPHLAGCVLLTSDGKLLWQRRD")])
     pmap = fixture_dir / "protein_map.tsv"
     # S1 is one unique sequence carried by four plasmids; S2 by one.
     pmap.write_text("S1\tp1|1,p2|1,p3|1,p4|1\nS2\tp5|1\n")
     registry = fixture_dir / "clonal_registry.tsv"
-    write_tsv(registry, ["plasmid_id", "mob_cluster"],
-              [["p1", "AA1"], ["p2", "AA2"], ["p3", "AA3"], ["p4", "AA1"], ["p5", "AA9"]])
-    out = fixture_dir / "dark_families.tsv"
+    write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "hab_top"],
+              [["p1", "AA1", "E. coli", "H"], ["p2", "AA2", "E. coli", "H"],
+               ["p3", "AA3", "E. coli", "H"], ["p4", "AA1", "E. coli", "H"],
+               ["p5", "AA9", "E. coli", "H"]])
+    lineage = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["p1", "L1"], ["p2", "L2"], ["p3", "L3"], ["p4", "L1"], ["p5", "L9"]])
+    dark_ids = fixture_dir / "dark_ids.txt"
+    dark_ids.write_text("S1\nS2\n")
+    out = fixture_dir / "protein_families.tsv"
 
-    run_script("cluster_dark.py", FakeSnakemake(
-        input={"faa": str(faa), "map": str(pmap), "registry": str(registry)},
-        output={"tsv": str(out)},
-        params={"clustering": {"min_seq_id": 0.30, "coverage": 0.50, "cov_mode": 0,
-                               "cluster_mode": 0}},
+    run_script("protein_families.py", FakeSnakemake(
+        input={"faa": str(faa), "map": str(pmap), "registry": str(registry),
+               "lineage": str(lineage), "dark_ids": str(dark_ids)},
+        output={"families": str(out),
+                "dark_families": str(fixture_dir / "dark_families.tsv")},
+        params={"clustering": {
+            "resolutions": {"broad": {"min_seq_id": 0.30, "coverage": 0.50}},
+            "primary": "broad", "cov_mode": 0, "cluster_mode": 0}},
         threads=2))
 
     rows = {r["representative"]: r for r in read_tsv(out)}
     assert "S1" in rows, f"S1 did not survive clustering: {list(rows)}"
-    assert rows["S1"]["n_members"] == "1", "S1 is one unique sequence"
+    assert rows["S1"]["family_size"] == "1", "S1 is one unique sequence"
     assert rows["S1"]["n_orfs"] == "4", (
         "the ORF count is missing, so a protein on four plasmids is indistinguishable "
         "from one seen once")
-    assert rows["S1"]["n_plasmids"] == "4"
-    assert rows["S1"]["n_mob_clusters"] == "3"
+    assert rows["S1"]["family_plasmid_count"] == "4"
+    assert rows["S1"]["family_MOB_count"] == "3"
+    # And the independence count, which is the one a recurrence claim needs: four plasmid
+    # records but only three independent lineages, because p1 and p4 are the same lineage.
+    assert rows["S1"]["family_plasmid_lineage_count"] == "3"
 
 
 # --- S3: hits.tsv must hold every informative hit, not one per tier -------------------
@@ -1727,3 +1742,42 @@ def test_database_sources_are_provenance_not_biology(fixture_dir):
 
     assert row["database_source_count"] == "2", "PLSDB and IMG were not both counted"
     assert row["database_record_count"] == "3"
+
+
+def test_structure_search_restricts_to_family_representatives(fixture_dir):
+    """Spec section 49 sets representative scale as the discovery-scale strategy and
+    section 79 makes it a success criterion. ProstT5 is a transformer and the query count
+    is the cost of the stage, so searching every dark protein rather than one per family is
+    the difference between the largest job in the pipeline and a modest one.
+
+    Foldseek is not invoked here: the assertion is on which sequences reach the query file,
+    which is what the scope setting controls."""
+    faa = fixture_dir / "dark_proteins.faa"
+    write_fasta(faa, [("rep_a", "MKTAYIAKQRQISFVKSHFSRQ"),
+                      ("member_a", "MKTAYIAKQRQISFVKSHFSRK"),
+                      ("rep_b", "MQQTTLNRSDEIVWCAPGHKGG")])
+    families = fixture_dir / "dark_families.tsv"
+    write_tsv(families, ["family_id", "representative", "members"],
+              [["broad:rep_a", "rep_a", "rep_a,member_a"],
+               ["broad:rep_b", "rep_b", "rep_b"]])
+
+    out = fixture_dir / "structure_hits.tsv"
+    # foldseek will fail on the absent database; the query file is written before that, and
+    # it is the only thing under test.
+    try:
+        run_script("structure_search.py", FakeSnakemake(
+            input={"faa": str(faa), "families": str(families)},
+            output=[str(out)],
+            params={"structure": {"max_evalue": 1.0e-3, "scope": "representatives"},
+                    "target_db": str(fixture_dir / "absent_db"),
+                    "prostt5": str(fixture_dir / "absent_model")},
+            threads=1))
+    except Exception:
+        pass
+
+    query = fixture_dir / "structure_query.faa"
+    assert query.exists(), "no representative query file was written"
+    names = {l[1:].split()[0] for l in query.read_text().splitlines() if l.startswith(">")}
+    assert names == {"rep_a", "rep_b"}, (
+        f"the query set is {sorted(names)}; it must be one sequence per family, and "
+        "member_a is a family member rather than a representative")

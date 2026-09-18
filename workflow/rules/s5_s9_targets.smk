@@ -133,6 +133,32 @@ rule protein_families:
         "../scripts/protein_families.py"
 
 
+rule synteny:
+    """Stage 9: does a dark family's gene order RECUR across its occurrences?
+
+    Distinct from Stage 8, which asks what one ORF sits next to once. Conserved gene order
+    survives because the arrangement matters, so it is a much stronger claim than
+    adjacency. Six measurements, kept separate (spec section 42).
+    """
+    input:
+        annotation=f"{OUT}/s4/plasmid_annotation.tsv",
+        families=f"{OUT}/s6/dark_families.tsv",
+        map=f"{OUT}/s2/protein_map.tsv",
+    output:
+        tsv=f"{OUT}/s9/synteny.tsv",
+    params:
+        context=targets["context"],
+    resources:
+        mem_mb=32000,
+        runtime=480,
+    log:
+        f"{OUT}/logs/s9/synteny.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/synteny.py"
+
+
 rule recurrence:
     """Stage 7: distribution and recurrence, counted over independent units.
 
