@@ -24,6 +24,11 @@ REQUIRED_TOOLS = [
      "why": "AntiFam artefact screen and every hmmer cascade tier"},
     {"name": "diamond", "stage": "S3",
      "why": "the Swiss-Prot and nr cascade tiers"},
+    {"name": "hhblits_omp", "stage": "Stage 4 tier 3 (PHROGs)",
+     "why": "the PHROGs tier; PHROGs ships HH-suite HHM profiles and documents HH-suite "
+            "as the way to search them, so nothing else can read that database"},
+    {"name": "ffindex_from_fasta", "stage": "Stage 4 tier 3 (PHROGs)",
+     "why": "hhblits_omp reads its queries as an ffindex, not as a FASTA"},
     {"name": "tantan", "stage": "S2b",
      "why": "low-complexity masking; without it every protein reports 0 masked"},
     {"name": "mash", "stage": "Stage 6",

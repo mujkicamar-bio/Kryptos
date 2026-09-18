@@ -599,7 +599,8 @@ nr / broad database
 
 The exact ordering may be adjusted after benchmarking, but every change must be documented.
 
-No HMM-HMM or InterPro stage is included in the production pipeline.
+No HMM-HMM or InterPro stage is included in the production pipeline, with one
+explicitly revised exception: the PHROGs tier. See section 22.
 
 15. Cascade Control
 
@@ -770,6 +771,25 @@ Rationale:
 computational cost at the current dataset scale;
 
 substantial overlap with existing domain/homology evidence;
+
+REVISION 2026-09-18 — HH-suite is permitted for PHROGs, and for PHROGs alone.
+
+PHROGs distributes its 38,880 families as HH-suite HHM profiles and documents HH-suite as
+the way to search them. Section 18 requires a profile-based search and lists phrog_id as a
+required field, and neither is obtainable any other way:
+
+  * hmmsearch cannot read the HHM format at all.
+  * Converting the profiles to an MMseqs2 profile database was implemented and abandoned.
+    `mmseqs convertprofiledb` takes each profile's header from its NAME line, which names
+    the SEED PROTEIN rather than the PHROG, and it does not assign database keys in ffindex
+    order - so the PHROG identifier was recoverable neither from the header nor from the
+    key. The resulting database could not produce the field section 18 requires. It was
+    also slow enough that a search of the converted profiles against 5,304 proteins did not
+    complete.
+
+The exclusion below stands for every other database. It is not a general re-admission of
+HMM-HMM search: no other stage may use it without a further revision recorded here.
+
 
 they are not required for the initial definition of the dark protein population;
 
@@ -1862,7 +1882,8 @@ eggNOG;
 
 nr/broad database.
 
-No HMM-HMM or InterPro stages are included in the production specification.
+No HMM-HMM or InterPro stages are included in the production specification, with the
+single revised exception of the PHROGs tier recorded in section 22.
 
 Agent 6 — Annotation Normalization
 
@@ -2375,7 +2396,8 @@ raw annotation provenance is retained;
 
 PHROGs is included;
 
-HMM-HMM and InterPro are absent unless the pipeline specification is formally revised;
+HMM-HMM and InterPro are absent unless the pipeline specification is formally
+revised; that revision has been made for PHROGs alone, and is recorded in section 22;
 
 MMseqs2 family membership is reproducible;
 

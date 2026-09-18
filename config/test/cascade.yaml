@@ -61,6 +61,17 @@ tiers:
 
     '
 - id: T3
+  method: hhsearch
+  db: data/refs/phrogs/phrogs
+  args: -Z 20 -B 0 -z 1 -b 1
+  max_evalue: 1.0e-03
+  min_probability: 80.0
+  note: 'PHROGs 4.0, 38,880 HH-suite profiles. Identical to production: the point of
+    the smoke run is to exercise the real tier, and PHROGs is small enough that there
+    is no reason to substitute anything.
+
+    '
+- id: T4
   method: diamond
   db: /sw/data/diamond_databases/Blast/latest/swissprot.dmnd
   args: --very-sensitive

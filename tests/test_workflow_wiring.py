@@ -46,12 +46,19 @@ def test_the_declared_environment_provides_every_required_tool():
     environment at all: the rule fails at run time with the tool visibly installed on the
     machine. IntegronFinder failed exactly this way - its environment omitted prodigal and
     infernal, which it shells out to."""
-    # conda package name -> the executable it provides, where they differ
-    PROVIDES = {"hmmer": "hmmsearch", "mmseqs2": "mmseqs", "infernal": "cmsearch",
-                "mdmparis-defense-finder": "defense-finder",
-                "macsyfinder": "macsyfinder", "integron_finder": "integron_finder",
-                "rnacode": "RNAcode",
-                "eggnog-mapper": "emapper.py"}
+    # conda package name -> the executables it provides, where they differ from the
+    # package name. A package may provide several: hhsuite ships the whole HH-suite
+    # toolchain, and the PHROGs tier invokes two of them.
+    PROVIDES = {"hmmer": ("hmmsearch",), "mmseqs2": ("mmseqs",),
+                "infernal": ("cmsearch",),
+                "mdmparis-defense-finder": ("defense-finder",),
+                "macsyfinder": ("macsyfinder",),
+                "integron_finder": ("integron_finder",),
+                "rnacode": ("RNAcode",),
+                "eggnog-mapper": ("emapper.py",),
+                "hhsuite": ("hhblits", "hhblits_omp", "hhsearch", "hhsearch_omp",
+                            "hhmake", "cstranslate", "ffindex_build",
+                            "ffindex_from_fasta")}
 
     for env_path in declared_envs():
         spec = yaml.safe_load(env_path.read_text())
@@ -64,7 +71,7 @@ def test_the_declared_environment_provides_every_required_tool():
         provided = set()
         for pkg in packages:
             base = re.split(r"[=<>]", pkg)[0].strip()
-            provided.add(PROVIDES.get(base, base))
+            provided.update(PROVIDES.get(base, (base,)))
 
         for entry in REQUIRED_TOOLS:
             assert entry["name"] in provided, (

@@ -15,7 +15,7 @@ import csv
 import pathlib
 import subprocess
 
-from plasmidann import scratch
+from plasmidann import phrogs, scratch
 from plasmidann.cascade import (explained_fraction, narrow_by_explained,
                                 is_informative, passes_significance)
 
@@ -160,7 +160,50 @@ if ids:
                    (int(f[16]) - int(f[15]) + 1) / hlen if hlen else 0.0,
                    f[12], a, b, tlen, accession=f[4])
 
-    else:
+    elif spec["method"] == "hhsearch":
+        # PHROGs (spec section 18). The profiles are HH-suite HHM and are searched with
+        # HH-suite, which is what their authors distribute and document. Section 79's
+        # exclusion of HMM-HMM search is deviated from HERE ONLY, and the deviation is
+        # recorded in PLASMID_ANALYSIS.md rather than left implicit - see
+        # plasmidann.phrogs for why the MMseqs2 conversion was abandoned.
+        #
+        # hhblits rather than hhsearch: hhsearch scores the query against all 38,880
+        # profiles, while hhblits uses the cs219 prefilter built beside the database. With
+        # -n 1 it performs a single search rather than an iterative one, which is what a
+        # cascade tier wants - iterating would build a query MSA from PHROGs itself and
+        # make the hit depend on the database it is being searched against.
+        query_db = f"{tmp}/query_a3m"
+        subprocess.run(
+            f"ffindex_from_fasta -s {query_db}.ffdata {query_db}.ffindex {faa}",
+            shell=True, check=True, stdout=subprocess.DEVNULL)
+
+        # A single-sequence FASTA entry IS a valid a3m: one sequence, no inserts. No MSA
+        # is built for the query, deliberately. Building one would make a PHROGs hit
+        # depend on which database the query MSA came from, so the same protein would get
+        # a different answer in a different pipeline.
+        results = f"{tmp}/hhr"
+        evalue_flag = "" if max_evalue is None else f"-e {max_evalue} "
+        subprocess.run(
+            f"hhblits_omp -i {query_db} -d {spec['db']} -o {results} -n 1 "
+            f"{evalue_flag}-cpu {snakemake.threads} {spec.get('args', '')}",
+            shell=True, check=True, stdout=subprocess.DEVNULL)
+
+        min_probability = spec.get("min_probability")
+        for _name, text in phrogs.read_ffindex(f"{results}.ffdata", f"{results}.ffindex"):
+            for hit in phrogs.parse_hhr(text, min_probability=min_probability):
+                # The LABEL is the PHROG's description and the ACCESSION is the PHROG id,
+                # matching every other tier: the accession is the stable join key and the
+                # label is what a reader sees. is_informative then treats 'hypothetical
+                # protein' here exactly as it does at every other tier, which is most of
+                # PHROGs and must not be allowed to name a dark protein.
+                record(hit["query"], hit["phrog_description"] or "hypothetical protein",
+                       hit["phrog_query_coverage"],
+                       (hit["query_end"] - hit["query_start"] + 1) / hit["profile_length"]
+                       if hit["profile_length"] else 0.0,
+                       hit["phrog_evalue"], hit["query_start"], hit["query_end"],
+                       hit["query_length"], accession=hit["phrog_id"])
+
+    elif spec["method"] == "diamond":
         raw = f"{tmp}/res.m8"
         # FIX (declared DIAMOND threshold). v1 declared none, so the operative cutoff was
         # DIAMOND's undeclared default of 0.001 - a very large number of expected false
@@ -191,6 +234,15 @@ if ids:
             q, sid, title, qc, tc, ev, qs, qe, ql = line.rstrip("\n").split("\t")
             record(q, title, float(qc) / 100, float(tc) / 100, ev,
                    int(qs), int(qe), int(ql), accession=sid)
+
+    else:
+        # Previously `else` WAS the diamond branch, so a tier declaring any unrecognised
+        # method ran DIAMOND against a database meant for another tool. That fails as a
+        # database error at best and as a silently empty tier at worst.
+        raise SystemExit(
+            f"tier {spec['id']} declares method {spec['method']!r}, which is not one of "
+            "hmmer, hhsearch or diamond. A tier whose method is not recognised would "
+            "otherwise fall through to another tool.")
 
 # ------------------------------------------------------------------------------------
 # Outputs
