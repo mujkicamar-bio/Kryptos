@@ -142,3 +142,35 @@ def read_ffindex(data_path, index_path):
             name, offset, length = fields[0], int(fields[1]), int(fields[2])
             fh.seek(offset)
             yield name, fh.read(length).rstrip(b"\0").decode("utf-8", "replace")
+
+
+def a3m_from_hhm(text):
+    """The alignment an HHM was built from, as a3m, from its SEQ block.
+
+    HH-suite's cstranslate builds the cs219 prefilter from an alignment, and its 3.3
+    release accepts prf, seq, fas, a2m, a3m or ca3m - not HHM. PHROGs ships HHM only. But
+    hhmake writes the (filtered) alignment into the profile's SEQ block, as a3m, so the
+    documented input exists inside the file cstranslate refuses to read.
+
+    The block is representative sequences rather than the whole family - hhmake caps it -
+    which is what the prefilter needs: cs219 is the coarse screen, and the alignment
+    itself is done against the full HHM profile in the same database.
+
+    A profile with no SEQ block raises rather than returning ''. An empty a3m entry gives
+    cstranslate nothing to build from, and hhblits then treats that profile as
+    unsearchable while its hhm entry still exists - a profile silently missing from the
+    prefilter, which is the failure the build must refuse.
+    """
+    lines = text.splitlines()
+    try:
+        start = next(i for i, l in enumerate(lines) if l.startswith("SEQ")) + 1
+    except StopIteration:
+        raise ValueError("HHM has no SEQ block: no alignment to build the prefilter from")
+    body = []
+    for line in lines[start:]:
+        if line.startswith("#"):
+            break
+        body.append(line)
+    if not any(l.startswith(">") for l in body):
+        raise ValueError("HHM SEQ block holds no sequences")
+    return "\n".join(body) + "\n"

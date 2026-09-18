@@ -152,3 +152,49 @@ def test_an_empty_ffindex_reads_as_nothing(tmp_path):
     index.write_text("")
 
     assert list(phrogs.read_ffindex(data, index)) == []
+
+
+# ------------------------------------------------------------------------------------
+# Building the prefilter from what PHROGs ships.
+#
+# HH-suite's cstranslate builds the cs219 prefilter from an ALIGNMENT, and its 3.3 release
+# accepts prf, seq, fas, a2m, a3m or ca3m - not HHM. PHROGs ships HHM only. But an HHM
+# written by hhmake carries the alignment it was built from in its SEQ block, as a3m, so
+# the documented input exists inside the file the tool refuses to read.
+# ------------------------------------------------------------------------------------
+
+HHM = """\
+HHsearch 1.5
+NAME  p205037 VI_04338
+FAM   
+FILE  phrog_10
+LENG  120 match states, 300 columns in multiple alignment
+SEQ
+>Consensus
+xxxMKLTxxxALL
+>p205037 VI_04338
+--MMKLTEKQALL
+>other_seq
+MKMMKLTeKQ-LL
+#
+NULL   3706	5728	4211	4064	4839	3729	4763	4308	4069	3323	5509	4640	4464	4937	4285	4423	3815	3783	6325	4665
+HMM    A	C	D	E	F	G	H	I	K	L	M	N	P	Q	R	S	T	V	W	Y
+//
+"""
+
+
+def test_the_alignment_is_extracted_from_the_hhm_seq_block():
+    a3m = phrogs.a3m_from_hhm(HHM)
+
+    assert a3m.startswith(">Consensus\n"), "the consensus is the master sequence"
+    assert ">p205037 VI_04338\n--MMKLTEKQALL\n" in a3m
+    assert ">other_seq\nMKMMKLTeKQ-LL\n" in a3m, "lowercase inserts must survive"
+    assert "NULL" not in a3m and "HMM" not in a3m, "profile lines are not alignment"
+
+
+def test_an_hhm_without_a_seq_block_is_an_error_not_an_empty_alignment():
+    """An empty a3m entry gives cstranslate nothing to build a state sequence from, and
+    hhblits then treats that profile as unsearchable while the hhm entry still exists.
+    A profile silently missing from the prefilter is the failure the build must refuse."""
+    with pytest.raises(ValueError):
+        phrogs.a3m_from_hhm("HHsearch 1.5\nNAME  x\nLENG  5\n#\nHMM ...\n//\n")
