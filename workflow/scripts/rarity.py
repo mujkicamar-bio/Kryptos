@@ -86,10 +86,11 @@ if curve:
           f"{final['mean_families']} dark families "
           f"(replicate range {final['min_families']}-{final['max_families']})")
     gained = saturation(curve)
-    print(f"             last sampling step added {gained} of the total")
+    print(f"             final slope is {gained} of the initial slope "
+          "(families gained per plasmid added)")
     # Descriptive, never a target. Section 55: the ~1,000-candidate figure is an
     # experimental-budget objective, not a biological assumption.
-    if gained != "" and float(gained) > 0.05:
+    if gained != "" and float(gained) > 0.2:
         print("             the curve is still climbing: the dark family count is a "
               "LOWER BOUND, and more plasmids would reveal more families")
     else:

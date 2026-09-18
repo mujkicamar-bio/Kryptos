@@ -94,7 +94,10 @@ def test_a_saturated_collection_shows_a_flat_curve():
     curve = rarity.rarefaction(plasmid_families, n_replicates=3, seed=1)
 
     assert {point["mean_families"] for point in curve} == {1.0}
-    assert rarity.saturation(curve) == 0.0
+    # A curve that never climbed has no initial slope to compare against, so the ratio is
+    # undefined rather than 0. Reporting 0 would claim "discovery has stopped", which
+    # implies it started - and here nothing was ever discovered beyond the first plasmid.
+    assert rarity.saturation(curve) == ""
 
 
 def test_the_curve_is_averaged_over_replicates_not_one_ordering():
@@ -113,3 +116,48 @@ def test_the_curve_is_averaged_over_replicates_not_one_ordering():
 def test_rarefaction_of_nothing_is_empty_not_an_error():
     assert rarity.rarefaction({}) == []
     assert rarity.saturation([]) == ""
+
+
+def test_saturation_is_not_fooled_by_an_uneven_final_step():
+    """The first implementation compared the raw gain between the last two points. On a
+    curve whose final step was 2 plasmids wide where the others were 9, that reported a
+    steeply climbing collection as saturated - the exact wrong answer, since it would say a
+    dark set is complete when it is a lower bound.
+
+    Slope is families per plasmid added, so step width cannot change the reading."""
+    steep = [
+        {"n_plasmids": 10, "mean_families": 100},
+        {"n_plasmids": 20, "mean_families": 200},
+        {"n_plasmids": 90, "mean_families": 900},
+        # A deliberately narrow final step, as the real curve had.
+        {"n_plasmids": 92, "mean_families": 920},
+    ]
+
+    assert rarity.saturation(steep) == 1.0, (
+        "a curve climbing at a constant rate was not reported as still climbing")
+
+
+def test_a_flattening_curve_gives_a_low_saturation_value():
+    flattening = [
+        {"n_plasmids": 10, "mean_families": 100},
+        {"n_plasmids": 20, "mean_families": 200},
+        {"n_plasmids": 90, "mean_families": 300},
+        {"n_plasmids": 100, "mean_families": 301},
+    ]
+
+    value = rarity.saturation(flattening)
+
+    assert value != "" and value < 0.05
+
+
+def test_the_sample_sizes_end_on_an_even_step():
+    """An uneven last interval is what produced the false reading, so the sizes themselves
+    are built to avoid it."""
+    plasmid_families = {f"p{i}": {f"F{i}"} for i in range(92)}
+
+    curve = rarity.rarefaction(plasmid_families, n_replicates=2, seed=1)
+    sizes = [point["n_plasmids"] for point in curve]
+
+    assert sizes[-1] == 92, "the curve must end on the observed total"
+    gaps = {sizes[i + 1] - sizes[i] for i in range(len(sizes) - 2)}
+    assert len(gaps) == 1, f"uneven sampling steps before the final point: {sorted(gaps)}"

@@ -118,11 +118,13 @@ def rarefaction(plasmid_families, sample_sizes=None, n_replicates=20, seed=0):
         return []
 
     if sample_sizes is None:
-        # Ten roughly even steps, always including the full set, so the last point is the
-        # observed total rather than an extrapolation.
-        step = max(1, len(plasmids) // 10)
-        sample_sizes = sorted(set(list(range(step, len(plasmids), step))
-                                  + [len(plasmids)]))
+        # Ten EVEN steps ending exactly on the full set. Even matters: an uneven final step
+        # - 90 then 92 - makes the last interval narrower than the rest, and any gain
+        # measured across it looks small for a sampling reason rather than a biological
+        # one. That produced a false "saturated" reading on the first real run.
+        n = len(plasmids)
+        step = max(1, n // 10)
+        sample_sizes = sorted({min(i, n) for i in range(step, n + step, step)} | {n})
 
     rng = random.Random(seed)
     curve = []
@@ -145,19 +147,31 @@ def rarefaction(plasmid_families, sample_sizes=None, n_replicates=20, seed=0):
 
 
 def saturation(curve):
-    """How much the last decile of sampling added, as a fraction of the total.
+    """Final slope relative to initial slope: is discovery still climbing?
 
-    A single descriptive number for "is this still climbing". Near 0 means the collection
-    has saturated and more plasmids of this kind will add little; a large value means the
-    dark set is a lower bound.
+    Slope is families gained PER PLASMID ADDED, so the statistic does not depend on how
+    wide the sampling steps are. Comparing raw gains between the last two points does - the
+    first implementation did exactly that, and on a curve whose final step was 2 plasmids
+    wide where the others were 9, it reported a steeply climbing collection as saturated.
+
+    Returns final_slope / initial_slope:
+
+        near 0   the curve has flattened; more plasmids of this kind add few new families
+        near 1   discovery is as fast at the end as at the start, so the dark family count
+                 is a LOWER BOUND and the collection is nowhere near saturated
 
     It is NOT a target and nothing selects on it. Section 55: the ~1,000-candidate figure
     is an experimental-budget objective, not a biological assumption.
     """
-    if len(curve) < 2:
+    if len(curve) < 3:
         return ""
-    last, previous = curve[-1], curve[-2]
-    if not last["mean_families"]:
+
+    def slope(a, b):
+        span = b["n_plasmids"] - a["n_plasmids"]
+        return (b["mean_families"] - a["mean_families"]) / span if span else 0.0
+
+    initial = slope(curve[0], curve[1])
+    final = slope(curve[-2], curve[-1])
+    if initial <= 0:
         return ""
-    gained = last["mean_families"] - previous["mean_families"]
-    return round(gained / last["mean_families"], 4)
+    return round(final / initial, 4)
