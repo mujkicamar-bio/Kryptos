@@ -58,6 +58,9 @@ references:
   swissprot_version: "2025-03-03"
   nr_version: "2025-03-03"
   eggnog_version: "5.0.2"
+  # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
+  # covers the phage families (PHROG v4 table), CARD and VFDB together.
+  pharokka_db_version: "1.8.0"
   # MacSyFinder model sets: DefenseFinder for S8 defence systems. macsydata reports
   # CONJScan 2.1.0 installed in the same tree.
   macsyfinder_models: data/refs/macsyfinder

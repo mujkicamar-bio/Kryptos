@@ -44,6 +44,12 @@ _DATABASE = {
     "swissprot": ("NCBI swissprot", "swissprot_version"),
     "nr": ("NCBI nr", "nr_version"),
     "eggnog": ("eggNOG", "eggnog_version"),
+    # pharokka ships the phage families, CARD and VFDB as ONE versioned bundle
+    # (data/refs/pharokka/VERSION_x_y_z) and does not expose the CARD or VFDB snapshot
+    # dates separately, so all three cite the bundle version. The family table is PHROG v4.
+    "pharokka": ("pharokka databases (PHROG v4)", "pharokka_db_version"),
+    "card": ("pharokka databases (CARD)", "pharokka_db_version"),
+    "vfdb": ("pharokka databases (VFDB)", "pharokka_db_version"),
 }
 
 params = snakemake.params

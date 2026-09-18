@@ -30,13 +30,15 @@ properties:
       min_dark_candidate_length_aa: {type: integer, minimum: 1}
   references:
     type: object
-    required: [pfam_dat, pfam_version, swissprot_version, nr_version, eggnog_version]
+    required: [pfam_dat, pfam_version, swissprot_version, nr_version, eggnog_version,
+               pharokka_db_version]
     properties:
       pfam_dat: {type: string}
       pfam_version: {type: string}
       swissprot_version: {type: string}
       nr_version: {type: string}
       eggnog_version: {type: string}
+      pharokka_db_version: {type: string}
       macsyfinder_models: {type: string}
       # null is a valid value: it means no grouping is configured and every (kind, label)
       # is its own category, which is the state until the vocabulary has been reviewed.

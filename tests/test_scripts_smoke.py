@@ -1738,7 +1738,17 @@ def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
                      "evalue", "informative", "is_best", "start", "end", "tier", "source",
                      "category", "threshold", "max_evalue"],
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
-                "T1", "pfam", "", "--cut_ga", ""]])
+                "T1", "pfam", "", "--cut_ga", ""],
+               # The three sources the pharokka tier emits. The first real run failed
+               # here with KeyError: 'pharokka' - the provenance map had no entry, and
+               # no fixture had exercised a row from the new tier.
+               ["s2", "ParA-like partition protein", "phrog_164", "", "", "1e-42", "True",
+                1, "", "", "T3", "pharokka", "DNA, RNA and nucleotide metabolism", "",
+                "1e-05"],
+               ["s2", "TEM beta-lactamase", "ARO:3000873", "", "", "1e-200", "True", 0,
+                "", "", "T3", "card", "antibiotic inactivation", "", "1e-05"],
+               ["s2", "type IV pilus", "VFG000001", "", "", "1e-50", "True", 0, "", "",
+                "T3", "vfdb", "", "", "1e-05"]])
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec",
@@ -1751,13 +1761,23 @@ def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
         input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat)},
         output={"tsv": str(out)},
         params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
-                "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
+                "nr_version": "2025-03-03", "eggnog_version": "5.0.2",
+                "pharokka_db_version": "1.8.0"}))
 
     rows = read_tsv(out)
     assert rows
     assert all(r["database_version"] for r in rows), "a row carries no database version"
     assert rows[0]["database"] == "Pfam-A"
     assert rows[0]["database_version"] == "38.2"
+
+    # pharokka ships the phage families, CARD and VFDB as ONE versioned bundle and does
+    # not expose the CARD or VFDB snapshot dates separately, so all three cite the bundle.
+    by_source = {r["source"]: r for r in rows}
+    for source in ("pharokka", "card", "vfdb"):
+        assert by_source[source]["database_version"] == "1.8.0", by_source[source]
+    assert by_source["pharokka"]["database"] == "pharokka databases (PHROG v4)"
+    assert by_source["card"]["database"] == "pharokka databases (CARD)"
+    assert by_source["vfdb"]["database"] == "pharokka databases (VFDB)"
 
 
 def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):

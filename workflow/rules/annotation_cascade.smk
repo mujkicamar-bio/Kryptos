@@ -254,6 +254,7 @@ rule protein_labels:
         swissprot_version=config["references"]["swissprot_version"],
         nr_version=config["references"]["nr_version"],
         eggnog_version=config["references"]["eggnog_version"],
+        pharokka_db_version=config["references"]["pharokka_db_version"],
     resources:
         mem_mb=32000,
         runtime=240,
