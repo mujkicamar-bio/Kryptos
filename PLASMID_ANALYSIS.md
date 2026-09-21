@@ -230,20 +230,16 @@ Primary implementation:
 
 Flat TSV per stage, CSV for the two integrated deliverables.
 
-A columnar store was specified here and implemented as src/darkorf/store.py, and no stage
-ever called it: every table the pipeline has ever written is delimited text. Measured on
-the validation run, the columnar format bought nothing over compression - Parquet/zstd and
-gzip both compress annotation_complete by 4.1x - so the declaration was removed rather
-than wired in, and the storage model is now what the code does.
+A columnar store was specified here once and never wired into any stage. Measured on the
+validation run it compressed no better than gzip, so the declaration was removed rather
+than implemented, and the storage model is now what the code does.
 
 Do not require loading the complete occurrence dataset into pandas.
 
-This requirement stands and is not satisfied by the format alone. Projected at the full
-corpus, annotation_complete is ~2.6 GB over ~8.1M rows, which pandas would expand several
-times over in memory. Readers query it out of core instead - DuckDB reads delimited text
-directly, plain or gzipped, without a conversion step:
-
-  SELECT family_id, top_hypothesis FROM read_csv_auto('annotation_complete.csv');
+This requirement stands and is not satisfied by the file format alone. Projected at the
+full corpus, annotation_complete is ~2.6 GB over ~8.1M rows, which pandas would expand
+several times over in memory. Readers query it out of core instead, directly over the
+delimited text, plain or gzipped, with no conversion step.
 
 4.3 Information levels
 
