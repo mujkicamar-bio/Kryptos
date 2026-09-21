@@ -17,9 +17,6 @@ dependencies:
   - integron_finder=2.*    # S8 integron context
   - macsyfinder=2.*        # S8 DefenseFinder backend
   - mash=2.3               # S6 plasmid lineage clustering
-  - duckdb=1.*             # relational store
-  - python-duckdb=1.*
-  - pyarrow=17.*           # Parquet IO
   - numpy=2.*
   - scipy=1.*              # S13 statistics
   - pandas=2.2             # shard-level frames only, never the full occurrence table

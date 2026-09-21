@@ -37,12 +37,6 @@ dependencies:
   # Stage 6 plasmid lineage clustering (spec section 33.1 names Mash)
   - mash=2.3         # IntegronFinder locates attC sites with cmsearch
   # --- the Python libraries the src/ modules import ------------------------------------
-  #
-  # These were missing from this specification while darkorf.store imported pyarrow and
-  # duckdb, so tests/test_schemas.py and tests/test_store.py could not even be COLLECTED
-  # in a materialised environment - a red suite that said nothing about the code.
-  - pyarrow=25.0.1         # darkorf.store writes the Parquet tables
-  - duckdb=1.5.5           # darkorf.store serves them as views without loading them
   - pyyaml=6.0.3           # config parsing, including plasmidann.categories
   - scipy=1.17.1           # plasmidann.enrich, for fisher_exact
   - pip

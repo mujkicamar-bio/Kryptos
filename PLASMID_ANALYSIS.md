@@ -228,11 +228,22 @@ run_manifest
 
 Primary implementation:
 
-DuckDB + Parquet
+Flat TSV per stage, CSV for the two integrated deliverables.
 
-Human-readable CSV/TSV files are generated as exports.
+A columnar store was specified here and implemented as src/darkorf/store.py, and no stage
+ever called it: every table the pipeline has ever written is delimited text. Measured on
+the validation run, the columnar format bought nothing over compression - Parquet/zstd and
+gzip both compress annotation_complete by 4.1x - so the declaration was removed rather
+than wired in, and the storage model is now what the code does.
 
 Do not require loading the complete occurrence dataset into pandas.
+
+This requirement stands and is not satisfied by the format alone. Projected at the full
+corpus, annotation_complete is ~2.6 GB over ~8.1M rows, which pandas would expand several
+times over in memory. Readers query it out of core instead - DuckDB reads delimited text
+directly, plain or gzipped, without a conversion step:
+
+  SELECT family_id, top_hypothesis FROM read_csv_auto('annotation_complete.csv');
 
 4.3 Information levels
 
@@ -1644,50 +1655,50 @@ Do not use uncontrolled random sampling for reproducibility-critical threshold s
 
 62.1 Plasmids
 
-final/plasmids.parquet
+final/plasmids.tsv
 
 62.2 ORF occurrences
 
-final/orf_occurrences.parquet
+final/orf_occurrences.tsv
 
 62.3 Proteins
 
-final/proteins.parquet
+final/proteins.tsv
 
 62.4 Annotations
 
-final/annotations.parquet
-final/annotation_hits.parquet
+final/annotations.tsv
+final/annotation_hits.tsv
 
 62.5 Families
 
-final/families.parquet
-final/family_members.parquet
+final/families.tsv
+final/family_members.tsv
 
 62.6 Plasmid lineages
 
-final/plasmid_lineages.parquet
+final/plasmid_lineages.tsv
 
 62.7 Context
 
-final/context_features.parquet
-final/context_occurrences.parquet
+final/context_features.tsv
+final/context_occurrences.tsv
 
 62.8 Evolution
 
-final/evolution.parquet
+final/evolution.tsv
 
 62.9 Structure
 
-final/structure.parquet
+final/structure.tsv
 
 62.10 Properties
 
-final/properties.parquet
+final/properties.tsv
 
 62.11 Evidence
 
-final/evidence.parquet
+final/evidence.tsv
 
 62.12 Normalization dictionary
 
@@ -1695,30 +1706,23 @@ final/normalization_dictionary.tsv
 
 62.13 Controls
 
-final/control_results.parquet
+final/control_results.tsv
 
 63. Main Integrated Annotation View
 
 Generate:
 
-final/annotation_complete.parquet
-
-This is the authoritative integrated queryable view.
-
-Optional human-readable export:
-
 final/annotation_complete.csv
 
-or TSV.
-
-The flat export is not the primary storage model.
+This is the authoritative integrated view, and it is the primary storage model rather than
+an export of one. One row per ORF, every piece of evidence side by side, nothing filtered
+and nothing ranked.
 
 64. Dark Family Output
 
 Generate:
 
-final/dark_families_complete.parquet
-final/dark_families_complete.tsv
+final/dark_families_complete.csv
 
 One row per dark family.
 
@@ -1746,7 +1750,7 @@ family_structural_summary
 
 Generate:
 
-final/dark_family_members.parquet
+final/dark_family_members.tsv
 
 One row per:
 
@@ -1763,7 +1767,7 @@ annotation_status
 
 Generate:
 
-final/plasmid_annotation_summary.parquet
+final/plasmid_annotation_summary.tsv
 final/plasmid_annotation_summary.tsv
 
 Possible fields:
