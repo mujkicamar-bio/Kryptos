@@ -536,7 +536,6 @@ def _run_context(fixture_dir, partner_label, categories=None):
         output={"families": str(fams_out), "background": str(bg_out)},
         params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3,
                             "min_context_conservation": 0.50,
-                            "high_confidence_conservation": 0.90,
                             "min_enrichment": 2.0},
                 "background": BACKGROUND_PARAMS,
                 "categories": categories}))
@@ -625,7 +624,6 @@ def _run_stratified(fixture_dir, n_small, n_large, min_stratum_size):
         output={"families": str(fams_out), "background": str(bg_out)},
         params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3,
                             "min_context_conservation": 0.50,
-                            "high_confidence_conservation": 0.90,
                             "min_enrichment": 2.0},
                 "background": {"covariates": ["plasmid_length", "gene_count"],
                                "min_stratum_size": min_stratum_size},
@@ -777,7 +775,6 @@ def test_a_plasmid_carrying_a_category_away_from_the_family_does_not_break_the_t
         output={"families": str(fams_out), "background": str(bg_out)},
         params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3,
                             "min_context_conservation": 0.50,
-                            "high_confidence_conservation": 0.90,
                             "min_enrichment": 2.0},
                 "background": {"covariates": ["plasmid_length", "gene_count"],
                                "min_stratum_size": 2},
@@ -1441,7 +1438,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "consensus_hit", "consensus_label", "collectively_novel",
         "darkness_state", "structural_match", "structural_description", "structure_evalue",
         "top_hypothesis", "top_subcategories", "top_conservation", "top_enrichment",
-        "top_q_value", "high_confidence",
+        "top_q_value",
         "cons_defence", "cons_integron",
         "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
         # Stage 7: seven counts, never collapsed into one.

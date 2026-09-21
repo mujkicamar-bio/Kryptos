@@ -129,7 +129,7 @@ FAMILY_COLS = [
     # what it might do
     "darkness_state", "structural_match", "structural_description", "structure_evalue",
     "top_hypothesis", "top_subcategories", "top_conservation", "top_enrichment",
-    "top_q_value", "high_confidence",
+    "top_q_value",
     # The named context columns that survive the curated list's deletion. defence and
     # integron are ISLAND membership, called by DefenseFinder and IntegronFinder, and are
     # categories in their own right whatever the label grouping does. backbone_adjacent

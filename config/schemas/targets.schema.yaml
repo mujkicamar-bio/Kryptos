@@ -106,27 +106,9 @@ properties:
       neighbourhood_window:
         type: integer
         minimum: 1
-      max_q_value:
-        type: number
-        minimum: 0
-        maximum: 1
-      min_context_conservation:
-        type: number
-        minimum: 0
-        maximum: 1
-      high_confidence_conservation:
-        type: number
-        minimum: 0
-        maximum: 1
-      min_enrichment:
-        type: number
-        minimum: 0
     required:
     - max_operon_gap
     - neighbourhood_window
-    - min_context_conservation
-    - high_confidence_conservation
-    - min_enrichment
   orthology:
     type: object
     properties:

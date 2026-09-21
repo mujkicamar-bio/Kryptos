@@ -124,10 +124,6 @@ background:
 context:
   max_operon_gap: 100
   neighbourhood_window: 3
-  min_context_conservation: 0.5
-  high_confidence_conservation: 0.9
-  max_q_value: 0.05
-  min_enrichment: 2.0
 structure:
   scope: representatives
   gpu: false
