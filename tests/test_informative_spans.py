@@ -22,15 +22,13 @@ def test_only_real_function_names_contribute_to_explained_fraction():
 
 def test_uninformative_hits_are_still_reported_not_discarded():
     """Someone else has seen this protein. That is worth recording."""
-    from plasmidann.cascade import uninformative_hits
+    from plasmidann.cascade import uninformative_spans
 
     hits = [
         {"label": "hypothetical protein", "tier": "T5", "start": 1, "end": 50},
         {"label": "relaxase MobA", "tier": "T1", "start": 60, "end": 90},
     ]
 
-    kept = uninformative_hits(hits)
+    kept = uninformative_spans(hits)
 
-    assert len(kept) == 1
-    assert kept[0]["label"] == "hypothetical protein"
-    assert kept[0]["tier"] == "T5"
+    assert kept == [(1, 50)]

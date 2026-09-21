@@ -34,6 +34,7 @@ Pavlopoulos et al.
 import _ctx  # noqa: F401
 import collections
 import csv
+import itertools
 import pathlib
 import statistics
 import subprocess
@@ -90,7 +91,7 @@ def clustal(alignment, path):
             fh.write("\n\n")
 
 
-def rnacode(alignment, path, threads):
+def rnacode(alignment, path):
     """Best sense and antisense P from RNAcode over a codon alignment.
 
     Returns (p_sense, p_antisense, status). Tabular columns are
@@ -126,10 +127,8 @@ with open(snakemake.output.tsv, "w", newline="") as out:
 
     for fam in families:
         members = fam["members"].split(",")
-        row = {"family_id": fam["family_id"], "n_aligned": 0, "dnds_median": "",
-               "dnds_min": "", "n_pairs": 0, "under_purifying_selection": "",
-               "dnds_status": "", "rnacode_p": "", "rnacode_p_antisense": "",
-               "rnacode_status": "", "coding_signal": "", "evidence_note": ""}
+        row = dict.fromkeys(cols, "")
+        row.update(family_id=fam["family_id"], n_aligned=0, n_pairs=0)
 
         usable = [m for m in members if m in cds and m in proteins]
         if len(usable) < cfg["min_members_for_dnds"]:
@@ -195,24 +194,22 @@ with open(snakemake.output.tsv, "w", newline="") as out:
         # scores them differently - the first withholds judgement, the second is evidence
         # against. Collapsing both into a bare None penalised the most conserved families.
         ratios, statuses = [], collections.Counter()
-        ids = sorted(codon_aln)
-        for i in range(len(ids)):
-            for j in range(i + 1, len(ids)):
-                # min_codons comes from config and is applied HERE, per pair. It was
-                # declared and never read: the only floor in force was the arithmetic
-                # minimum of three, so eight-codon fragments produced dN/dS values that
-                # then fired purifying_selection, the strongest of the four reality tests.
-                r, status = dnds_detail(codon_aln[ids[i]], codon_aln[ids[j]],
-                                        min_codons=cfg["min_codons"])
-                statuses[status] += 1
-                if r is not None and r != float("inf"):
-                    ratios.append(r)
+        for a, b in itertools.combinations(sorted(codon_aln), 2):
+            # min_codons comes from config and is applied HERE, per pair. It was
+            # declared and never read: the only floor in force was the arithmetic
+            # minimum of three, so eight-codon fragments produced dN/dS values that
+            # then fired purifying_selection, the strongest of the four reality tests.
+            r, status = dnds_detail(codon_aln[a], codon_aln[b],
+                                    min_codons=cfg["min_codons"])
+            statuses[status] += 1
+            if r is not None and r != float("inf"):
+                ratios.append(r)
 
         # Coding potential, independent of the gene caller and of dN/dS. Both strands: for
         # a shadow ORF the antisense signal is expected to be the stronger one.
         if len(codon_aln) >= cfg["min_members_for_dnds"]:
             p_sense, p_anti, rc_status = rnacode(
-                codon_aln, f"{tmpdir}/{fam['family_id']}.aln", snakemake.threads)
+                codon_aln, f"{tmpdir}/{fam['family_id']}.aln")
             row["rnacode_status"] = rc_status
             if p_sense is not None:
                 row["rnacode_p"] = p_sense

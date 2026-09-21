@@ -108,17 +108,23 @@ def passes_significance(evalue, max_evalue):
         return False
 
 
-def _evalue_of(hit):
-    """Sort key for hit significance. A hit without a parsable E-value sorts last.
+def as_float(value):
+    """An E-value as a number, or infinity when it cannot be parsed.
 
-    Returning infinity rather than raising keeps bit-score-only tiers (T1) sortable: when
-    no hit in a set has an E-value they all tie, and the caller's secondary key - cascade
-    order, which is authority order - decides.
+    Infinity rather than an exception keeps bit-score-only tiers (T1) sortable: when no hit
+    in a set has an E-value they all tie, and the caller's secondary key - cascade order,
+    which is authority order - decides. Shared with the stages that rank hits, so that
+    "unparsable sorts last" is one rule rather than a copy per script.
     """
     try:
-        return float(hit.get("evalue"))
+        return float(value)
     except (TypeError, ValueError):
         return float("inf")
+
+
+def _evalue_of(hit):
+    """Sort key for hit significance. A hit without a parsable E-value sorts last."""
+    return as_float(hit.get("evalue"))
 
 
 # ---------------------------------------------------------------------------------
@@ -203,8 +209,7 @@ def classify(hits, explained, min_coverage, tier_order):
         # 0 when the class rests on a family-level assignment alone: explained_fraction
         # is then 0 because nothing MEASURED it, not because nothing matched, and
         # cascade_resolve reports completeness as NOT_MEASURED on that signal.
-        "span_measured": int(bool(informative) and (explained > 0 or not family_level)
-                             or not informative),
+        "span_measured": int(not (family_level and explained == 0)),
     }
 
 
@@ -222,20 +227,6 @@ def _has_span(hit):
 # ---------------------------------------------------------------------------------
 # Narrowing: what each tier hands the next
 # ---------------------------------------------------------------------------------
-
-def narrow(all_ids, hit_ids):
-    """Ids a tier could not resolve. Refuses hits for ids that were never queried.
-
-    The refusal is deliberate. A hit id absent from the query set means the search output
-    and the ORF index disagree, which is a class of bug that would otherwise corrupt
-    counts silently for the rest of the run.
-    """
-    unknown = set(hit_ids) - set(all_ids)
-    if unknown:
-        raise ValueError(f"hits for {len(unknown)} id(s) not in the query set, "
-                         f"e.g. {sorted(unknown)[:3]}")
-    return [i for i in all_ids if i not in hit_ids]
-
 
 def narrow_by_explained(all_ids, explained, threshold):
     """Ids still worth searching: those not yet explained past `threshold`.
@@ -345,16 +336,6 @@ def uninformative_spans(hits):
     annot_completeness for the population the pipeline actually exists to characterise.
     """
     return [(h["start"], h["end"]) for h in hits if not is_informative(h.get("label"))]
-
-
-def uninformative_hits(hits):
-    """Hits that record only that someone else has seen this protein.
-
-    Kept rather than discarded: a protein called 'hypothetical' by several independent
-    databases is real, widespread and genuinely uncharacterised - which is evidence for it
-    being a screening target, not against.
-    """
-    return [h for h in hits if not is_informative(h.get("label"))]
 
 
 def n_dark_databases(hits):

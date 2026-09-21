@@ -35,6 +35,7 @@ import csv
 import sys
 
 from plasmidann import labels, pfam_meta
+from plasmidann.cascade import as_float
 
 # Which database and version produced each source, for the provenance columns. A label
 # without its database release cannot be reproduced, and a category built on it cannot be
@@ -61,11 +62,6 @@ pfam = pfam_meta.load(snakemake.input.pfam_dat)
 rows = {}
 
 
-def _as_float(value):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return float("inf")
 
 
 def add(protein_id, source, tier, entry, evalue="", coverage=""):
@@ -88,7 +84,7 @@ def add(protein_id, source, tier, entry, evalue="", coverage=""):
             "database": database, "database_version": str(params.get(version_key, "")),
         }
         return
-    if _as_float(evalue) < _as_float(existing["evidence_evalue"]):
+    if as_float(evalue) < as_float(existing["evidence_evalue"]):
         existing["evidence_evalue"] = evalue
         existing["evidence_coverage"] = coverage
         existing["accession"] = entry.get("accession", "") or existing["accession"]

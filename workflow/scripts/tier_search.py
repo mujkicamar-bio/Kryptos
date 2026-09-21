@@ -17,7 +17,7 @@ import pathlib
 import subprocess
 
 from plasmidann import pharokka, scratch
-from plasmidann.cascade import (explained_fraction, narrow_by_explained,
+from plasmidann.cascade import (as_float, explained_fraction, narrow_by_explained,
                                 is_informative, passes_significance)
 
 spec = snakemake.params.spec              # one entry from cascade.yaml: tiers
@@ -103,7 +103,7 @@ def record(q, label, qcov, tcov, ev, start, end, tlen, accession="", source=None
         # identification. Measured: 15.4% of labels change. The case that settled it was
         # ABC_membrane at E=1e-23 being chosen over Peptidase_C39 at E=6.5e-40 purely
         # because it aligned further.
-        if q not in best or _as_float(ev) < _as_float(best[q]["evalue"]):
+        if q not in best or as_float(ev) < as_float(best[q]["evalue"]):
             best[q] = hit
     else:
         # Uninformative hits keep their COORDINATES now, not just their label. Those
@@ -118,13 +118,6 @@ def record(q, label, qcov, tcov, ev, start, end, tlen, accession="", source=None
              "evalue": ev, "informative": False,
              "start": start if spanned else "", "end": end if spanned else "",
              "source": source or spec["source"], "category": category})
-
-
-def _as_float(v):
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return float("inf")
 
 
 if ids:

@@ -48,14 +48,7 @@ def _present(value):
 
 def _strongest(*evalues):
     """The smallest of the E-values that are present, as the string pharokka wrote."""
-    candidates = []
-    for value in evalues:
-        if _present(value):
-            try:
-                candidates.append((float(value), value.strip()))
-            except ValueError:
-                continue
-    return min(candidates)[1] if candidates else ""
+    return min((v.strip() for v in evalues if _present(v)), key=float, default="")
 
 
 def parse_merged(text):
