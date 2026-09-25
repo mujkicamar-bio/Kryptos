@@ -10,13 +10,22 @@ Two files, because there are two natural units:
 
   annotation_complete.csv     one row per ORF - 9.3M of them. What the cascade called it,
                               how much of it that explained, what the dark evidence says,
-                              its orthology terms, and - where the ORF is dark - the
-                              evidence assembled for its family.
+                              its orthology terms, the plasmid label databases' labels of
+                              its protein (amr, metal, ta, conj_role, mge, antidefence), its
+                              CONJScan system and its plasmid's mobility class, the
+                              close-level synteny of its close cluster, and - where the ORF
+                              is dark - the evidence assembled for its family.
   dark_families_complete.csv  one row per dark family. The selection surface: every piece
                               of evidence the run produced, side by side - annotation,
                               evolution, context, structure, distribution (Stage 7),
                               synteny (Stage 9), rarity (Stage 14) and the Stage 15
                               evidence dimensions.
+
+WHAT CONTEXT HOLDS is not a column here: 12_context_and_structure/family_context_terms.tsv
+is the long table of context terms per family (amr:, metal:, defence:, conj: ...), counted
+over lineages. It carries no top term and no confidence, because the thresholds that would
+make a term a prediction are calibrated after the run (tools/calibrate_context.py); the
+family table carries the descriptive rates (cons_*) only.
 
 CSV, not TSV, because these are the files that get opened in a spreadsheet. Every field is
 quoted by csv.writer where it needs to be, which matters: a DIAMOND stitle is free text and
@@ -45,7 +54,8 @@ import csv
 
 import _ctx  # noqa: F401
 
-from plasmidann import integration
+from darkorf.ids import family_id as cluster_family_id
+from plasmidann import integration, labeldb
 from plasmidann.context import overlapping_islands
 from plasmidann.evidence import darkness_state, reality_lines, reality_thresholds
 
@@ -122,27 +132,31 @@ FAMILY_COLS = [
     # feature. Descriptive rates; there is no enrichment test.
     "cons_defence", "cons_integron", "cons_is_element",
     "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
+    "cons_conj",
     # Stage 7 (section 34): SEVEN counts, never collapsed. A family on forty copies of one
     # redeposited plasmid is one observation, and reading only the first of these numbers
     # is how a reader concludes otherwise.
     "plasmid_occurrence_count", "unique_plasmid_count",
     "independent_plasmid_cluster_count", "independent_cluster_status",
-    "host_count", "species_count", "genus_count", "n_plasmids_with_host",
+    "host_count", "genus_count", "n_plasmids_with_host",
     "n_plasmids_with_species", "host_count_status", "n_plasmids_with_predicted_range",
     "predicted_host_range_count",
     "predicted_host_ranges", "MOB_count", "habitat_count",
-    "database_record_count", "database_source_count",
+    "database_source_count",
     # Stage 9 (section 42): six conservation measurements, kept apart because they fail
     # apart - a conserved left neighbour with a variable right one is a real arrangement
-    # that a single averaged context score would hide.
-    "context_recurrence", "n_occurrences", "left_neighbor_conservation",
-    "right_neighbor_conservation", "neighborhood_conservation",
-    "operon_like_conservation", "synteny_conservation", "modal_left", "modal_right",
-    "modal_synteny", "synteny_status",
-    "small_n_occurrences", "small_context_recurrence", "small_left_neighbor_conservation",
-    "small_right_neighbor_conservation", "small_neighborhood_conservation",
-    "small_operon_like_conservation", "small_synteny_conservation", "small_modal_left",
-    "small_modal_right", "small_modal_synteny", "small_synteny_status",
+    # that a single averaged context score would hide. Counted over Stage 6 lineages, one
+    # vote per lineage; the family table carries the primary-level (family) rows.
+    "context_recurrence", "n_occurrences", "n_lineages", "n_lineages_discordant",
+    "lineage_left_conservation", "lineage_right_conservation",
+    "lineage_neighborhood_conservation", "lineage_operon_like_conservation",
+    "lineage_synteny_conservation", "modal_left", "modal_right", "modal_synteny",
+    "synteny_status", "synteny_min_lineages",
+    "small_n_occurrences", "small_context_recurrence", "small_n_lineages",
+    "small_n_lineages_discordant", "small_lineage_left_conservation",
+    "small_lineage_right_conservation", "small_lineage_neighborhood_conservation",
+    "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
+    "small_modal_left", "small_modal_right", "small_modal_synteny", "small_synteny_status",
     # Stage 14 (section 54): descriptors, not a ranking. RARE is not better than
     # WIDELY_CONSERVED. The version travels because a label's definition can change.
     "rarity_labels", "rarity_version",
@@ -160,14 +174,18 @@ RARITY_COLS = ("rarity_labels", "rarity_version")
 # S9 writes a bare `status`. Every stage does, which is exactly why it cannot be merged
 # under that name: the family row already carries dnds_status and independent_cluster_status
 # and a third would overwrite by accident rather than by decision.
-SYNTENY_COLS = ("n_occurrences", "context_recurrence", "left_neighbor_conservation",
-                "right_neighbor_conservation", "neighborhood_conservation",
-                "operon_like_conservation", "synteny_conservation", "modal_left",
-                "modal_right", "modal_synteny", "small_n_occurrences",
-                "small_context_recurrence", "small_left_neighbor_conservation",
-                "small_right_neighbor_conservation", "small_neighborhood_conservation",
-                "small_operon_like_conservation", "small_synteny_conservation",
-                "small_modal_left", "small_modal_right", "small_modal_synteny")
+SYNTENY_COLS = ("n_occurrences", "context_recurrence", "n_lineages", "n_lineages_discordant",
+                "lineage_left_conservation", "lineage_right_conservation",
+                "lineage_neighborhood_conservation", "lineage_operon_like_conservation",
+                "lineage_synteny_conservation", "modal_left", "modal_right",
+                "modal_synteny", "synteny_min_lineages", "small_n_occurrences",
+                "small_context_recurrence", "small_n_lineages",
+                "small_n_lineages_discordant", "small_lineage_left_conservation",
+                "small_lineage_right_conservation",
+                "small_lineage_neighborhood_conservation",
+                "small_lineage_operon_like_conservation",
+                "small_lineage_synteny_conservation", "small_modal_left",
+                "small_modal_right", "small_modal_synteny")
 
 # Every small_ measurement the evolution and synteny tables write must reach the report
 # (spec section 13.3: each is reported twice). extrasaction="ignore" below drops anything
@@ -208,13 +226,13 @@ with open(snakemake.output.families, "w", newline="") as out:
                **{c: rec.get(c, "") for c in FAMILY_COLS
                   if c in ("plasmid_occurrence_count", "unique_plasmid_count",
                            "independent_plasmid_cluster_count",
-                           "independent_cluster_status", "host_count", "species_count",
+                           "independent_cluster_status", "host_count",
                            "genus_count", "n_plasmids_with_host",
                            "n_plasmids_with_species", "host_count_status",
                            "n_plasmids_with_predicted_range",
                            "predicted_host_range_count", "predicted_host_ranges",
                            "MOB_count", "habitat_count",
-                           "database_record_count", "database_source_count")},
+                           "database_source_count")},
                **{c: syn.get(c, "") for c in SYNTENY_COLS},
                "synteny_status": syn.get("status", ""),
                "small_synteny_status": syn.get("small_status", ""),
@@ -238,6 +256,44 @@ with open(snakemake.output.families, "w", newline="") as out:
 # ------------------------------------------------------------------------------------
 # The ORF table: everything, with the family evidence joined on where it exists.
 # ------------------------------------------------------------------------------------
+# Per ORF, the close-level (90% identity) synteny row of the ORF's close cluster, where
+# Stage 9 measured one - that is, where the cluster holds a dark small-plasmid member.
+CLOSE_COLS = {"close_family_id": "family_id", "close_n_lineages": "n_lineages",
+              "close_lineage_synteny_conservation": "lineage_synteny_conservation",
+              "close_modal_synteny": "modal_synteny", "close_synteny_status": "status"}
+close_rows = {fid: r for fid, r in synteny.items() if r.get("level") == "close"}
+close_of_seq = {}
+with open(snakemake.input.clusters_close) as fh:
+    for line in fh:
+        rep, member = line.rstrip("\n").split("\t")
+        cid = cluster_family_id("close", rep)
+        if cid in close_rows:
+            close_of_seq[member] = cid
+
+# Per protein, the plasmid label databases' labels (S4d) by term type, as 'source:label':
+# the ORF's own labels, in the vocabulary the context terms use (plasmidann.labeldb).
+# AMRFinderPlus VIRULENCE and STRESS acid/heat elements have no term type and no column.
+LABEL_COLS = {"amr": "amr_labels", "metal": "metal_labels", "ta": "ta_labels",
+              "conj_role": "conj_role_labels", "mge": "mge_labels",
+              "antidefence": "antidefence_labels"}
+labels_of_seq = collections.defaultdict(lambda: collections.defaultdict(set))
+with open(snakemake.input.labels_plasmid, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        prefix = labeldb.term_prefix(r)
+        if prefix:
+            labels_of_seq[r["seq_id"]][LABEL_COLS[prefix]].add(f"{r['source']}:{r['label']}")
+
+# Per ORF, its CONJScan system and component (S8f); per plasmid, its mobility class.
+conj_of_orf = collections.defaultdict(lambda: {"conj_system": set(), "conj_component": set()})
+with open(snakemake.input.conjugation, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        conj_of_orf[r["orf_id"]]["conj_system"].add(r["system"])
+        conj_of_orf[r["orf_id"]]["conj_component"].add(r["component"])
+conj_class = {}
+with open(snakemake.input.conjugation_class, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        conj_class[r["plasmid_id"]] = r["class"]
+
 CARRIED = ["family_id", "scope", "reality_n", "reality_lines", "darkness_state",
            "dnds_median",
            "dnds_status", "coding_signal", "collectively_novel",
@@ -256,7 +312,10 @@ with open(snakemake.input.annotation, newline="") as fh:
     cols = (list(reader.fieldnames)
             + ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                "eggnog_description", "is_element", "host_species", "host_genus",
-               "predicted_host_range"] + CARRIED)
+               "predicted_host_range"]
+            + list(LABEL_COLS.values())
+            + ["conj_system", "conj_component", "plasmid_conjscan_class"]
+            + list(CLOSE_COLS) + CARRIED)
     with open(snakemake.output.annotation, "w", newline="") as out:
         w = csv.DictWriter(out, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
@@ -279,6 +338,16 @@ with open(snakemake.input.annotation, newline="") as fh:
                        e["family"] for e in overlapping_islands(
                            {"start": int(r["start"]), "end": int(r["end"])},
                            is_elements.get(r["plasmid_id"], []))))}
+            # Several labels of one type, or several systems, are joined with '; '. Label
+            # names contain commas (CARD families), and csv quoting keeps them intact.
+            for col, values in labels_of_seq.get(sid, {}).items():
+                row[col] = "; ".join(sorted(values))
+            for col, values in conj_of_orf.get(r["orf_id"], {}).items():
+                row[col] = "; ".join(sorted(values))
+            row["plasmid_conjscan_class"] = conj_class.get(r["plasmid_id"], "")
+            close = close_rows.get(close_of_seq.get(sid, ""))
+            if close:
+                row.update({c: close[k] for c, k in CLOSE_COLS.items()})
             if fid:
                 n_dark += 1
                 fam = family_rows[fid]

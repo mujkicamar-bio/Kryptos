@@ -76,9 +76,47 @@ references:
   # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
   # covers the phage families (PHROG v4 table), CARD and VFDB together.
   pharokka_db_version: "1.8.0"
-  # MacSyFinder model sets: DefenseFinder for S8 defence systems. macsydata reports
-  # CONJScan 2.1.0 installed in the same tree.
+  # MacSyFinder model sets: DefenseFinder for S8 defence systems. Only the DefenseFinder
+  # and CasFinder models are in this tree (`macsydata list` shows CasFinder-3.1.0 and
+  # defense-finder-models-3.1.0); CONJScan is NOT installed here.
   macsyfinder_models: data/refs/macsyfinder
+  # CONJScan 2.1.0 (Cury et al. 2020, Methods Mol. Biol. 2075:265; the Plasmids models of
+  # Coluzzi et al. 2022, Mol. Biol. Evol. 39:msac115), in its own tree, installed with
+  # tools/install_tool_envs.py. Its grammar needs MacSyFinder >= 2.1.6, so it runs from
+  # envs/conjscan (conjugation.exe in config/targets.yaml), not from the plasmidann env.
+  conjscan_models: data/refs/conjscan
+  # KEGG's KO list (rest.kegg.jp/list/ko, verbatim), used ONLY to name the gene symbols of
+  # PlasmidScope's Tier 0 KOs in 08_protein_labels/label_disagreements.tsv. KEGG gives no
+  # label and no context term. Installed by tools/download_label_dbs.py; the release is in
+  # data/refs/labels/kegg_ko/VERSION.
+  kegg_ko_list: data/refs/labels/kegg_ko/raw/list_ko.txt
+
+# S4d: plasmid-specific label databases (plasmidann.labeldb). Each is its own label kind in
+# 08_protein_labels/protein_labels.tsv; PlasAnn's database and labels are not used.
+#   TADB 3.0, BacMet 2.0 (EXP), oriTDB 2.0, mobileOG-db beatrix-1.6 (sequence evidence),
+#   dbAPIS and Anti-CRISPRdb 2.2 (experimentally verified entries): DIAMOND blastp
+#   --more-sensitive -e 1e-5, tier 1 >=80% identity and >=90% coverage, tier 2 >60% and
+#   >70%, coverage on query AND subject (tiers from Islam et al. 2026, Nucleic Acids Res.).
+#   CARD protein homolog models: Perfect / Strict on the curated per-model bitscore
+#   cut-off (Alcock et al. 2023, Nucleic Acids Res. 51:D690).
+# The thresholds are constants of plasmidann.labeldb, cited there, not settings.
+labels:
+  # One directory per database (<db>/VERSION, <db>.faa; card/card.json), written by
+  # tools/download_label_dbs.py.
+  dir: data/refs/labels
+  # true: a database directory that is absent fails pre-flight and the stage. The run is
+  # meant to annotate everything in one submission, so a missing database must stop it in
+  # seconds rather than become a NOT_RUN row found after the run.
+  required: true
+
+# NCBI AMRFinderPlus (Feldgarden et al. 2021, Sci. Rep. 11:12728) in protein mode with
+# --plus: AMR, stress (metal, biocide, acid, heat) and virulence elements, by its own
+# curated rules. Its own environment and database (tools/install_tool_envs.py).
+amrfinder:
+  executable: envs/amrfinder/bin/amrfinder
+  # The database directory holds version.txt, which every amrfinder_gene row carries.
+  database: data/refs/amrfinder/latest
+  required: true
 
 qc:
   # Spec §9.3. A protein whose coding region is mostly antisense to a longer ORF on the

@@ -6,19 +6,25 @@ circular. Under linear topology a system spanning the origin is invisible, and o
 spanning genes are exactly what S1 worked to reconstruct.
 
 `--db-type gembase` lets a single run hold every candidate replicon and still treat each
-separately, which turns tens of thousands of per-plasmid invocations into one job. That one
-job is split again into one chunk of whole replicons per core, each run as its own
-MacSyFinder process with one worker: MacSyFinder's --worker parallelises only the profile
-searches, and the test run kept 0.6 of 16 cores busy (2.2 CPU-s in 99 s), which scales to
-~35-40 h for the production candidates. A system never spans two replicons, so splitting
-between replicons changes no call.
+separately, which turns tens of thousands of per-plasmid invocations into one job.
+
+ONE DATABASE, NOT ONE CHUNK PER CORE. This stage once split its input into one chunk of
+whole replicons per core, each a single-worker MacSyFinder process, because --worker
+parallelises only the profile searches (the test run kept 0.6 of 16 cores busy). The split
+was not neutral: HMMER's independent e-value is the score's p-value times the number of
+sequences in the database searched, and MacSyFinder keeps a hit only below --i-evalue-sel
+(0.001, its default), so a smaller chunk admits weaker hits and the calls depended on -c.
+Measured with CONJScan on the 100-plasmid test set: 8 chunks called 214 ORFs in 56
+systems, one database 212 in 55 (conjugation_systems.py). One MacSyFinder process over all
+candidate replicons, with --worker set to the rule's threads, gives calls that do not
+depend on the core count; the e-values still depend on the size of the candidate set, as
+with any single MacSyFinder database.
 
 Thresholds are MacSyFinder's and DefenseFinder's own published defaults (Tesson et al.
 2022; Abby et al. 2014 for MacSyFinder). The quorum and co-localisation rules come from the
 711 shipped model definitions - referenced by construction, since they ARE the published
 models rather than our reinterpretation of them.
 """
-import concurrent.futures
 import csv
 import pathlib
 import shutil
@@ -54,38 +60,14 @@ if not (models_dir.is_dir() and any(models_dir.iterdir())):
 if not snakemake.params.get("skip_run", False):
     # A rerun starts clean: results from an interrupted run would be read below.
     shutil.rmtree(outdir, ignore_errors=True)
-    chunk_dir = outdir / "chunks"
-    chunk_dir.mkdir(parents=True)
-    # Whole replicons to the chunk with the fewest genes so far. defence_gembase writes each
-    # replicon's genes together, and the replicon is the gembase id up to the last '_'.
-    n = snakemake.threads
-    handles = [open(chunk_dir / f"chunk_{i:03d}.faa", "w") for i in range(n)]
-    genes = [0] * n
-    current, target = None, 0
-    with open(snakemake.input.faa) as fh:
-        for line in fh:
-            if line.startswith(">"):
-                replicon = line[1:].split()[0].rsplit("_", 1)[0]
-                if replicon != current:
-                    current, target = replicon, genes.index(min(genes))
-                genes[target] += 1
-            handles[target].write(line)
-    for h in handles:
-        h.close()
-    chunks = [chunk_dir / f"chunk_{i:03d}.faa" for i in range(n) if genes[i]]
-
-    def run(chunk):
-        subprocess.run(
-            f"macsyfinder --models-dir {snakemake.params.models_dir} "
-            f"--models defense-finder-models all "
-            f"--sequence-db {chunk} "
-            f"--db-type gembase --replicon-topology circular "
-            f"--worker 1 --out-dir {outdir / chunk.stem} --mute",
-            shell=True, check=True)
-
-    with concurrent.futures.ThreadPoolExecutor(n) as pool:
-        list(pool.map(run, chunks))
-    shutil.rmtree(chunk_dir)
+    outdir.mkdir(parents=True)
+    subprocess.run(
+        f"macsyfinder --models-dir {snakemake.params.models_dir} "
+        f"--models defense-finder-models all "
+        f"--sequence-db {snakemake.input.faa} "
+        f"--db-type gembase --replicon-topology circular "
+        f"--worker {snakemake.threads} --out-dir {outdir / 'run'} --mute",
+        shell=True, check=True)
 
 # Map gembase ids back to our orf_ids.
 back = {}

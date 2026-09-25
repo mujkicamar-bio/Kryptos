@@ -46,9 +46,16 @@ orthology:
   required: false
 defence:
   required: false
+conjugation:
+  required: false
+  exe: envs/conjscan/bin/macsyfinder
+  version: "2.1.0"
 context:
   max_operon_gap: 100
   neighbourhood_window: 3
+synteny:
+  levels: [close, intermediate]
+  min_lineages: 2
 structure:
   scope: representatives
   gpu: true

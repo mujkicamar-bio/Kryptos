@@ -17,7 +17,10 @@
 # S5  quality gate                     positive and negative controls (run-halting)
 # S6  dark set and families            MMseqs2 deep-homology clustering
 # S7  evolutionary evidence            CDS recovery, codon alignments, dN/dS, RNAcode
-# S8  context and structure            DefenseFinder, IntegronFinder, directons, Foldseek
+# S4d plasmid label databases          TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS,
+#                                      Anti-CRISPRdb (DIAMOND), AMRFinderPlus
+# S8  context and structure            DefenseFinder, CONJScan, IntegronFinder, ISEScan,
+#                                      directons, context terms, Foldseek
 #
 # Design and rationale: plans/2026-09-10-pipeline-v2-design.md
 # Search statistics:    docs/annotation_statistics.md
@@ -61,6 +64,13 @@ if targets["network"]["node_resolution"] not in _clu["resolutions"]:
     raise ValueError(
         f"network.node_resolution is {targets['network']['node_resolution']!r} but the "
         f"configured resolutions are {sorted(_clu['resolutions'])}.")
+# Synteny reads one cluster file per level, and the family table reads its primary rows.
+_syn = targets["synteny"]["levels"]
+if not set(_syn) <= set(_clu["resolutions"]) or _clu["primary"] not in _syn:
+    raise ValueError(
+        f"synteny.levels is {_syn}; every level must be a configured resolution "
+        f"({sorted(_clu['resolutions'])}) and the primary resolution {_clu['primary']!r} "
+        "must be one of them, because the family table reads the primary-level rows.")
 OUT = config["outdir"]
 
 
@@ -82,6 +92,9 @@ rule all:
         f"{OUT}/15_report/annotation_complete.csv",     # every ORF, every annotation
         f"{OUT}/15_report/dark_families_complete.csv",  # every dark family, every evidence
         f"{OUT}/08_protein_labels/protein_labels.tsv",         # every tool label, per protein
+        f"{OUT}/08_protein_labels/label_disagreements.tsv",    # S4d cross-source conflicts
+        f"{OUT}/12_context_and_structure/family_context_terms.tsv",  # S8c context terms
+        f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",  # S8f mobility
         f"{OUT}/10_clustering/protein_families.tsv",           # Stage 5: every protein family
         f"{OUT}/10_clustering/network_summary.tsv",            # Stage 5b: family network
         f"{OUT}/10_clustering/plasmid_lineage.tsv",            # Stage 6: independent lineages

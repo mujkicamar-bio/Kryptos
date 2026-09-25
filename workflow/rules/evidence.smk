@@ -6,7 +6,8 @@
 # S5  quality gate        positive control (run-halting), decoys (reported)
 # S6  dark set, families  MMseqs2 deep-homology clustering, family network, lineages
 # S7  evolutionary        recurrence, CDS recovery, codon alignments, dN/dS, RNAcode
-# S8  context, structure  DefenseFinder, IntegronFinder, ISEScan, directons, Foldseek
+# S8  context, structure  DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons,
+#                         context terms, Foldseek
 # S9+ synteny, rarity, report
 #
 # Specification: PLASMID_ANALYSIS.md
@@ -226,14 +227,21 @@ rule synteny:
 
     Distinct from Stage 8, which asks what one ORF sits next to once. Conserved gene order
     survives because the arrangement matters, so it is a much stronger claim than
-    adjacency. Six measurements, kept separate (spec section 42).
+    adjacency. Six measurements, kept separate (spec section 42), counted over Stage 6
+    lineages, at every level of synteny.levels (close and intermediate).
     """
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
+        # Only family_id is read: the primary-level set must equal it.
         families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
-        # Neighbours are compared by family (S2f, primary), on small and large plasmids.
-        clusters=f"{OUT}/10_clustering/families_{targets['clustering']['primary']}_cluster.tsv",
+        # One cluster file per level, in the order of synteny.levels: a gene and its
+        # neighbours are named by their cluster at that level.
+        clusters=expand(f"{OUT}/10_clustering/families_{{res}}_cluster.tsv",
+                        res=targets["synteny"]["levels"]),
+        # The counting unit: one vote per independent lineage (Stage 6).
+        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
+        dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
         # Topology: the neighbour window wraps across the origin of a circular plasmid.
         registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
@@ -244,6 +252,7 @@ rule synteny:
     params:
         context=targets["context"],
         primary=targets["clustering"]["primary"],
+        synteny=targets["synteny"],
     resources:
         mem_mb=32000,
         runtime=480,
@@ -438,8 +447,9 @@ rule defence_systems:
     params:
         models_dir=config["references"]["macsyfinder_models"],
         required=targets["defence"]["required"],
-    # One single-worker MacSyFinder process per core over chunks of whole replicons
-    # (defence_systems.py); ~0.13 GB each on the test run.
+    # ONE MacSyFinder process over every candidate replicon, the cores to --worker: chunks
+    # made the calls depend on -c, because HMMER's i-evalue scales with the database size
+    # (defence_systems.py).
     threads: workflow.cores
     resources:
         mem_mb=48000,
@@ -452,6 +462,42 @@ rule defence_systems:
         "../envs/plasmidann.yaml"
     script:
         "../scripts/defence_systems.py"
+
+
+rule conjugation_systems:
+    """S8f: conjugation and mobilisation systems (CONJScan 2.1.0, Plasmids models) on
+    every plasmid, and each plasmid's mobility class (pCONJ, pdCONJ, pMOB, pMOBless).
+
+    Every ORF of every plasmid in genomic order, as ONE MacSyFinder database: HMMER's
+    i-evalue scales with the database size, so per-core chunks made the calls depend on -c.
+    MacSyFinder 2.1.6 runs from envs/conjscan, named by path (conjugation.exe).
+    """
+    input:
+        index=f"{OUT}/02_orf_calling/orf_index.tsv",
+        # Pre-flight has checked the executable against the models' grammar.
+        preflight=f"{OUT}/05_annotation_cascade/preflight.tsv",
+    output:
+        systems=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
+        classes=f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",
+    params:
+        models_dir=config["references"]["conjscan_models"],
+        exe=targets["conjugation"]["exe"],
+        required=targets["conjugation"]["required"],
+        version=targets["conjugation"]["version"],
+    threads: workflow.cores
+    resources:
+        # Extrapolated from the test set (leaf 1.3), not a production measurement: ~7 GB
+        # and ~25 min on 16 workers at 9.3 M ORFs (~0.77 ms CPU per ORF).
+        mem_mb=16000,
+        runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/conjugation_systems.tsv"
+    log:
+        f"{OUT}/logs/12_context_and_structure/conjugation_systems.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/conjugation_systems.py"
 
 
 rule integrons:
@@ -540,12 +586,22 @@ rule structure_search:
 
 rule context_features:
     """S8c: genomic context per ORF, as one row of descriptive rates per family (defence,
-    integron and IS element membership, annotated neighbours, operons). No enrichment test."""
+    conjugation, integron and IS element membership, annotated neighbours, operons), and
+    the context terms per family counted over lineages (family_context_terms.tsv): the
+    plasmid label databases and the defence and conjugation systems, never KEGG. Rows for
+    the dark families and for every known family at the primary resolution, which is the
+    benchmark tools/calibrate_context.py reads after the run. No enrichment test."""
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
         families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         defence=f"{OUT}/12_context_and_structure/defence_systems.tsv",
+        conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
+        # The terms: each protein's labels (kind, label, sub_label).
+        labels=f"{OUT}/08_protein_labels/protein_labels.tsv",
+        # Every family at the primary resolution, for the known-family benchmark rows.
+        all_families=f"{OUT}/10_clustering/protein_families.tsv",
+        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
         integrons=f"{OUT}/12_context_and_structure/integrons.tsv",
         is_elements=f"{OUT}/12_context_and_structure/is_elements.tsv",
         master=config["input"]["master_table"],
@@ -553,8 +609,10 @@ rule context_features:
         lengths=f"{OUT}/01_analysis_set/plasmid_lengths.tsv",
     output:
         families=f"{OUT}/12_context_and_structure/family_context.tsv",
+        terms=f"{OUT}/12_context_and_structure/family_context_terms.tsv",
     params:
         context=targets["context"],
+        primary=targets["clustering"]["primary"],
     resources:
         # ~2.3 KB per ORF measured, ~20 GB at 8.3 M ORFs.
         mem_mb=48000,
@@ -593,6 +651,12 @@ rule annotation_report:
         rarity=f"{OUT}/14_rarity/family_rarity.tsv",
         is_elements=f"{OUT}/12_context_and_structure/is_elements.tsv",
         registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
+        # Per ORF: the close-level synteny row of the ORF's close cluster.
+        clusters_close=f"{OUT}/10_clustering/families_close_cluster.tsv",
+        # Per ORF: the plasmid label databases (S4d) and the CONJScan calls (S8f).
+        labels_plasmid=f"{OUT}/08_protein_labels/protein_labels_plasmid.tsv",
+        conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
+        conjugation_class=f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",
     output:
         annotation=f"{OUT}/15_report/annotation_complete.csv",
         families=f"{OUT}/15_report/dark_families_complete.csv",

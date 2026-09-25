@@ -40,3 +40,41 @@ def test_targets_match_their_schema():
     schema = yaml.safe_load(
         (ROOT / "config" / "schemas" / "targets.schema.yaml").read_text())
     jsonschema.validate(targets, schema)
+
+
+def test_the_test_configuration_validates_against_the_same_schema():
+    """config/test is what the smoke run uses; a key the production config gained and the
+    test config lacks fails the test run at load time."""
+    config = yaml.safe_load((ROOT / "config" / "test" / "config.yaml").read_text())
+    schema = yaml.safe_load((ROOT / "config" / "schemas" / "config.schema.yaml").read_text())
+    jsonschema.validate(config, schema)
+
+
+def test_the_gpu_targets_differ_from_targets_only_in_structure_gpu():
+    """targets.gpu.yaml files are copies of targets.yaml with structure.gpu enabled. A key
+    added to one and not the others makes the GPU run use different thresholds."""
+    targets = yaml.safe_load((ROOT / "config" / "targets.yaml").read_text())
+    for path in (ROOT / "config" / "targets.gpu.yaml",
+                 ROOT / "config" / "test" / "targets.gpu.yaml"):
+        gpu = yaml.safe_load(path.read_text())
+        assert gpu["structure"].pop("gpu") is True
+        expected = {**targets, "structure": {k: v for k, v in targets["structure"].items()
+                                             if k != "gpu"}}
+        assert gpu == expected, f"{path.name} drifted from targets.yaml"
+
+
+def test_the_label_databases_and_conjscan_are_configured():
+    config = yaml.safe_load((ROOT / "config" / "config.yaml").read_text())
+    targets = yaml.safe_load((ROOT / "config" / "targets.yaml").read_text())
+    assert config["labels"]["dir"] == "data/refs/labels"
+    assert config["amrfinder"]["executable"] == "envs/amrfinder/bin/amrfinder"
+    assert config["references"]["conjscan_models"] == "data/refs/conjscan"
+    # The KO list maps Tier 0 KOs to symbols for the disagreement table only.
+    assert config["references"]["kegg_ko_list"].startswith("data/refs/labels/kegg_ko/")
+    assert targets["conjugation"]["exe"] == "envs/conjscan/bin/macsyfinder"
+    assert targets["conjugation"]["version"] == "2.1.0"
+    # The primary resolution must be a synteny level (the family table reads its rows),
+    # and close is the level the ORF table reads.
+    assert targets["clustering"]["primary"] in targets["synteny"]["levels"]
+    assert "close" in targets["synteny"]["levels"]
+    assert targets["synteny"]["min_lineages"] == 2

@@ -240,6 +240,20 @@ def test_controls_with_uninformative_titles_are_excluded(fixture_dir):
 # --- S3 pre-flight: the rule that exists to stop 45-hour failures ---------------------
 
 @requires("hmmsearch", "diamond", "mafft", "mmseqs", "foldseek")
+def _s4d_params(fixture_dir, labels_required=False, amr_required=False,
+                conj_required=False, conj_exe=None, conj_models=None, labels_dir=None):
+    """Pre-flight params for the label databases, AMRFinderPlus and CONJScan. By default
+    none is installed and none is required, so a test not about them sees them skipped."""
+    return {"labels": {"dir": str(labels_dir or fixture_dir / "no_labels"),
+                       "required": labels_required},
+            "amrfinder": {"executable": str(fixture_dir / "no_amr" / "amrfinder"),
+                          "database": str(fixture_dir / "no_amr_db"),
+                          "required": amr_required},
+            "conjugation": {"required": conj_required, "version": "2.1.0",
+                            "exe": str(conj_exe or fixture_dir / "no_msf" / "macsyfinder")},
+            "conjscan_models": str(conj_models or fixture_dir / "no_conjscan")}
+
+
 def test_preflight_checks_every_tool_the_workflow_runs(fixture_dir):
     """Pre-flight covered 4 of the 11 executables the workflow invokes. A missing mafft,
     mmseqs, macsyfinder, integron_finder, prodigal, cmsearch or foldseek still killed the
@@ -262,7 +276,7 @@ def test_preflight_checks_every_tool_the_workflow_runs(fixture_dir):
                 "structure": {"required": False},
                 "orthology": {"required": False, "data_dir": ""},
                 "foldseek_db": str(fixture_dir / "absent"),
-                "prostt5": str(fixture_dir / "absent")}))
+                "prostt5": str(fixture_dir / "absent"), **_s4d_params(fixture_dir)}))
 
     reported = {l.split("\t")[0] for l in out.read_text().splitlines() if "\t" in l}
     unchecked = {t for t in tool_names()} - reported - {"foldseek", "emapper.py"}
@@ -280,7 +294,7 @@ def test_preflight_refuses_an_incomplete_diamond_index(fixture_dir):
     params = {"artefact": {"antifam_db": str(antifam)}, "structure": {"required": False},
               "orthology": {"required": False, "data_dir": ""},
               "foldseek_db": str(fixture_dir / "absent"),
-              "prostt5": str(fixture_dir / "absent")}
+              "prostt5": str(fixture_dir / "absent"), **_s4d_params(fixture_dir)}
     tier = {"id": "T5", "method": "diamond", "source": "nr", "db": str(db),
             "args": "", "max_evalue": 1e-5}
 
@@ -318,9 +332,103 @@ def test_preflight_fails_when_a_downstream_tool_is_missing(fixture_dir, monkeypa
                                "args": "--cut_ga", "max_evalue": None}],
                     "artefact": {"antifam_db": str(antifam)},
                     "structure": {"required": False},
-                    "foldseek_db": "", "prostt5": ""}))
+                    "foldseek_db": "", "prostt5": "", **_s4d_params(fixture_dir)}))
     assert "mafft" in str(exc.value), "a missing mafft must be named by pre-flight"
     assert "S7b" in str(exc.value), "pre-flight must say which stage the tool belongs to"
+
+
+def _preflight_s4d(fixture_dir, **s4d):
+    """Run pre-flight with every cascade check satisfied and the given S4d/S8f params."""
+    db = fixture_dir / "fake.hmm"
+    db.write_text("HMMER3/f\n")
+    (fixture_dir / "fake.hmm.h3i").write_text("")
+    out = fixture_dir / "preflight.tsv"
+    run_script("preflight.py", FakeSnakemake(
+        output=[str(out)],
+        params={"tiers": [{"id": "T1", "method": "hmmer", "source": "pfam", "db": str(db),
+                           "args": "--cut_ga", "max_evalue": None}],
+                "artefact": {"antifam_db": str(db)},
+                "structure": {"required": False},
+                "orthology": {"required": False, "data_dir": ""},
+                "foldseek_db": "", "prostt5": "", **_s4d_params(fixture_dir, **s4d)}))
+    return out
+
+
+def _label_dbs(root, omit=()):
+    """A complete data/refs/labels tree, less the databases named in `omit`."""
+    from plasmidann import labeldb
+    for db in labeldb.DATABASES:
+        if db in omit:
+            continue
+        d = root / db
+        d.mkdir(parents=True)
+        (d / "VERSION").write_text(f"{db} 1.0\n")
+        (d / ("card.json" if db == "card" else f"{db}.faa")).write_text(">x\nMKV\n")
+    (root / "bacmet" / "raw").mkdir(exist_ok=True)
+    (root / "bacmet" / "raw" / "BacMet2_EXP.753.mapping.txt").write_text("x\n")
+    return root
+
+
+def test_preflight_fails_fast_when_a_required_label_database_is_missing(fixture_dir):
+    labels = _label_dbs(fixture_dir / "labels", omit=("acrdb",))
+    with pytest.raises(SystemExit, match="label database acrdb"):
+        _preflight_s4d(fixture_dir, labels_dir=labels, labels_required=True)
+    # Not required: the stage records it NOT_RUN, so pre-flight lets it through.
+    _preflight_s4d(fixture_dir, labels_dir=labels, labels_required=False)
+
+
+def test_preflight_refuses_an_installed_label_database_without_its_version(fixture_dir):
+    """The stage halts on a missing VERSION whether the databases are required or not,
+    so pre-flight must too - in seconds, not after the cascade."""
+    labels = _label_dbs(fixture_dir / "labels")
+    (labels / "tadb" / "VERSION").write_text("")
+    with pytest.raises(SystemExit, match="tadb/VERSION is missing or empty"):
+        _preflight_s4d(fixture_dir, labels_dir=labels, labels_required=False)
+
+
+def test_preflight_fails_when_amrfinder_is_required_and_absent(fixture_dir):
+    with pytest.raises(SystemExit, match="AMRFinderPlus executable"):
+        _preflight_s4d(fixture_dir, amr_required=True)
+    _preflight_s4d(fixture_dir, amr_required=False)
+
+
+def _conjscan_install(fixture_dir, grammar, reported):
+    """A CONJScan 2.1.0 tree of the given grammar, and a MacSyFinder that reports
+    `reported` from --version, as 2.1.4 ('Macsyfinder 2.1.4') and 2.1.6 do."""
+    models = fixture_dir / f"conjscan_{grammar}_{reported.split()[-1]}"
+    definitions = models / "CONJScan" / "definitions" / "Plasmids"
+    definitions.mkdir(parents=True)
+    (models / "CONJScan" / "metadata.yml").write_text("name: CONJScan\nvers: 2.1.0\n")
+    (definitions / "MOB.xml").write_text(
+        f'<model inter_gene_max_space="500" min_mandatory_genes_required="1" '
+        f'min_genes_required="1" vers="{grammar}">\n</model>\n')
+    exe = models / "bin" / "macsyfinder"
+    exe.parent.mkdir()
+    exe.write_text(f"#!/bin/sh\necho '{reported} '\n")
+    exe.chmod(0o755)
+    return models, exe
+
+
+def test_preflight_refuses_a_macsyfinder_too_old_for_the_conjscan_grammar(fixture_dir):
+    """CONJScan 2.1.0 is written in grammar 2.1; MacSyFinder 2.1.4, which DefenseFinder
+    pins, stops on it with a parse error. That must fail here, naming both versions, and
+    also when conjugation is not required - the stage runs whenever both are installed."""
+    models, exe = _conjscan_install(fixture_dir, "2.1", "Macsyfinder 2.1.4")
+    with pytest.raises(SystemExit) as exc:
+        _preflight_s4d(fixture_dir, conj_exe=exe, conj_models=models)
+    assert "MacSyFinder >= 2.1.6" in str(exc.value)
+    assert "MacSyFinder 2.1.4" in str(exc.value)
+
+    models, exe = _conjscan_install(fixture_dir, "2.1", "MacSyFinder 2.1.6")
+    out = _preflight_s4d(fixture_dir, conj_exe=exe, conj_models=models)
+    assert "conjscan_macsyfinder\t2.1.6" in out.read_text()
+
+
+def test_preflight_names_a_missing_conjscan_only_when_it_is_required(fixture_dir):
+    with pytest.raises(SystemExit, match="CONJScan is not installed"):
+        _preflight_s4d(fixture_dir, conj_required=True)
+    out = _preflight_s4d(fixture_dir, conj_required=False)
+    assert "conjscan\tnot installed" in out.read_text()
 
 
 # --- S3 resolve: one row per protein, assembled across tiers ---------------------------
@@ -677,14 +785,27 @@ def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear"):
     write_tsv(master, ["plasmid_id", "size_bp", "topology"], [["pl1", 5000, topology]])
     lengths = fixture_dir / "plasmid_lengths.tsv"
     write_tsv(lengths, ["plasmid_id", "length_bp"], [["pl1", 5000]])
+    conj = fixture_dir / "conjugation_systems.tsv"
+    write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component"], [])
+    labels = fixture_dir / "protein_labels.tsv"
+    write_tsv(labels, ["protein_id", "source", "tier", "kind", "label", "sub_label"], [])
+    all_fams = fixture_dir / "protein_families.tsv"
+    write_tsv(all_fams, ["family_id", "family_resolution", "representative", "members"],
+              [["F1", "intermediate", "S1", "S1"]])
+    lineage = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"], [["pl1", "pl1"]])
     fams_out = fixture_dir / "family_context.tsv"
     run_script("context_features.py", FakeSnakemake(
         input={"annotation": str(ann), "families": str(fam), "map": str(pmap),
-               "defence": str(defence), "integrons": str(integrons),
+               "defence": str(defence), "conjugation": str(conj),
+               "integrons": str(integrons),
                "is_elements": _is_table(fixture_dir, is_rows), "master": str(master),
-               "lengths": str(lengths)},
-        output={"families": str(fams_out)},
-        params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3}}))
+               "lengths": str(lengths), "labels": str(labels),
+               "all_families": str(all_fams), "lineage": str(lineage)},
+        output={"families": str(fams_out),
+                "terms": str(fixture_dir / "family_context_terms.tsv")},
+        params={"context": {"max_operon_gap": 100, "neighbourhood_window": 3},
+                "primary": "intermediate"}))
     return read_tsv(fams_out)
 
 
@@ -702,6 +823,7 @@ def test_context_writes_one_row_of_rates_per_family(fixture_dir):
     assert row["cons_integron"] == "0.0"
     assert row["cons_defence"] == "0.0"
     assert row["cons_is_element"] == "0.0"
+    assert row["cons_conj"] == "0.0"
 
 
 # --- S8d: the structural evidence has to carry a description, not just an accession ----
@@ -1198,8 +1320,8 @@ def _report_fixture(fixture_dir):
     ctx = fixture_dir / "ctx.tsv"
     write_tsv(ctx, ["family_id", "n_units", "cons_defence", "cons_integron",
                     "cons_is_element", "cons_annotated_neighbour",
-                    "cons_operon_with_annotated", "cons_two_gene_operon"],
-              [["F2", 9, 0.8, 0.0, 0.0, 1.0, 0.6, 0.2]])
+                    "cons_operon_with_annotated", "cons_two_gene_operon", "cons_conj"],
+              [["F2", 9, 0.8, 0.0, 0.0, 1.0, 0.6, 0.2, 0.3]])
     struct = fixture_dir / "struct.tsv"
     write_tsv(struct, ["seq_id", "target", "target_description", "evalue"], [])
     orth = fixture_dir / "orth.tsv"
@@ -1210,21 +1332,28 @@ def _report_fixture(fixture_dir):
     write_tsv(recur, ["family_id", "family_resolution", "representative",
                       "plasmid_occurrence_count", "unique_plasmid_count",
                       "independent_plasmid_cluster_count", "independent_cluster_status",
-                      "host_count", "species_count", "genus_count", "MOB_count",
-                      "habitat_count", "database_record_count", "database_source_count"],
-              [["F1", "broad", "S2", 1, 1, 1, "SUCCESS", 1, 1, 1, 1, 1, 1, 1],
+                      "host_count", "genus_count", "MOB_count",
+                      "habitat_count", "database_source_count"],
+              [["F1", "broad", "S2", 1, 1, 1, "SUCCESS", 1, 1, 1, 1, 1],
                # 40 gene copies on 9 records that are only 2 independent lineages: the
                # shape section 34.2 exists to keep visible.
-               ["F2", "broad", "S3", 40, 9, 2, "SUCCESS", 3, 3, 2, 3, 2, 9, 1]])
+               ["F2", "broad", "S3", 40, 9, 2, "SUCCESS", 3, 2, 3, 2, 1]])
     syn = fixture_dir / "synteny.tsv"
-    write_tsv(syn, ["family_id", "n_occurrences", "context_recurrence",
-                    "left_neighbor_conservation", "right_neighbor_conservation",
-                    "neighborhood_conservation", "operon_like_conservation",
-                    "synteny_conservation", "modal_left", "modal_right", "modal_synteny",
-                    "status"],
-              [["F1", 1, 0, "", "", "", "", "", "", "", "", "TOO_FEW_MEMBERS"],
-               ["F2", 9, 9, 0.9, 0.7, 0.8, 0.6, 0.7, "mobA", "repA", "mobA|repA",
-                "SUCCESS"]])
+    measures = ["n_occurrences", "context_recurrence", "n_lineages",
+                "n_lineages_discordant", "lineage_left_conservation",
+                "lineage_right_conservation", "lineage_neighborhood_conservation",
+                "lineage_operon_like_conservation", "lineage_synteny_conservation",
+                "modal_left", "modal_right", "modal_synteny", "status"]
+    f1 = [1, 1, 1, 0, "", "", "", "", "", "", "", "", "TOO_FEW_LINEAGES"]
+    f2 = [9, 9, 3, 1, 0.9, 0.7, 0.8, 0.6, 0.7, "mobA", "repA", "mobA|repA", "SUCCESS"]
+    write_tsv(syn, ["family_id", "level", "intermediate_family_ids",
+                    "synteny_min_lineages", *measures, *(f"small_{m}" for m in measures)],
+              # Stage 9 measures the close level too; the family table reads the
+              # primary rows and the ORF table the close rows.
+              [["close:S3", "close", "F2", 2, 4, 4, 2, 0, 1.0, 1.0, 1.0, 0.5, 1.0,
+                "close:S1", "", "close:S1|", "SUCCESS", *f2],
+               ["F1", "intermediate", "F1", 2, *f1, *f1],
+               ["F2", "intermediate", "F2", 2, *f2, *f2]])
     rarity_tsv = fixture_dir / "family_rarity.tsv"
     write_tsv(rarity_tsv, ["family_id", "rarity_labels",
                            "independent_plasmid_cluster_count", "unique_plasmid_count",
@@ -1253,6 +1382,28 @@ def _run_report(fixture_dir, *tables):
     registry = fixture_dir / "report_registry.tsv"
     write_tsv(registry, ["plasmid_id", "species", "genus", "predicted_host_range"],
               [["p1", "Escherichia coli", "Escherichia", "Enterobacterales"]])
+    # Close clusters: S3 with S2 (measured by Stage 9), S1 alone (no close row).
+    clusters_close = fixture_dir / "families_close_cluster.tsv"
+    clusters_close.write_text("S1\tS1\nS3\tS3\nS3\tS2\n")
+    # S1 is the relaxase: oriTDB and CARD label it, and an AMRFinderPlus VIRULENCE element
+    # (no term type, so no column); CONJScan calls p1|1 the MOB of a MOB system.
+    labels_plasmid = fixture_dir / "protein_labels_plasmid.tsv"
+    write_tsv(labels_plasmid, PLASMID_LABEL_COLS,
+              [["S1", "oritdb", "oritdb_role", "relaxase", "MOBP", "1", "", "95", "98",
+                "97", "500", "TraI_RP4", "oriTDB 2.0"],
+               ["S1", "card", "card_amr_family", "sulfonamide resistant sul, x", "sul1",
+                "Strict", "300", "80", "100", "100", "400", "ARO:1", "CARD 4.0.2"],
+               ["S1", "amrfinder", "amrfinder_gene", "sul1", "AMR/AMR", "EXACTP", "",
+                "100", "", "100", "", "WP_1", "2026-08-07.1"],
+               ["S1", "amrfinder", "amrfinder_gene", "iutA", "VIRULENCE/VIRULENCE",
+                "BLASTP", "", "99", "", "100", "", "WP_2", "2026-08-07.1"]])
+    conj = fixture_dir / "conjugation_systems.tsv"
+    write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component",
+                     "hit_status", "sys_wholeness", "conjscan_version"],
+              [["p1|1", "p1", "MOB", "p1_MOB_1", "T4SS_MOBP1", "mandatory", "1.000",
+                "2.1.0"]])
+    conj_class = fixture_dir / "conjugation_plasmid_class.tsv"
+    write_tsv(conj_class, ["plasmid_id", "class"], [["p1", "pMOB"]])
     out_ann = fixture_dir / "annotation_complete.csv"
     out_fam = fixture_dir / "dark_families_complete.csv"
     run_script("annotation_report.py", FakeSnakemake(
@@ -1261,7 +1412,9 @@ def _run_report(fixture_dir, *tables):
                "context": str(ctx), "structure": str(struct), "orthology": str(orth),
                "recurrence": str(recur), "synteny": str(syn),
                "rarity": str(rarity_tsv), "is_elements": is_tsv,
-               "registry": str(registry)},
+               "registry": str(registry), "clusters_close": str(clusters_close),
+               "labels_plasmid": str(labels_plasmid), "conjugation": str(conj),
+               "conjugation_class": str(conj_class)},
         output={"annotation": str(out_ann), "families": str(out_fam)},
         params={"prioritisation": {"min_reality_lines": 2, "min_mob_clusters": 2},
                 "evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5}}))
@@ -1324,24 +1477,28 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "darkness_state", "structural_match", "structural_description", "structure_evalue",
         "cons_defence", "cons_integron", "cons_is_element",
         "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
+        "cons_conj",
         # Stage 7: seven counts, never collapsed into one.
         "plasmid_occurrence_count", "unique_plasmid_count",
         "independent_plasmid_cluster_count", "independent_cluster_status",
-        "host_count", "species_count", "genus_count", "n_plasmids_with_host",
+        "host_count", "genus_count", "n_plasmids_with_host",
         "n_plasmids_with_species", "host_count_status", "n_plasmids_with_predicted_range",
         "predicted_host_range_count",
         "predicted_host_ranges", "MOB_count", "habitat_count",
-        "database_record_count", "database_source_count",
-        # Stage 9: six conservation measurements, kept apart because they fail apart.
-        "context_recurrence", "n_occurrences", "left_neighbor_conservation",
-        "right_neighbor_conservation", "neighborhood_conservation",
-        "operon_like_conservation", "synteny_conservation", "modal_left", "modal_right",
-        "modal_synteny", "synteny_status",
-        "small_n_occurrences", "small_context_recurrence",
-        "small_left_neighbor_conservation", "small_right_neighbor_conservation",
-        "small_neighborhood_conservation", "small_operon_like_conservation",
-        "small_synteny_conservation", "small_modal_left", "small_modal_right",
-        "small_modal_synteny", "small_synteny_status",
+        "database_source_count",
+        # Stage 9: six conservation measurements, kept apart because they fail apart,
+        # counted over lineages; the primary-level (family) rows.
+        "context_recurrence", "n_occurrences", "n_lineages", "n_lineages_discordant",
+        "lineage_left_conservation", "lineage_right_conservation",
+        "lineage_neighborhood_conservation", "lineage_operon_like_conservation",
+        "lineage_synteny_conservation", "modal_left", "modal_right", "modal_synteny",
+        "synteny_status", "synteny_min_lineages",
+        "small_n_occurrences", "small_context_recurrence", "small_n_lineages",
+        "small_n_lineages_discordant", "small_lineage_left_conservation",
+        "small_lineage_right_conservation", "small_lineage_neighborhood_conservation",
+        "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
+        "small_modal_left", "small_modal_right", "small_modal_synteny",
+        "small_synteny_status",
         # Stage 14: descriptors, not a ranking.
         "rarity_labels", "rarity_version",
         # Stage 15: dimensions counted, never scored.
@@ -1360,9 +1517,35 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     join_and_orthology = {"seq_id", "cog_category", "kegg_pathways", "preferred_name",
                           "eggnog_description", "is_element", "host_species", "host_genus",
                           "predicted_host_range"}
-    carried = set(by_orf["p1|3"]) - annotation_cols - join_and_orthology
+    # The ORF's own evidence beside the family's: its protein's plasmid label database
+    # labels by term type, its CONJScan call, and its close cluster's synteny.
+    orf_evidence = ["amr_labels", "metal_labels", "ta_labels", "conj_role_labels",
+                    "mge_labels", "antidefence_labels", "conj_system", "conj_component",
+                    "plasmid_conjscan_class", "close_family_id", "close_n_lineages",
+                    "close_lineage_synteny_conservation", "close_modal_synteny",
+                    "close_synteny_status"]
+    carried = set(by_orf["p1|3"]) - annotation_cols - join_and_orthology - set(orf_evidence)
     assert carried == CARRIED_TO_ORFS, (
         f"family evidence carried to the ORF table changed: {sorted(carried)}")
+    columns = list(by_orf["p1|3"])
+    assert columns[columns.index("predicted_host_range") + 1:][:len(orf_evidence)] == \
+        orf_evidence, f"ORF evidence columns changed: {columns}"
+
+    # --- the ORF's own evidence ------------------------------------------------------
+    relaxase = by_orf["p1|1"]
+    assert relaxase["conj_role_labels"] == "oritdb:relaxase"
+    assert relaxase["amr_labels"] == "amrfinder:sul1; card:sulfonamide resistant sul, x"
+    assert relaxase["metal_labels"] == "", "a VIRULENCE element has no term type"
+    assert (relaxase["conj_system"], relaxase["conj_component"]) == ("MOB", "T4SS_MOBP1")
+    assert {r["plasmid_conjscan_class"] for r in orfs} == {"pMOB"}
+    assert by_orf["p1|3"]["conj_system"] == ""
+    # S2 and S3 share the close cluster close:S3, which Stage 9 measured; S1's was not.
+    for orf in ("p1|2", "p1|3"):
+        assert (by_orf[orf]["close_family_id"], by_orf[orf]["close_n_lineages"],
+                by_orf[orf]["close_lineage_synteny_conservation"],
+                by_orf[orf]["close_modal_synteny"], by_orf[orf]["close_synteny_status"]) \
+            == ("close:S3", "2", "1.0", "close:S1|", "SUCCESS")
+    assert relaxase["close_family_id"] == relaxase["close_synteny_status"] == ""
 
     # --- Stage 7: the counts stay apart ---------------------------------------------
     # Section 34.2: "Database record counts must never be treated as independent
@@ -1375,9 +1558,12 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "the record count")
 
     # --- Stage 9: synteny, with its own status name ---------------------------------
-    assert fam_rows["F2"]["synteny_conservation"] == "0.7"
-    assert fam_rows["F1"]["synteny_status"] == "TOO_FEW_MEMBERS", (
-        "one occurrence is perfectly conserved with itself; that must read as a status, "
+    assert fam_rows["F2"]["lineage_synteny_conservation"] == "0.7"
+    assert (fam_rows["F2"]["n_lineages"], fam_rows["F2"]["synteny_min_lineages"]) == (
+        "3", "2")
+    assert fam_rows["F2"]["cons_conj"] == "0.3"
+    assert fam_rows["F1"]["synteny_status"] == "TOO_FEW_LINEAGES", (
+        "one lineage is perfectly conserved with itself; that must read as a status, "
         "not as a conservation of 1.0")
 
     # --- Stage 14: labels are descriptors -------------------------------------------
@@ -1563,6 +1749,30 @@ def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir
 
 # --- S4c: one long table of what every tool said --------------------------------------
 
+# protein_labels_plasmid.tsv as label_databases writes it (plasmidann.labeldb.COLUMNS).
+PLASMID_LABEL_COLS = ["seq_id", "source", "label_kind", "label", "sub_label", "tier",
+                      "cut_off", "pident", "qcov", "scov", "bitscore", "subject",
+                      "database_version"]
+
+
+def _label_inputs(fixture_dir, label_rows=(), ko_lines=(), defence_rows=(),
+                  conj_rows=(), protein_map=""):
+    """The S4d inputs of protein_labels, empty unless rows are given: the plasmid label
+    databases' table, the KEGG KO list, the defence and CONJScan calls and the map."""
+    labels_plasmid = fixture_dir / "protein_labels_plasmid.tsv"
+    write_tsv(labels_plasmid, PLASMID_LABEL_COLS, list(label_rows))
+    ko_list = fixture_dir / "list_ko.txt"
+    ko_list.write_text("".join(f"{line}\n" for line in ko_lines))
+    defence = fixture_dir / "defence_systems.tsv"
+    write_tsv(defence, ["orf_id", "plasmid_id", "system", "component"], list(defence_rows))
+    conj = fixture_dir / "conjugation_systems.tsv"
+    write_tsv(conj, ["orf_id", "plasmid_id", "system", "component"], list(conj_rows))
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text(protein_map)
+    return {"labels_plasmid": str(labels_plasmid), "ko_list": str(ko_list),
+            "defence": str(defence), "conjugation": str(conj), "map": str(pmap)}
+
+
 def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
     """The substrate for the functional grouping. A wide table cannot hold it: the
     vocabulary is open, Pfam-A 38.2 alone has 30,134 families, and the grouping is derived
@@ -1584,9 +1794,10 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
 
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
-                     "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec", "kegg_ko"],
+                     "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec", "kegg_ko",
+                     "orthology_source"],
               [["s1", "L", "ko03030", "repA", "Replication initiator",
-                "COG5527@2", "RepA_N", "GO:0006270", "2.7.7.7", "ko:K02314"]])
+                "COG5527@2", "RepA_N", "GO:0006270", "2.7.7.7", "ko:K02314", "emapper"]])
 
     pfam_dat = fixture_dir / "Pfam-A.hmm.dat.gz"
     with gzip.open(pfam_dat, "wt") as fh:
@@ -1598,8 +1809,9 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
     run_script("protein_labels.py", FakeSnakemake(
         input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat),
                "selection": _selection(fixture_dir, [["m1", 1, "member", "s1"],
-                                                      ["s1", 1, "representative", "s1"]])},
-        output={"tsv": str(out)},
+                                                      ["s1", 1, "representative", "s1"]]),
+               **_label_inputs(fixture_dir)},
+        output={"tsv": str(out), "disagreements": str(fixture_dir / "disagree.tsv")},
         params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
                 "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
 
@@ -1649,15 +1861,15 @@ def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec",
-                     "kegg_ko"], [])
+                     "kegg_ko", "orthology_source"], [])
     pfam_dat = fixture_dir / "pfam.dat"
     pfam_dat.write_text("")
 
     out = fixture_dir / "protein_labels.tsv"
     run_script("protein_labels.py", FakeSnakemake(
         input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat),
-               "selection": _selection(fixture_dir)},
-        output={"tsv": str(out)},
+               "selection": _selection(fixture_dir), **_label_inputs(fixture_dir)},
+        output={"tsv": str(out), "disagreements": str(fixture_dir / "disagree.tsv")},
         params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
                 "nr_version": "2025-03-03", "eggnog_version": "5.0.2",
                 "pharokka_db_version": "1.8.0"}))
@@ -1693,15 +1905,15 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec",
-                     "kegg_ko"], [])
+                     "kegg_ko", "orthology_source"], [])
     pfam_dat = fixture_dir / "pfam.dat"
     pfam_dat.write_text("")
 
     out = fixture_dir / "protein_labels.tsv"
     run_script("protein_labels.py", FakeSnakemake(
         input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat),
-               "selection": _selection(fixture_dir)},
-        output={"tsv": str(out)},
+               "selection": _selection(fixture_dir), **_label_inputs(fixture_dir)},
+        output={"tsv": str(out), "disagreements": str(fixture_dir / "disagree.tsv")},
         params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
                 "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
 
@@ -1709,6 +1921,83 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
     assert len(rows) == 1, f"the same family was recorded {len(rows)} times"
     # The strongest evidence for the statement survives the merge.
     assert rows[0]["evidence_evalue"] == "1e-40"
+
+
+def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreements(
+        fixture_dir):
+    """S4d: every plasmid label database row enters protein_labels.tsv as its own kind,
+    sub_label included (AMRFinderPlus's element type decides amr against metal), and the
+    cross-source conflicts are written beside it without changing a label."""
+    hits = fixture_dir / "hits.tsv"
+    write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
+                     "evalue", "informative", "is_best", "start", "end", "tier", "source",
+                     "category", "threshold", "max_evalue"],
+              [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
+                "T1", "pfam", "", "--cut_ga", ""]])
+    orth = fixture_dir / "orthology.tsv"
+    # Tier 0 (PlasmidScope) names s2 by a KO whose KEGG symbol is merA.
+    write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
+                     "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec", "kegg_ko",
+                     "orthology_source"],
+              [["s2", "P", "", "-", "", "", "", "", "", "ko:K00520", "plasmidscope"]])
+    pfam_dat = fixture_dir / "pfam.dat"
+    pfam_dat.write_text("")
+    label_rows = [
+        # s1: CARD and AMRFinderPlus name different genes - card_vs_amrfinder.
+        ["s1", "card", "card_amr_family", "TEM beta-lactamase", "TEM-1", "Perfect",
+         "500", "100.0", "100.0", "100.0", "560", "ARO:3000873", "CARD 4.0.2"],
+        ["s1", "amrfinder", "amrfinder_gene", "sul1", "AMR/AMR", "EXACTP", "", "100.0",
+         "", "100.0", "", "WP_000259031.1", "2026-08-07.1"],
+        # s2: BacMet names merB where Tier 0 names merA - tier0_vs_bacmet.
+        ["s2", "bacmet", "bacmet_compound", "Mercury", "merB", "1", "", "95.0", "98.0",
+         "97.0", "400", "BAC0231", "BacMet 2.0"],
+        # s3: TADB on a DefenseFinder component - tadb_vs_defencefinder.
+        ["s3", "tadb", "tadb_ta", "type II toxin", "", "1", "", "90.0", "95.0", "95.0",
+         "300", "TA01", "TADB 3.0"],
+    ]
+    inputs = _label_inputs(
+        fixture_dir, label_rows=label_rows,
+        ko_lines=["K00520\tmerA; mercuric reductase [EC:1.16.1.1]"],
+        defence_rows=[["p1|3", "p1", "defense-finder-models/DefenseFinder/AbiE/AbiE",
+                       "AbiEii"]],
+        protein_map="s1\tp1|1\ns2\tp1|2\ns3\tp1|3\n")
+    out = fixture_dir / "protein_labels.tsv"
+    disagree = fixture_dir / "label_disagreements.tsv"
+    run_script("protein_labels.py", FakeSnakemake(
+        input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat),
+               "selection": _selection(fixture_dir), **inputs},
+        output={"tsv": str(out), "disagreements": str(disagree)},
+        params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
+                "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
+
+    rows = read_tsv(out)
+    assert list(rows[0]) == ["protein_id", "source", "tier", "kind", "label", "sub_label",
+                             "accession", "evidence_evalue", "evidence_coverage",
+                             "database", "database_version", "via_representative"]
+    plasmid_kinds = {"card_amr_family", "amrfinder_gene", "bacmet_compound", "tadb_ta"}
+    merged = {(r["protein_id"], r["kind"]): r for r in rows if r["kind"] in plasmid_kinds}
+    amr = merged[("s1", "amrfinder_gene")]
+    assert (amr["label"], amr["sub_label"], amr["tier"], amr["accession"]) == (
+        "sul1", "AMR/AMR", "EXACTP", "WP_000259031.1")
+    assert (amr["database"], amr["database_version"]) == (
+        "AMRFinderPlus database", "2026-08-07.1")
+    card = merged[("s1", "card_amr_family")]
+    assert (card["tier"], card["sub_label"]) == ("Perfect", "TEM-1")
+    assert merged[("s2", "bacmet_compound")]["sub_label"] == "merB"
+    assert merged[("s3", "tadb_ta")]["database"] == "TADB"
+    # The cascade and eggNOG rows are still there, with an empty sub_label.
+    others = [r for r in rows if r["kind"] not in plasmid_kinds]
+    assert {r["source"] for r in others} == {"pfam", "eggnog"}
+    assert all(r["sub_label"] == "" for r in others)
+
+    with open(disagree) as fh:
+        assert fh.readline().rstrip("\n").split("\t") == [
+            "seq_id", "source_a", "label_a", "source_b", "label_b", "conflict_type"]
+    conflicts = {(r["seq_id"], r["conflict_type"]) for r in read_tsv(disagree)}
+    assert conflicts == {("s1", "card_vs_amrfinder"), ("s2", "tier0_vs_bacmet"),
+                         ("s3", "tadb_vs_defencefinder")}
+    # No label was removed because of a disagreement.
+    assert len(merged) == len(label_rows)
 
 
 def test_defence_records_not_run_when_the_models_are_absent(fixture_dir):
@@ -1823,7 +2112,7 @@ def test_protein_families_clusters_annotated_and_dark_together(fixture_dir):
     assert row["dark_only"] == "0"
     # Section 31.3 distribution fields, measured over independent units.
     assert int(row["family_plasmid_count"]) == 2
-    assert int(row["family_species_count"]) == 2
+    assert int(row["family_host_count"]) == 2
     assert int(row["family_MOB_count"]) == 2
 
 
@@ -2125,7 +2414,6 @@ def test_database_sources_are_provenance_not_biology(fixture_dir):
                               [["pl1", "L1"], ["pl2", "L1"], ["pl3", "L1"]])
 
     assert row["database_source_count"] == "2", "PLSDB and IMG were not both counted"
-    assert row["database_record_count"] == "3"
 
 
 def test_structure_search_restricts_to_family_representatives(fixture_dir):
@@ -2643,91 +2931,8 @@ def test_cascade_resolve_gives_members_their_representatives_result(fixture_dir)
         "NOT_SEARCHED", "not_searched")
 
 
-def test_synteny_compares_neighbours_by_family_on_all_and_on_small_plasmids(fixture_dir):
-    """Dark neighbours with different sequences but one broad family count as the same
-    neighbour - a label comparison saw only empty strings. The small_ columns use the
-    occurrences on small plasmids alone."""
-    genes, pmap = [], {}
-    for plasmid, left, right in [("S1", "x1", "y1"), ("S2", "x2", "y2"),
-                                 ("L1", "x3", "z1")]:
-        for k, (sid, start) in enumerate([(left, 1), ("d", 400), (right, 800)], 1):
-            orf = f"{plasmid}|{k}"
-            genes.append([orf, plasmid, start, start + 300, 1, ""])
-            pmap.setdefault(sid, []).append(orf)
-    annotation = fixture_dir / "plasmid_annotation.tsv"
-    write_tsv(annotation, ["orf_id", "plasmid_id", "start", "end", "strand", "annot_label"],
-              genes)
-    mapping = fixture_dir / "protein_map.tsv"
-    mapping.write_text("".join(f"{sid}\t{','.join(o)}\n" for sid, o in pmap.items()))
-    clusters = fixture_dir / "families_broad_cluster.tsv"
-    clusters.write_text("x1\tx1\nx1\tx2\nx1\tx3\ny1\ty1\ny1\ty2\nz1\tz1\nd\td\n")
-    small_ids = fixture_dir / "small_plasmids.txt"
-    small_ids.write_text("S1\nS2\n")
-    fams = fixture_dir / "dark_families.tsv"
-    write_tsv(fams, ["family_id", "members"], [["broad:d", "d"]])
-    out = fixture_dir / "synteny.tsv"
-
-    registry = fixture_dir / "clonal_registry.tsv"
-    write_tsv(registry, ["plasmid_id", "topology"],
-              [["S1", "linear"], ["S2", "linear"], ["L1", "linear"]])
-    lengths = fixture_dir / "plasmid_lengths.tsv"
-    write_tsv(lengths, ["plasmid_id", "length_bp"], [["S1", 1200], ["S2", 1200], ["L1", 1200]])
-
-    run_script("synteny.py", FakeSnakemake(
-        input={"annotation": str(annotation), "families": str(fams), "map": str(mapping),
-               "clusters": str(clusters), "small_ids": str(small_ids),
-               "registry": str(registry), "lengths": str(lengths)},
-        output={"tsv": str(out)},
-        params={"context": {"neighbourhood_window": 3, "max_operon_gap": 100},
-                "primary": "broad"}))
-
-    row = read_tsv(out)[0]
-    assert row["n_occurrences"] == "3" and row["small_n_occurrences"] == "2"
-    assert row["left_neighbor_conservation"] == "1.0"
-    assert row["modal_left"] == "broad:x1"
-    assert float(row["right_neighbor_conservation"]) == round(2 / 3, 4)
-    assert row["small_right_neighbor_conservation"] == "1.0"
-
-
-
-def test_synteny_reads_left_and_right_on_the_genes_own_strand(fixture_dir):
-    """x-d-y on the plus strand and y-d-x on the minus strand are one arrangement written
-    in two orientations: upstream of d is x in both. On a circular record the window also
-    wraps, so a gene at the record start still has a left neighbour."""
-    genes = [["P1|1", "P1", 1, 300, 1], ["P1|2", "P1", 400, 700, 1],
-             ["P1|3", "P1", 800, 1100, 1],
-             ["P2|1", "P2", 1, 300, -1], ["P2|2", "P2", 400, 700, -1],
-             ["P2|3", "P2", 800, 1100, -1]]
-    annotation = fixture_dir / "plasmid_annotation.tsv"
-    write_tsv(annotation, ["orf_id", "plasmid_id", "start", "end", "strand"], genes)
-    mapping = fixture_dir / "protein_map.tsv"
-    mapping.write_text("x\tP1|1,P2|3\nd\tP1|2,P2|2\ny\tP1|3,P2|1\n")
-    clusters = fixture_dir / "families_broad_cluster.tsv"
-    clusters.write_text("x\tx\nd\td\ny\ty\n")
-    small_ids = fixture_dir / "small_plasmids.txt"
-    small_ids.write_text("P1\nP2\n")
-    fams = fixture_dir / "dark_families.tsv"
-    write_tsv(fams, ["family_id", "members"], [["broad:d", "d"], ["broad:x", "x"]])
-    registry = fixture_dir / "clonal_registry.tsv"
-    write_tsv(registry, ["plasmid_id", "topology"], [["P1", "circular"], ["P2", "circular"]])
-    lengths = fixture_dir / "plasmid_lengths.tsv"
-    write_tsv(lengths, ["plasmid_id", "length_bp"], [["P1", 1200], ["P2", 1200]])
-    out = fixture_dir / "synteny.tsv"
-
-    run_script("synteny.py", FakeSnakemake(
-        input={"annotation": str(annotation), "families": str(fams), "map": str(mapping),
-               "clusters": str(clusters), "small_ids": str(small_ids),
-               "registry": str(registry), "lengths": str(lengths)},
-        output={"tsv": str(out)},
-        params={"context": {"neighbourhood_window": 1, "max_operon_gap": 100},
-                "primary": "broad"}))
-
-    rows = {r["family_id"]: r for r in read_tsv(out)}
-    assert rows["broad:d"]["modal_left"] == "broad:x"
-    assert rows["broad:d"]["synteny_conservation"] == "1.0"
-    # x is first on P1 and last on P2; on a circle its upstream neighbour is y in both.
-    assert rows["broad:x"]["modal_left"] == "broad:y"
-    assert rows["broad:x"]["left_neighbor_conservation"] == "1.0"
+# The synteny script tests (neighbours compared by family, small_ variants, strand and
+# origin wrap) live in tests/test_synteny.py with the lineage-level measurement.
 
 
 def test_rarefaction_samples_every_small_plasmid(fixture_dir):

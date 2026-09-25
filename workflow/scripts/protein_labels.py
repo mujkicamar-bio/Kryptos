@@ -31,11 +31,31 @@ about 140,000 members of the selected families carried no Pfam, pharokka, Swiss-
 label at all. The spiked controls (CTRL_) and decoys (DECOY_) are instrumentation, not
 plasmid proteins, and contribute no labels.
 
+THE PLASMID LABEL DATABASES (S4d)
+
+label_databases.py searches TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb
+and AMRFinderPlus and writes 08_protein_labels/protein_labels_plasmid.tsv; its rows are
+merged here as their own kinds (plasmidann.labeldb.KIND), with seq_id as protein_id,
+label_kind as kind, subject as accession and the database's tier or call (1, 2, Perfect,
+Strict, the AMRFinderPlus method) as tier. sub_label is kept - AMRFinderPlus's element
+type/subtype decides whether a gene is an amr or a metal context term - and is empty for
+every other source. Identity and coverage stay in protein_labels_plasmid.tsv, whose
+columns differ from the cascade's e-value and query coverage. The source 'card' names
+both pharokka's CARD search (kinds card_gene_family, card_mechanism) and the direct search
+of the CARD protein homolog models (kind card_amr_family); the kind tells them apart.
+
+This step also writes 08_protein_labels/label_disagreements.tsv (labeldb.disagreements):
+every protein on which two sources make incompatible statements - the Tier 0 gene symbol
+against a database naming a gene, CARD against AMRFinderPlus, BacMet against AMRFinderPlus
+and CARD, TADB against a DefenseFinder component, oriTDB against a CONJScan component. The
+Tier 0 symbols are the KEGG gene symbols of PlasmidScope's KOs; the KEGG KO list is used for
+that mapping only. The table changes no label.
+
 DEDUPLICATION
 
 A label seen several times for one protein - the same Pfam family hit by two tiers, the
 same product name from ten nr subjects - is one statement, not ten. Rows are keyed on
-(protein_id, source, kind, label) and the best supporting statistics are kept, because an
+(protein_id, source, kind, label, sub_label) and the best supporting statistics are kept, because an
 unmerged table would let a widespread label outvote a rare one purely by copy number when
 the categories are counted.
 """
@@ -44,7 +64,7 @@ import sys
 
 import _ctx  # noqa: F401
 
-from plasmidann import labels, pfam_meta
+from plasmidann import labeldb, labels, pfam_meta
 from plasmidann.cascade import as_float
 from plasmidann.decoys import DECOY_PREFIX
 
@@ -64,6 +84,13 @@ _DATABASE = {
     "pharokka": ("pharokka databases (PHROG v4)", "pharokka_db_version"),
     "card": ("pharokka databases (CARD)", "pharokka_db_version"),
     "vfdb": ("pharokka databases (VFDB)", "pharokka_db_version"),
+}
+
+# The database each plasmid label source searched; its release travels on every row.
+_LABEL_DATABASE = {
+    "tadb": "TADB", "bacmet": "BacMet", "oritdb": "oriTDB",
+    "card": "CARD protein homolog models", "mobileog": "mobileOG-db", "dbapis": "dbAPIS",
+    "acrdb": "Anti-CRISPRdb", "amrfinder": "AMRFinderPlus database",
 }
 
 params = snakemake.params
@@ -91,12 +118,12 @@ def add(protein_id, source, tier, entry, evalue="", coverage="", representative=
             f"protein_labels: undeclared label kind {entry['kind']!r} from source "
             f"{source!r}. Add it to plasmidann.labels.KINDS or stop emitting it.")
     database, version_key = _DATABASE[source]
-    key = (protein_id, source, entry["kind"], entry["label"])
+    key = (protein_id, source, entry["kind"], entry["label"], "")
     existing = rows.get(key)
     if existing is None:
         rows[key] = {
             "protein_id": protein_id, "source": source, "tier": tier,
-            "kind": entry["kind"], "label": entry["label"],
+            "kind": entry["kind"], "label": entry["label"], "sub_label": "",
             "accession": entry.get("accession", ""),
             "evidence_evalue": evalue, "evidence_coverage": coverage,
             "database": database, "database_version": str(params.get(version_key, "")),
@@ -139,7 +166,24 @@ with open(snakemake.input.orthology, newline="") as fh:
         for entry in labels.labels_from_orthology(row):
             add(row["seq_id"], "eggnog", "S4b", entry)
 
-cols = ["protein_id", "source", "tier", "kind", "label", "accession",
+# ------------------------------------------------------------------------------------
+# The plasmid label databases (S4d), already one row per statement.
+# ------------------------------------------------------------------------------------
+with open(snakemake.input.labels_plasmid, newline="") as fh:
+    plasmid_labels = list(csv.DictReader(fh, delimiter="\t"))
+for r in plasmid_labels:
+    if r["label_kind"] not in labels.KINDS:
+        raise SystemExit(
+            f"protein_labels: undeclared label kind {r['label_kind']!r} from source "
+            f"{r['source']!r} in {snakemake.input.labels_plasmid}.")
+    rows[(r["seq_id"], r["source"], r["label_kind"], r["label"], r["sub_label"])] = {
+        "protein_id": r["seq_id"], "source": r["source"], "tier": r["tier"],
+        "kind": r["label_kind"], "label": r["label"], "sub_label": r["sub_label"],
+        "accession": r["subject"], "evidence_evalue": "", "evidence_coverage": "",
+        "database": _LABEL_DATABASE[r["source"]],
+        "database_version": r["database_version"], "via_representative": ""}
+
+cols = ["protein_id", "source", "tier", "kind", "label", "sub_label", "accession",
         "evidence_evalue", "evidence_coverage", "database", "database_version",
         "via_representative"]
 with open(snakemake.output.tsv, "w", newline="") as out:
@@ -148,12 +192,39 @@ with open(snakemake.output.tsv, "w", newline="") as out:
     for key in sorted(rows):
         writer.writerow(rows[key])
 
-by_kind = {}
-for (_, _, kind, _) in rows:
-    by_kind[kind] = by_kind.get(kind, 0) + 1
-distinct_labels = len({(k, l) for (_, _, k, l) in rows})
+# ------------------------------------------------------------------------------------
+# Cross-source disagreements. Written beside the labels; no label changes because of them.
+# ------------------------------------------------------------------------------------
+def read_rows(path):
+    with open(path, newline="") as fh:
+        return list(csv.DictReader(fh, delimiter="\t"))
 
-print(f"protein_labels: read {n_hits} hits and {n_orth} orthology rows -> "
+
+with open(snakemake.input.orthology, newline="") as fh:
+    tier0 = labeldb.tier0_symbols(csv.DictReader(fh, delimiter="\t"),
+                                  labeldb.read_ko_symbols(snakemake.input.ko_list))
+orf_to_protein = labeldb.read_protein_map(snakemake.input.map)
+conflicts = labeldb.disagreements(
+    plasmid_labels, tier0=tier0,
+    defence=labeldb.by_protein(read_rows(snakemake.input.defence), orf_to_protein),
+    conj=labeldb.by_protein(read_rows(snakemake.input.conjugation), orf_to_protein))
+with open(snakemake.output.disagreements, "w", newline="") as out:
+    writer = csv.DictWriter(out, fieldnames=labeldb.DISAGREEMENT_COLUMNS, delimiter="\t")
+    writer.writeheader()
+    writer.writerows(conflicts)
+
+by_kind = {}
+for (_, _, kind, _, _) in rows:
+    by_kind[kind] = by_kind.get(kind, 0) + 1
+distinct_labels = len({(k, l) for (_, _, k, l, _) in rows})
+
+by_conflict = {}
+for c in conflicts:
+    by_conflict[c["conflict_type"]] = by_conflict.get(c["conflict_type"], 0) + 1
+print(f"protein_labels: {len(conflicts)} cross-source disagreements on "
+      f"{len({c['seq_id'] for c in conflicts})} proteins {by_conflict}")
+print(f"protein_labels: read {n_hits} hits, {n_orth} orthology rows and "
+      f"{len(plasmid_labels)} plasmid label database rows -> "
       f"{len(rows)} label rows on {len({k[0] for k in rows})} proteins, "
       f"{distinct_labels} distinct (kind, label) pairs")
 for kind in sorted(by_kind):

@@ -321,3 +321,16 @@ def test_mag_and_tpa_prefixes_are_removed_from_an_nr_product():
              "MobA/MobL family protein"),
             ("WP_1.1 MULTISPECIES: relaxase [Bacillus]", "relaxase")):
         assert labels.parse_ncbi_title(title)["product"] == product
+
+
+def test_the_plasmid_label_database_kinds_are_declared():
+    """protein_labels refuses an undeclared kind, so every kind the S4d label databases
+    emit must be in KINDS - each database its own kind, never merged into another's."""
+    from plasmidann import labeldb
+
+    assert labeldb.KINDS <= labels.KINDS
+    assert labeldb.KINDS == {"card_amr_family", "amrfinder_gene", "tadb_ta",
+                             "bacmet_compound", "oritdb_role", "mobileog_category",
+                             "dbapis_family", "acrdb_family"}
+    # pharokka's CARD kinds and the direct CARD search stay distinct statements.
+    assert {"card_gene_family", "card_amr_family"} <= labels.KINDS

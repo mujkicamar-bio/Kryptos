@@ -13,9 +13,11 @@
 # plasmid ORF and its dark subset. It produces no ranking and no candidate list; spec
 # section 76 puts experimental prioritisation in a separate downstream workflow.
 #
-# S8d (structural screening) is GPU-bound and has its own submission script,
-# workflow/structure_gpu.sbatch. Running it here works but spends the ProstT5 cost on
-# CPU, which dominates the run.
+# ONE SUBMISSION ANNOTATES EVERYTHING. `sbatch workflow/run_pipeline.sbatch` runs every
+# stage in this one job: the cascade, the plasmid label databases and AMRFinderPlus
+# (label_databases), DefenseFinder, CONJScan (conjugation_systems), IntegronFinder,
+# ISEScan, synteny, the context terms, the structure search and the report. Calibrating
+# the context terms (tools/calibrate_context.py) is a post-run tool and is not a rule.
 #
 # ENVIRONMENT
 #
@@ -40,11 +42,22 @@
 # below run --nolock, so a second submission would otherwise write the same outputs at the
 # same time. SLURM now starts it only when the first has ended.
 #
-# STRUCTURE SEARCH (S8d) runs on the GPU partition, not here: the first submission stops
-# before structure_search (--omit-from), then structure_gpu.sbatch runs it, then a second
-# submission of this script finishes the rest. Once structure_hits.tsv exists the omission
-# is dropped automatically. STRUCTURE_ON_CPU=1 runs it here instead (~15-35 h on 16 CPU
-# threads for the expected dark representatives).
+# STRUCTURE SEARCH (S8d) runs HERE, on CPU, by default (~15-35 h on 16 CPU threads for the
+# expected dark representatives), so that one submission produces the whole annotation.
+# ProstT5 is far faster on a GPU, so a GPU split remains available as an option:
+#
+#   STRUCTURE_ON_GPU=1 sbatch workflow/run_pipeline.sbatch   # stops before structure_search
+#   sbatch workflow/structure_gpu.sbatch                     # S8d on the GPU partition
+#   sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
+#
+# With STRUCTURE_ON_GPU=1 the job stops before structure_search (--omit-from) until
+# structure_hits.tsv exists. The split trades queue waits for CPU hours; the default
+# trades CPU hours for a single run, which is what was asked for.
+#
+# TOOLS IN THEIR OWN ENVIRONMENTS. AMRFinderPlus (envs/amrfinder) and the MacSyFinder 2.1.6
+# that runs CONJScan (envs/conjscan) are not on PATH: config names them by path
+# (amrfinder.executable, conjugation.exe), as it names pharokka, and pre-flight checks them
+# there - including that the MacSyFinder is new enough for CONJScan's model grammar.
 set -euo pipefail
 
 # MEMORY. Every rule declares mem_mb, and in local execution Snakemake ignores all of it
@@ -55,7 +68,7 @@ set -euo pipefail
 MEM_MB=550000
 CORES=${SLURM_CPUS_PER_TASK:-96}
 OMIT=()
-if [ -z "${STRUCTURE_ON_CPU:-}" ] && [ ! -e results/12_context_and_structure/structure_hits.tsv ]; then
+if [ -n "${STRUCTURE_ON_GPU:-}" ] && [ ! -e results/12_context_and_structure/structure_hits.tsv ]; then
     OMIT=(--omit-from structure_search)
 fi
 

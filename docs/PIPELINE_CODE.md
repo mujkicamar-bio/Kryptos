@@ -65,13 +65,16 @@ src/plasmidann/            pure logic - no I/O, no Snakemake, fully unit-tested
   features.py              GFF3 and GenBank conventions, origin-spanning genes included
   orthology.py             eggNOG-mapper output, and its "-" placeholder trap
   labels.py                the tool-derived label vocabulary, and its kinds
+  labeldb.py               S4d plasmid label databases: tiers, CARD calls, disagreements
+  conjscan.py              S8f CONJScan output and the plasmid mobility class
+  context_terms.py         S8c context terms per family, counted over lineages
+  synteny.py               Stage 9 conservation, a fractional vote over lineages
   normalise.py             collapsing free-text product names
   pfam_meta.py             Pfam description, type and clan from the release
   controls.py              the positive control (SC2)
   context.py               directons, neighbourhoods, island overlap
   evolution.py             Nei-Gojobori dN/dS with status codes
-  peptide.py               charge, hydrophobicity, TM prediction
-  targets.py               reality tests, strata, the declared ranking
+  evidence.py              reality tests and darkness state (description, no ranking)
 
 workflow/
   Snakefile                S0-S2b rules
@@ -82,8 +85,16 @@ workflow/
   scripts/                 thin I/O wrappers around src/plasmidann
     _ctx.py                shared preamble: import path, and log capture
   envs/plasmidann.yaml     the one environment
-  run_pipeline.sbatch      cluster submission
+  run_pipeline.sbatch      cluster submission: one job runs every stage
+  structure_gpu.sbatch     optional: S8d on a GPU (STRUCTURE_ON_GPU=1)
+  envs/conjscan.yaml       MacSyFinder 2.1.6 for CONJScan, built as envs/conjscan
+  envs/amrfinder.yaml      AMRFinderPlus 4.2.7, built as envs/amrfinder
   bench_nr.sbatch          measures the one cost that is still unmeasured
+
+tools/                     outside the DAG
+  download_label_dbs.py    installs the label databases into data/refs/labels/<db>/
+  install_tool_envs.py     builds envs/conjscan and envs/amrfinder, installs their data
+  calibrate_context.py     post-run: calibrates the context terms on known families
 
 tests/                     one file per concern, 232 tests
   conftest.py              the harness that runs a workflow script against a fixture
@@ -477,7 +488,13 @@ cluster or a database. The scripts parse, call tools and write.
 Every functional label, verbatim from the tool that produced it, tagged with the KIND of
 statement it is: `pfam_family`, `pfam_description`, `pfam_clan`, `swissprot_product`,
 `pgap_product`, `gene_symbol`, `cog_category`, `cog_id`, `eggnog_pfam`, `go`, `ec`,
-`kegg_ko`, `macsy_system`, `macsy_component`, `integron_element`, `integron_type`.
+`kegg_ko`, `macsy_system`, `macsy_component`, `integron_element`, `integron_type`, and
+since 2026-09-25 the kinds of `labeldb.KINDS` (S4d): `card_amr_family`, `amrfinder_gene`,
+`tadb_ta`, `bacmet_compound`, `oritdb_role`, `mobileog_category`, `dbapis_family`,
+`acrdb_family`. `protein_labels.tsv` carries a `sub_label` column for them: the detail
+each source gives (BacMet gene, oriTDB family, CARD model name, AMRFinderPlus element
+type/subtype, ...) and, where a database has several evidence classes, the class of the
+reference entry that gave the label.
 
 This replaces a hand-written list of 73 Pfam family names that assigned each one a
 biological role. The list could not work, and the measurements say why. Pfam-A 38.2 holds
@@ -495,6 +512,68 @@ Organism names and uninformative titles are not admitted as functional labels. B
 `hits.tsv`, so nothing is lost from the record; a `hypothetical protein` category would
 simply be the most frequent, and therefore most apparently enriched, feature in the
 collection.
+
+### `labeldb.py` (S4d) - plasmid label databases, and where two disagree
+
+When a DIAMOND hit against TADB, BacMet, oriTDB, mobileOG-db, dbAPIS or Anti-CRISPRdb
+becomes a label, when a CARD protein homolog hit is Perfect or Strict, how an AMRFinderPlus
+table becomes label rows, and which label pairs conflict. Each source is its own label kind
+(`KIND`), so a statement from one is never read as a statement from another.
+
+* **Tiers** (`tier`): >= 80% identity and >= 90% coverage, or > 60% and > 70%, the tiers of
+  Islam et al. 2026 (PlasAnn). Coverage is the smaller of query and subject coverage: query
+  coverage alone lets a fragment carry a full-length label, subject coverage alone lets a
+  multidomain protein carry one domain's label. PlasAnn's database and labels are not used.
+* **Every target** (`DIAMOND_TIERED_ARGS`): `--max-target-seqs 0`, pre-filtered at the tier-2
+  minimum. A target limit ranks by bit score, not tier, and on the test set dropped tier-1
+  hits even at 1,000 targets.
+* **CARD** (`card_call`, `card_models`): Perfect is 100% identity over the full reference,
+  Strict a bit score at or above the model's curated cut-off from `card.json`, as RGI
+  tests it. Protein homolog models only.
+* **AMRFinderPlus** (`parse_amrfinder`): the method is the tier, element type/subtype the
+  sub_label; an element type the module does not know raises rather than being guessed.
+* **Header parsers** (`parse_tadb`, `parse_bacmet`, `parse_oritdb`, `parse_mobileog`,
+  `parse_dbapis`, `parse_acrdb`) read the FASTA headers `tools/download_label_dbs.py` writes;
+  the evidence class goes into sub_label (`evidence=...`). References are keyed by their
+  position in the file, because oriTDB entry names repeat across roles and a DIAMOND
+  subject id stops at the first space.
+* **Disagreements** (`disagreements`): conflict types `tier0_vs_<source>`,
+  `card_vs_amrfinder`, `bacmet_vs_amrfinder`, `card_vs_bacmet`, `tadb_vs_defencefinder`,
+  `oritdb_vs_conjscan`. The function reads labels and returns new rows; **it changes no
+  label**. Gene names match up to case, punctuation and a prefix of at least three
+  characters (`same_gene`); the Tier 0 symbols are the KEGG gene symbols of PlasmidScope's
+  KOs (`read_ko_symbols`, `tier0_symbols`), the only use of KEGG.
+* **Term prefixes** (`term_prefix`): amr, metal, ta, conj_role, mge, antidefence.
+
+### `conjscan.py` (S8f) - CONJScan output and the mobility class
+
+Reads MacSyFinder's `best_solution.tsv` (`read_best_solution`), the installed CONJScan
+version from `metadata.yml` (`installed_version`), and assigns each plasmid the class of
+Coluzzi et al. 2022 (`plasmid_class`): pCONJ for a T4SS_type model, else pdCONJ for
+dCONJ_type, else pMOB for MOB, else pMOBless. An unknown model type raises, so a model
+renamed in a later release stops the stage rather than falling through to pMOBless.
+
+### `context_terms.py` (S8c) - what a family's context holds
+
+A term is `<type>:<name>`: amr, metal, ta, conj_role, mge, antidefence from the label
+kinds (`label_term`; AMRFinderPlus by element type), defence and conj from the systems
+(`system_term`). KEGG is not a source. `orf_term_sources` applies the two neighbour rules:
+a gene label counts from a neighbour within +-3 genes in the ORF's directon (same strand,
+gaps <= 100 nt, the FESNov rule); a system counts when the ORF is a component or a
+component lies within +-3 genes on either strand. `family_term_rows` drops tandem
+paralogues (a neighbour in the focal family), counts each term over Stage 6 lineages and
+reports TOO_FEW_LINEAGES below two. `window_covers_plasmid` marks an ORF whose window
+already holds every other gene of its plasmid.
+
+### `synteny.py` (Stage 9) - conservation counted over lineages
+
+The six section-42 measurements (`conservation`), each a fractional vote over Stage 6
+lineages (`_lineage_modal`): a lineage has weight 1, split equally over its non-empty
+values; the conservation is the top score over the voting lineages. Scores are exact
+fractions, so ten copies worth 1/10 are one vote. `n_lineages_discordant` counts lineages
+whose copies disagree on the left-right arrangement. Fewer lineages than `min_lineages` (2)
+give TOO_FEW_LINEAGES and no value. The column names carry the `lineage_` prefix so that
+they cannot be mistaken for the occurrence statistic they replace.
 
 ### `controls.py` (S5) - the positive control
 
@@ -523,7 +602,8 @@ of negative list indexing - which is how it would happen silently in Python.
 S8c reports context as descriptive per-family rates (`cons_*`) with no background
 correction - the enrichment test, its stratified background and the label-category layer
 were removed on 2026-09-25 - so a high neighbour rate on small plasmids is expected by
-construction.
+construction. The context terms (`context_terms.py`) report the same situation per
+family as `window_covers_plasmid_fraction`.
 
 ### `evolution.py` (S7)
 
@@ -550,41 +630,17 @@ Three deliberate return-value decisions:
 `back_translate()` projects a protein alignment onto codons - every protein gap becomes
 exactly three nucleotide gaps, never one or two, or the reading frame is destroyed.
 
-### `peptide.py` (S9)
+### `evidence.py` (S9) - reality lines and darkness state
 
-Net charge, GRAVY, and hydrophobic-window scanning, used to assign screening strata.
+What used to be `peptide.py` and `targets.py` - the peptide heuristics, eligibility,
+strata, the lexicographic ranking and the portfolio - was removed with Layer C on
+2026-09-17 (spec section 76). What remains describes a family and selects nothing.
 
-**These are heuristics, and the output says so.** Membrane and secretion signals come from
-Kyte-Doolittle windows and net charge. Licence-restricted topology predictors are
-deliberately excluded from the pipeline: a stage that cannot be installed from `envs/` is a
-stage that cannot be reproduced. Every row carries `topology_method`, and these calls assign
-strata and rank candidates - they never exclude one.
-Histidine counts as 0.1 rather than 1.0 charge, since its pKa is near 6 - counting it fully
-would misclassify His-rich proteins as antimicrobial peptides.
-
-### `targets.py` (S9)
-
-**There is no composite score and no weight anywhere in selection.** An earlier version
-blended four evidence groups into one weighted number; every coefficient in it was invented,
-and a composite also destroys what a screening decision needs - two candidates scoring 0.6
-can be entirely different bets wanting different experiments.
-
-`reality_lines()` counts how many of four named boolean tests fired and returns their names.
-`darkness_state()` returns one of two named states. `hypothesis_confidence()` bands a context
-association using thresholds from config.
-
-`select_portfolio()` applies eligibility (a declared count of evidence lines), then ranks
-lexicographically on `RANK_PRIORITY` - `reality_n` desc, then `hypothesis_conservation` desc,
-then `liability_n` asc - and fills per-stratum quotas. Each step of that priority is a claim
-someone can argue with; a coefficient never is.
-
-`pareto_front()` identifies candidates nothing beats on every axis. It is reported as a
-label, **never used as a gate**: the axes are coarse and discrete, so filtering on the front
-would leave far too few candidates to fill the library.
-
-`eligibility_sensitivity()` replaces the old weight sweep. It varies the one declared integer
-that remains - how many independent lines of evidence are demanded - and reports what each
-level costs.
+`reality_lines()` counts and names the four independent lines of evidence that a family is
+a real protein (`purifying_selection`, `multi_lineage` over Stage 6 lineages, `is_family`,
+`folds`); `IMPLIED_BY` records that `purifying_selection` entails `is_family`, so the two
+count once. Every threshold arrives from config through `reality_thresholds()`.
+`darkness_state()` returns one of two named states, DARK_FOLD_KNOWN or DARK_NO_STRUCTURE.
 
 ---
 
@@ -598,12 +654,15 @@ level costs.
 | `cluster_dark.py` | S6b | MMseqs2 at 30%/50%; singletons kept as `ORPHAN` |
 | `extract_cds.py` | S7a | nucleotide recovery, honouring `spans_origin` and strand |
 | `family_evolution.py` | S7b | mafft → codon projection → dN/dS per family |
-| `defence_systems.py` | S8a | DefenseFinder |
+| `label_databases.py` | S4d | every unique protein against TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS and Anti-CRISPRdb (DIAMOND) and AMRFinderPlus (`--plus`, from `envs/amrfinder`); writes `08_protein_labels/protein_labels_plasmid.tsv` and `label_databases_status.tsv` (SUCCESS, NO_HIT or NOT_RUN per database, so an absent database never reads as "nothing found") |
+| `protein_labels.py` | S4c | merges every source into `protein_labels.tsv`, the S4d rows as their own kinds with `sub_label`; writes `label_disagreements.tsv` (`labeldb.disagreements`), which changes no label and is kept for later analysis |
+| `defence_systems.py` | S8a | DefenseFinder, as ONE MacSyFinder database with `--worker` set to the threads: per-core chunks made the calls depend on `-c`, because HMMER's i-evalue scales with the database size |
+| `conjugation_systems.py` | S8f | CONJScan 2.1.0 (Plasmids models) over every ORF of every plasmid as one MacSyFinder database, run by the MacSyFinder 2.1.6 of `envs/conjscan`; writes `conjugation_systems.tsv` and `conjugation_plasmid_class.tsv` (pCONJ, pdCONJ, pMOB, pMOBless); NOT_RUN writes header-only tables |
 | `integrons.py` | S8b | IntegronFinder, `--local-max` for CALIN elements |
-| `context_features.py` | S8c | directons, islands, neighbours; one row of `cons_*` rates per family |
+| `context_features.py` | S8c | directons, islands, neighbours; one row of `cons_*` rates per family (`cons_conj` included), and `family_context_terms.tsv`: the context terms per family counted over lineages, for the dark families and, as the calibration benchmark, every known family at the primary resolution |
+| `synteny.py` | S9a | Stage 9 at every level of `synteny.levels` (close, intermediate): one row per cluster holding a dark small-plasmid member, measured over lineages; the primary-level set must equal `dark_families.tsv` |
 | `structure_search.py` | S8d | Foldseek with ProstT5 |
-| `prioritise.py` | S9 | evidence counted and named, eligibility, lexicographic rank, portfolio |
-| `library_design.py` | S9b | codon optimisation, barcodes, tag terminus, order file |
+| `annotation_report.py` | final | the two CSV deliverables (section 14). Since 2026-09-25 the ORF table adds the S4d labels by term type (`amr_labels`, `metal_labels`, `ta_labels`, `conj_role_labels`, `mge_labels`, `antidefence_labels`), `conj_system`, `conj_component`, `plasmid_conjscan_class` and the close-level synteny of the ORF's close cluster (`close_*`); the family table carries the intermediate-level `lineage_*` synteny columns and `cons_conj` |
 
 Two design notes worth carrying:
 
@@ -618,6 +677,14 @@ re-integrated and retained.
 unavailable it writes an empty, well-formed table and S9 scores structure as absent. One
 evidence group out of four should not take down a run that has already spent days on the
 cascade.
+
+### Tools outside the DAG
+
+| tool | when | what it does |
+|---|---|---|
+| `tools/download_label_dbs.py` | before the first run | installs TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb and the KEGG KO list into `data/refs/labels/<db>/`, each with `raw/`, the built FASTA, `VERSION`, `SOURCE` (URL, citation, licence, evidence rule, download date) and `MANIFEST.sha256`. Pinned downloads are checked by SHA-256 (CARD and KEGG are taken as the current release); `--local DIR` uses a local copy when its checksum matches. Idempotent |
+| `tools/install_tool_envs.py` | before the first run | builds `envs/conjscan` and `envs/amrfinder` from `workflow/envs/conjscan.yaml` and `amrfinder.yaml`, installs the CONJScan 2.1.0 models into `data/refs/conjscan` and the AMRFinderPlus database into `data/refs/amrfinder` (`latest` link). Rebuilds only what is missing or at another version |
+| `tools/calibrate_context.py` | after the run | reads `family_context_terms.tsv`, `protein_labels.tsv`, `protein_families.tsv`, the protein map and the two system tables; for every term measures precision on the known families (benchmark: more than half of the members carry the term; negatives: labelled families none of whose members carries it) and writes the conservation at which precision reaches 50% and 90% (FESNov's two confidence levels), a precision curve and a summary. `MIN_FAMILIES = 10`: 90% precision cannot be observed on fewer than 10 families (one false positive in 9 is 89%), so a term with fewer benchmark or negative families is UNCALIBRATED and gets no threshold |
 
 ---
 
@@ -635,6 +702,15 @@ sbatch workflow/run_pipeline.sbatch                 # on the cluster
 
 `annotate_only` exists because S4 is a deliverable in its own right, and because the
 quality gate at S5 may legitimately halt a run that produced a perfectly good annotation.
+
+**One submission runs everything** (since 2026-09-25): the cascade, S4d, DefenseFinder,
+CONJScan, IntegronFinder, ISEScan, synteny, the context terms, the structure search - on
+CPU, inside the same job - and the report. `STRUCTURE_ON_GPU=1 sbatch
+workflow/run_pipeline.sbatch` restores the GPU split: the job stops before
+`structure_search`, `workflow/structure_gpu.sbatch` runs it, and a second submission
+finishes. AMRFinderPlus and the MacSyFinder that runs CONJScan are named by path in config
+(`amrfinder.executable`, `conjugation.exe`) and checked there by pre-flight, including
+that the MacSyFinder can read CONJScan's model grammar.
 
 ---
 
@@ -728,6 +804,10 @@ Clustal W and checks what came back rather than what the process said.
 ```
 results/15_report/annotation_complete.csv       one row per ORF, 9.3M rows
 results/15_report/dark_families_complete.csv    one row per dark family
+results/08_protein_labels/protein_labels.tsv    every label, per protein
+results/08_protein_labels/label_disagreements.tsv   cross-source conflicts, for review
+results/12_context_and_structure/family_context_terms.tsv   context terms per family
+results/12_context_and_structure/conjugation_plasmid_class.tsv   mobility class
 results/06_annotation_tables/plasmid_annotation.gff3 / .gbk   the feature files
 results/09_quality_gate/quality_gate.txt                 the run-halting control
 ```
@@ -750,8 +830,8 @@ choosing candidates is a decision made ON the table rather than one baked into a
 CSV rather than TSV because these are the files that get opened in a spreadsheet, and
 `csv.writer` quotes the free-text fields that a DIAMOND `stitle` routinely fills with commas.
 
-The stratified 1,000-construct portfolio and its synthesis order still exist, still work and
-are still tested. They are opt-in: `snakemake portfolio`.
+The stratified 1,000-construct portfolio and its synthesis order were removed with Layer C
+on 2026-09-17 (spec section 76); the 1,000 proteins are chosen by hand from these tables.
 
 ---
 
@@ -759,10 +839,10 @@ are still tested. They are opt-in: `snakemake portfolio`.
 
 | gap | consequence | fix |
 |---|---|---|
-| **ColabFold/ESMFold** not installed | no pLDDT, so `structure.min_plddt` is declared and unused | only needed to confirm shortlisted novel folds; Foldseek + ProstT5 does the screening pass without it |
+| **ColabFold/ESMFold** not installed | no pLDDT; `structure.min_plddt` was removed from config because nothing could honour it (`docs/PARAMETER_PROVENANCE.md`) | only needed to confirm shortlisted novel folds; Foldseek + ProstT5 does the screening pass without it |
 | **nr tier not benchmarked** | the walltime of the nr tier is unknown and it dominates the run. The one measurement so far: 2,000 queries at 16 threads with default `-b 2 -c 4` did not finish in 12 hours, which is the fixed cost of one pass over the database | `workflow/bench_nr.sbatch`, with a 48 h limit, `-c 1` and a large `-b`, on the 96-core node |
 | **no independent check on dN/dS** | Nei-Gojobori counting is the only selection estimate; the codon model that could contradict it was removed on 2026-09-14 (section 13). `purifying_selection` is one of four reality lines and the cheapest to fire | a confirmatory codon model on a chosen shortlist, outside the DAG, if one is ever wanted; the two input defects recorded in section 13 must be fixed first |
-| **21 unreferenced parameters** | researcher degrees of freedom, listed in `docs/PARAMETER_PROVENANCE.md` | each needs a citation or an explicit methods defence with measured sensitivity |
+| **8 parameters with no source** (count of 2026-09-25) | researcher degrees of freedom, listed in `docs/PARAMETER_PROVENANCE.md` | each needs a citation or an explicit methods defence with measured sensitivity |
 
 None of these block a run. Each degrades one evidence group or leaves one number undefended,
 and each is recorded as absent rather than silently assumed. The Foldseek target database and

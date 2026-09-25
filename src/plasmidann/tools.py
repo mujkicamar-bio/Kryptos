@@ -17,13 +17,19 @@ the code again.
 `optional_when` names a config predicate: foldseek is only required when structural
 evidence is required, because a run without it is a declared, honest degradation rather
 than a broken run.
+
+Tools that live in their own environment - pharokka, AMRFinderPlus, and the MacSyFinder
+that runs CONJScan - are named by path in config and checked by path in pre-flight, so
+they are not in this PATH registry.
 """
+import pathlib
+import re
 
 REQUIRED_TOOLS = [
     {"name": "hmmsearch", "stage": "S2b, S3",
      "why": "AntiFam artefact screen and every hmmer cascade tier"},
-    {"name": "diamond", "stage": "S3",
-     "why": "the Swiss-Prot and nr cascade tiers"},
+    {"name": "diamond", "stage": "S3, S4d",
+     "why": "the Swiss-Prot and nr cascade tiers and the plasmid label databases"},
     {"name": "tantan", "stage": "S2b",
      "why": "low-complexity masking; without it every protein reports 0 masked"},
     {"name": "mash", "stage": "Stage 6",
@@ -77,3 +83,44 @@ def required_tools(structure_required=True, orthology_required=True):
     enabled = {"structure": structure_required, "orthology": orthology_required}
     return [t for t in REQUIRED_TOOLS
             if "optional_when" not in t or enabled[_CONDITIONAL[t["name"]]]]
+
+
+# ------------------------------------------------------------------------------------
+# MacSyFinder model grammar. CONJScan 2.0.2 and later write their definitions in grammar
+# 2.1 (the `vers` attribute of <model>), which MacSyFinder reads from 2.1.6 with MacSyLib
+# 1.0.4 (CONJScan README, changelog 2.0.2). MacSyFinder 2.1.4 - the version DefenseFinder
+# pins - stops with "has not the right version. version supported is '2.0'".
+# ------------------------------------------------------------------------------------
+MIN_MACSYFINDER = {"2.0": (2, 0), "2.1": (2, 1, 6)}
+
+
+def macsyfinder_version(text):
+    """(major, minor, patch) from `macsyfinder --version` output, None when absent.
+
+    2.1.6 prints 'MacSyFinder 2.1.6', 2.1.4 prints 'Macsyfinder 2.1.4'.
+    """
+    match = re.search(r"macsyfinder\s+(\d+(?:\.\d+)+)", text, re.IGNORECASE)
+    return tuple(int(x) for x in match.group(1).split(".")) if match else None
+
+
+def model_grammars(models_dir):
+    """Every grammar version declared by a model definition under `models_dir`."""
+    grammars = set()
+    for xml in pathlib.Path(models_dir).rglob("definitions/**/*.xml"):
+        match = re.search(r"<model\b[^>]*\bvers=\"([^\"]+)\"", xml.read_text())
+        if match:
+            grammars.add(match.group(1))
+    return grammars
+
+
+def grammar_problem(grammars, version):
+    """Why a MacSyFinder `version` cannot read definitions of `grammars`, or ''."""
+    unknown = sorted(g for g in grammars if g not in MIN_MACSYFINDER)
+    if unknown:
+        return f"model grammar {', '.join(unknown)} is not known to plasmidann.tools"
+    need = max(MIN_MACSYFINDER[g] for g in grammars)
+    if version < need:
+        return (f"the models use grammar {max(grammars)}, which needs MacSyFinder >= "
+                f"{'.'.join(map(str, need))}, and the executable is MacSyFinder "
+                f"{'.'.join(map(str, version))}")
+    return ""

@@ -117,9 +117,26 @@ orthology:
   required: false
 defence:
   required: false
+conjugation:
+  # CONJScan 2.1.0, Plasmids models, run by the MacSyFinder 2.1.6 of envs/conjscan (the
+  # plasmidann env pins MacSyFinder 2.1.4 for DefenseFinder, which cannot read CONJScan's
+  # grammar 2.1). false, as for defence: absent models or executable record NOT_RUN;
+  # pre-flight still refuses an installed executable too old for the installed models.
+  required: false
+  exe: envs/conjscan/bin/macsyfinder
+  # The release the calls are stamped with; the stage fails if the installed models differ.
+  version: "2.1.0"
 context:
   max_operon_gap: 100
   neighbourhood_window: 3
+synteny:
+  # Stage 9 is measured at both levels: close (90% identity, a gene is near-identical
+  # sequence) and intermediate (the protein family, clustering.primary, which must be
+  # listed). The family table reads the primary rows, the ORF table the close rows.
+  levels: [close, intermediate]
+  # Fewer voting lineages than this gives TOO_FEW_LINEAGES and no value: conservation
+  # across one lineage is one observation, so 2 is the arithmetic minimum (spec 2.9).
+  min_lineages: 2
 structure:
   scope: representatives
   gpu: false

@@ -44,6 +44,8 @@ WHAT IS DELIBERATELY NOT A LABEL
 """
 import re
 
+from plasmidann import labeldb
+
 # Every kind of label this module can emit. A kind not listed here is a statement nothing
 # downstream knows how to group, so emitting one is a bug rather than a new feature.
 #
@@ -79,7 +81,7 @@ KINDS = frozenset({
     # IntegronFinder, S8b
     "integron_element",   # intI, attC, attI
     "integron_type",      # complete, In0, CALIN
-})
+}) | labeldb.KINDS  # S4d plasmid label databases: card_amr_family, amrfinder_gene, ...
 
 # Every hits.tsv row carries the SOURCE its tier searched, declared per tier in
 # config/cascade.yaml. The kind used to be decided from the tier id - T1 and T2 were Pfam,

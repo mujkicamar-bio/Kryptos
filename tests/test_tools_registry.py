@@ -11,7 +11,8 @@ tool to a script without declaring it fails here in milliseconds.
 import pathlib
 import re
 
-from plasmidann.tools import REQUIRED_TOOLS, tool_names
+from plasmidann.tools import (REQUIRED_TOOLS, grammar_problem, macsyfinder_version,
+                              model_grammars, tool_names)
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "workflow" / "scripts"
 
@@ -74,3 +75,29 @@ def test_every_registry_entry_states_the_stage_that_needs_it():
         assert entry["stage"], f"{entry['name']} does not say which stage needs it"
         assert entry["why"], f"{entry['name']} does not say what breaks without it"
 
+
+
+# --- MacSyFinder model grammar (pre-flight's CONJScan check) --------------------------
+
+def test_the_macsyfinder_version_is_read_whatever_its_capitalisation():
+    assert macsyfinder_version("MacSyFinder 2.1.6 \nusing:\n- Python 3.12") == (2, 1, 6)
+    assert macsyfinder_version("Macsyfinder 2.1.4 \nusing:") == (2, 1, 4)
+    assert macsyfinder_version("command not found") is None
+
+
+def test_grammar_2_1_needs_macsyfinder_2_1_6():
+    """The exact failure measured: CONJScan 2.1.0 under MacSyFinder 2.1.4."""
+    assert "MacSyFinder >= 2.1.6" in grammar_problem({"2.1"}, (2, 1, 4))
+    assert grammar_problem({"2.1"}, (2, 1, 6)) == ""
+    # The DefenseFinder models (grammar 2.0) run under both.
+    assert grammar_problem({"2.0"}, (2, 1, 4)) == ""
+    assert "not known" in grammar_problem({"3.0"}, (2, 1, 6))
+
+
+def test_model_grammars_are_read_from_the_definitions(tmp_path):
+    d = tmp_path / "CONJScan" / "definitions" / "Plasmids"
+    d.mkdir(parents=True)
+    (d / "MOB.xml").write_text('<model min_genes_required="1" vers="2.1">\n</model>\n')
+    (tmp_path / "CONJScan" / "profiles").mkdir()
+    (tmp_path / "CONJScan" / "profiles" / "x.xml").write_text('<model vers="9.9">')
+    assert model_grammars(tmp_path) == {"2.1"}

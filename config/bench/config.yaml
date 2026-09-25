@@ -46,6 +46,15 @@ references:
   # covers the phage families (PHROG v4 table), CARD and VFDB together.
   pharokka_db_version: "1.8.0"
   macsyfinder_models: data/refs/macsyfinder
+  conjscan_models: data/refs/conjscan
+  kegg_ko_list: data/refs/labels/kegg_ko/raw/list_ko.txt
+labels:
+  dir: data/refs/labels
+  required: true
+amrfinder:
+  executable: envs/amrfinder/bin/amrfinder
+  database: data/refs/amrfinder/latest
+  required: true
 qc:
   max_opposite_strand_overlap_fraction: 0.6
   antifam:

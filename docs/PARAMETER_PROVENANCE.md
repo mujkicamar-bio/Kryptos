@@ -32,7 +32,18 @@ is correct — but the deviation is recorded with the measurement that motivated
 | **Smillie** | Smillie C. *et al.* Mobility of plasmids. *Microbiol. Mol. Biol. Rev.* **74**, 434–452 (2010) |
 | **CheckV** | Nayfach S. *et al.* CheckV assesses the quality and completeness of metagenome-assembled viral genomes. *Nat. Biotechnol.* **39**, 578–585 (2021) |
 | **NCBI PGAP** | Li W. *et al.* RefSeq: expanding the Prokaryotic Genome Annotation Pipeline reach with protein family model curation. *Nucleic Acids Res.* **49**, D1020–D1028 (2021) |
-
+| **PlasAnn** | Islam H., Sharma A., Blair J. & Lopatkin A.J. PlasAnn: a curated plasmid-specific database and annotation pipeline for standardized gene and function analysis. *Nucleic Acids Res.* **54**(3), gkaf1507 (2026), doi:10.1093/nar/gkaf1507. Cited for its identity and coverage tiers only; its database, labels and tool are not used |
+| **CARD** | Alcock B.P. *et al.* CARD 2023: expanded curation, support for machine learning, and resistome prediction at the Comprehensive Antibiotic Resistance Database. *Nucleic Acids Res.* **51**, D690–D699 (2023), doi:10.1093/nar/gkac920 |
+| **RGI** | the Resistance Gene Identifier source code, github.com/arpcard/rgi: `app/Diamond.py` (DIAMOND `--more-sensitive`) and `app/HomologModel.py` (Strict at bit score `>=` the model cut-off) |
+| **AMRFinderPlus** | Feldgarden M. *et al.* AMRFinderPlus and the Reference Gene Catalog facilitate examination of the genomic links among antimicrobial resistance, stress response, and virulence. *Sci. Rep.* **11**, 12728 (2021), doi:10.1038/s41598-021-91456-0 |
+| **TADB** | Guan J. *et al.* TADB 3.0: an updated database of bacterial toxin–antitoxin loci and associated mobile genetic elements. *Nucleic Acids Res.* **52**, D784–D790 (2024), doi:10.1093/nar/gkad962 |
+| **BacMet** | Pal C. *et al.* BacMet: antibacterial biocide and metal resistance genes database. *Nucleic Acids Res.* **42**, D737–D743 (2014), doi:10.1093/nar/gkt1252 (no separate paper for version 2.0) |
+| **oriTDB** | Liu G. *et al.* oriTDB: a database of the origin-of-transfer regions of bacterial mobile genetic elements. *Nucleic Acids Res.* **53**, D163–D168 (2025), doi:10.1093/nar/gkae869 |
+| **mobileOG-db** | Brown C.L. *et al.* mobileOG-db: a manually curated database of protein families mediating the life cycle of bacterial mobile genetic elements. *Appl. Environ. Microbiol.* **88**(18), e00991-22 (2022), doi:10.1128/aem.00991-22 |
+| **dbAPIS** | Yan Y., Zheng J., Zhang X. & Yin Y. dbAPIS: a database of anti-prokaryotic immune system genes. *Nucleic Acids Res.* **52**, D419–D425 (2024), doi:10.1093/nar/gkad932 |
+| **Anti-CRISPRdb** | Dong C. *et al.* Anti-CRISPRdb v2.2: an online repository of anti-CRISPR proteins including information on inhibitory mechanisms, activities and neighbors of curated anti-CRISPR proteins. *Database* **2022**, baac010 (2022), doi:10.1093/database/baac010 |
+| **CONJScan** | Cury J. *et al.* Identifying conjugative plasmids and integrative conjugative elements with CONJscan. *Methods Mol. Biol.* **2075**, 265–283 (2020), doi:10.1007/978-1-4939-9877-7_19 |
+| **Coluzzi** | Coluzzi C., Garcillán-Barcia M.P., de la Cruz F. & Rocha E.P.C. Evolution of plasmid mobility: origin and fate of conjugative and nonconjugative plasmids. *Mol. Biol. Evol.* **39**(6), msac115 (2022), doi:10.1093/molbev/msac115 |
 ---
 
 ## Referenced — value matches a published use
@@ -49,8 +60,6 @@ is correct — but the deviation is recorded with the measurement that motivated
 | `evolution.rnacode_max_p` | 0.05 | FESNov | RNAcode coding-potential test. Now actually applied, on both strands. |
 | `context.max_operon_gap` | 100 nt | FESNov | "absence of intergenic regions >100 nucleotides" |
 | `context.neighbourhood_window` | 3 | FESNov | neighbouring genes at +/-3 positions |
-| `context.min_context_conservation` | 0.50 | FESNov | 52,793 families annotated at >=50% confidence |
-| `context.high_confidence_conservation` | 0.90 | FESNov | 4,349 families at >=90% confidence |
 | `quality_gate.min_control_recall` | 0.99 | ECLIPSE | 99.2–100% of 246 virulence / 42 AMR / 75 essential genes recovered as annotated |
 | T2, T3, T4 `max_evalue` | 1e-5 | FESNov | Pfam, AntiFam and pVOG searches (pVOG with 50% coverage) |
 | `orf.min_terminal_repeat_bp` | 20 | CheckV | direct-terminal-repeat criterion; S0 removes one copy of the repeat from a circular record (measured: 400 of 400 sampled 'direct terminal repeat' records carry one, 76% of a length not divisible by 3) |
@@ -80,31 +89,22 @@ is correct — but the deviation is recorded with the measurement that motivated
 | parameter | what happened |
 |---|---|
 | `structure.min_plddt` (was 70, cited to FESNov) | Declared, schema-required, and **read by nothing** — so the `novel_fold` stratum was silently ungated and a family whose structure was too poor to trust looked identical to a confident novel fold. It cannot be honoured here in principle: pLDDT is emitted by a structure *predictor*, and Foldseek with ProstT5 does not predict a structure — it translates sequence straight into the 3Di alphabet, which is what makes it cheap enough to run over the whole dark set. Removed from config and schema rather than left as a citation for something that was not happening. The confidence axis is the Foldseek E-value; restoring a pLDDT gate needs ColabFold or ESMFold as a confirmatory stage on the shortlist. |
+| `context.min_context_conservation` (was 0.50) and `context.high_confidence_conservation` (was 0.90), cited to FESNov | Removed from config on 2026-09-21 (commit cfffef3) because nothing read them; their rows stayed in this document until 2026-09-25. FESNov's two confidence levels, 50% and 90%, are used again only as the precision targets of `tools/calibrate_context.py` (see "Context terms and their calibration" below), which runs after the pipeline and sets no value inside it. |
+| `peptide.AMP_MAX_LENGTH` (100), `AMP_MIN_CHARGE` (2.0), `AMP_MIN_HYDROPHOBIC_FRACTION` (0.3), `TM_WINDOW` (19), `TM_THRESHOLD` (1.6); `prioritisation.min_reality_lines` (2); `portfolio.strata` quotas; `library.length_liability_above_aa` (400); `targets.RANK_PRIORITY` | Removed with Layer C (experimental prioritisation, the portfolio and library design) on 2026-09-17 (commit efca5c3; spec section 76). `peptide.py`, `targets.py`, `prioritise.py` and `library_design.py` no longer exist, so none of these values reaches any output. Their rows remained below, as live and unreferenced, until 2026-09-25. |
 
 ## Thresholds that live in Python, not config
 
 P4 says every threshold is declared in config, schema-validated, and stamped into the row it
 governs. These are the exceptions, found by review. The reality-test thresholds have since
-been moved; the peptide constants have not.
+been moved into config or derived from it; the peptide constants that used to be listed here
+went with Layer C (table above).
 
 | parameter | value | status |
 |---|---|---|
-| `targets.REALITY_TESTS` dN/dS cutoff | 0.5 | **Fixed.** Was a literal in a lambda that duplicated `evolution.dnds_purifying_max`. Now read from that config value, so the two cannot diverge. |
-| `targets.REALITY_TESTS` member minimum | 3 | **Fixed.** Was a literal duplicating `evolution.min_members_for_dnds`. Now read from it, and `targets.check_reality_config` refuses a config where they differ — because the `purifying_selection ⇒ is_family` nesting the eligibility count relies on is true only while they are equal. |
+| `evidence.REALITY_TESTS` dN/dS cutoff | 0.5 | **Fixed.** Was a literal in a lambda that duplicated `evolution.dnds_purifying_max`. Now read from that config value by `evidence.reality_thresholds`, so the two cannot diverge. |
+| `evidence.REALITY_TESTS` member minimum | 3 | **Fixed.** Was a literal duplicating `evolution.min_members_for_dnds`. `evidence.reality_thresholds` now takes it from that config value, so the `purifying_selection ⇒ is_family` nesting that `IMPLIED_BY` relies on cannot drift apart (`check_reality_config`, which used to refuse a config where they differed, went with Layer C). |
 | `evidence.reality_thresholds` lineage minimum (`min_lineages`) | 2 | Definitional: "more than one". Counted over Stage 6 Mash lineages since 2026-09-25; it was a MOB-suite cluster minimum, and MOB-suite assigns the nearest reference's cluster however distant. |
 | `rarity.cross_min_hosts` / `rarity.cross_min_genera` | 2 / 2 | Definitional: "more than one" observed species / genus (were 5 and 3, no source). `SINGLE_MOB`/`CROSS_MOB` are fixed at 1 and >= 2 MOB-suite clusters; `cross_min_mob` was removed. |
-| `peptide.AMP_MAX_LENGTH` | 100 | **Outside config. No source.** |
-| `peptide.AMP_MIN_CHARGE` | 2.0 | **Outside config. No source.** |
-| `peptide.AMP_MIN_HYDROPHOBIC_FRACTION` | 0.3 | **Outside config. No source.** |
-| `peptide.TM_WINDOW` | 19 | **Outside config. No source.** Approximates a membrane-spanning helix length, which is conventional, but no cited calibration. |
-| `peptide.TM_THRESHOLD` | 1.6 | **Outside config. No source.** |
-
-The five `peptide.py` constants gate two strata — `small_cationic_peptide` (125) and
-`membrane_or_secreted` (200) — so **325 of the 1,000 constructs, 32.5% of the deliverable,
-are assigned by numbers with no citation and no schema.** None of the seven source papers
-covers antimicrobial-peptide or transmembrane biophysical cutoffs, so a citation will have to
-come from a different literature. Until then this is the largest single provenance gap in the
-pipeline, and it is larger than the count below suggests, because these do not appear in it.
 
 ## UNREFERENCED — known weakness, must be resolved
 
@@ -122,25 +122,26 @@ These have no published source. Each is a researcher degree of freedom until it 
 | `evolution.min_codons` | 20 | **No source.** Now actually applied: `dnds_detail(..., min_codons=)` is passed the configured value per pair by S7b, and the arithmetic floor of 3 remains underneath it. Until that wiring existed the declared 20 was inert and an 8-codon fragment could fire `purifying_selection`, the strongest of the four reality tests. |
 | `evolution.max_members_aligned` | 50 | **No source.** A compute cap; measured worst-case family 1.95 s. |
 | `structure.max_evalue` | 1e-3 | **No source.** |
-| `prioritisation.min_reality_lines` | 2 | **No source.** Sensitivity across 1–4 is reported, which shows its cost but does not justify the choice. |
-| `portfolio.strata` quotas | 200/175/175/175/125/75/75 | **No source.** A design judgement about experimental portfolio balance; arguably not the kind of number a paper can supply, but it must be defended explicitly in the methods. |
-| `library.length_liability_above_aa` | 400 | **No source.** |
 | `hmmer_z` | 3,498,616 | Not a threshold — it is every unique protein of the analysis set (3,497,616) plus the 1,000 controls, searched or not, and pinning it is what makes E-values comparable across tiers (HMMER). Proteins resolved at Tier 0 stay in it, so E-values do not depend on PlasmidScope's coverage. The *practice* is standard; the specific value is simply our data. |
 
 ## Declared procedures that are not parameters
 
-Two things in S9 look like tuning and are not. They are recorded here so a reader does not
+The items below look like tuning and are not. They are recorded here so a reader does not
 go hunting for a citation that cannot exist.
 
 | item | what it is |
 |---|---|
 | S8e, ISEScan | Not a threshold of ours. ISEScan 1.7.3 is run with its published defaults (ISEScan), so partial elements are kept; `--removeShortIS` is not used, because a partial IS on a plasmid is still an IS-derived region. |
 | Tier 0, PlasmidScope transfer | Not a threshold of ours. A protein identical in sequence to a PlasmidScope protein takes PlasmidScope's published eggNOG-mapper 2.1.12 result (PlasmidScope; eggNOG-mapper, default settings as published). It counts as annotated when that result has a KEGG KO, an EC number, or a Pfam family that passes `cascade.is_informative` (so not a DUF/UPF family) — the eggNOG fields as released, with no score cut-off applied by us. A COG/OG category letter alone does not count. |
-| `targets.RANK_PRIORITY` | The lexicographic ranking order within a stratum, six keys deep. Each key is a **claim**, not a coefficient: "more independent evidence beats a better hypothesis", "a family on more independent plasmid backbones is better supported than one on fewer". A reader can agree or disagree with each in turn, which is exactly what a weighted blend prevents. The last key is the family id, present so that ties are reproducible and *stated* rather than decided by hash order. |
-| `targets.IMPLIED_BY` | Which reality tests entail which others. `purifying_selection` requires a measured dN/dS, which requires >=3 members, which is `is_family` — so those two are one line of evidence, not two, and `min_reality_lines` counts only the independent ones. |
+| `evidence.IMPLIED_BY` | Which reality tests entail which others. `purifying_selection` requires a measured dN/dS, which requires >=3 members, which is `is_family` — so those two are one line of evidence, not two, and `reality_n` counts only the independent ones. |
 
-**Count: 13 referenced, 3 justified deviations, 16 unreferenced in config, plus 5 more
-that live in `peptide.py` outside config entirely — 21 unreferenced in total.**
+**Count (rows of the tables above, recounted 2026-09-25): 21 referenced, 7 justified
+deviations, 4 definitional or config-derived thresholds in Python, and 11 rows in the
+unreferenced table - 8 with no source at all, `min_coverage` with a partial one,
+`max_target_seqs` at DIAMOND's default, and `hmmer_z`, which is not a threshold. The count
+recorded before (13 / 3 / 21) had not been kept up to date; the 5 `peptide.py` constants
+and 3 Layer C settings it included were removed on 2026-09-17. The parameters added on
+2026-09-25 are counted in their own sections below.**
 
 Two parameters left this table on 2026-09-14 when S7d, the HyPhy BUSTED codon model on a
 per-family FastTree tree, was removed from the analysis: `evolution.busted_max_p` (which
@@ -149,8 +150,8 @@ not). Removing a stage is the only way an unreferenced parameter leaves this tab
 someone measuring something.
 
 That ratio is the honest state of the pipeline. The unreferenced group is concentrated in the
-cascade thresholds and the portfolio design — which is unsurprising, because those are the
-parts with no direct precedent in the three source papers. They need either a supporting
+cascade thresholds - which is unsurprising, because they are the part with no direct
+precedent in the three source papers. They need either a supporting
 citation from a different literature, or an explicit methods paragraph defending them as
 design choices with measured sensitivity.
 
@@ -169,4 +170,86 @@ layer - was removed on 2026-09-25, and its parameters with it.
 **Outstanding.** The plasmid unit removes copy-number inflation *within* a plasmid but not
 clonal redundancy *between* plasmids: forty independent depositions of the same clinical
 plasmid remain forty units. `workflow/scripts/clonal_registry.py` holds the registry for
-that correction; it is not applied to these rates.
+that correction; it is not applied to these rates. The context terms below, and synteny,
+are counted over Stage 6 lineages and so do correct it; the `cons_*` rates, `cons_conj`
+included, do not.
+
+## Plasmid label databases (S4d, added 2026-09-25)
+
+Produced by `workflow/scripts/label_databases.py`; the rules are constants of
+`src/plasmidann/labeldb.py`, cited there, not config settings. PlasAnn's database, labels
+and tool are not used (spec section 24b); only its published tiers are cited.
+
+| parameter | value | source |
+|---|---|---|
+| tier 1 (`TIER1_IDENTITY`, `TIER1_COVERAGE`) | identity >= 80% and coverage >= 90% | PlasAnn, Methods ("Annotation pipeline"): "≥80% identity and ≥90% coverage in the primary tier". Applied to TADB, BacMet, oriTDB, mobileOG-db, dbAPIS and Anti-CRISPRdb. PlasAnn applied the tiers to its own database, which it had corrected against TADB 3.0 and BacMet 2.0; here they are applied to each database directly |
+| tier 2 (`TIER2_IDENTITY`, `TIER2_COVERAGE`) | identity > 60% and coverage > 70% | PlasAnn: "a secondary tier of >60% identity and >70% coverage for more divergent homologs" |
+| coverage measured on | the query AND the subject (the smaller of the two) | **Deviation, stricter.** The paper does not say which sequence the coverage is of, and its released code (plasann 1.1.6) applies no coverage filter at all. Query coverage alone lets a fragment carry the label of a full-length reference; subject coverage alone lets a multidomain protein carry the label of one domain. Measured on the 100-plasmid test set against the PlasAnn database: 1,188 proteins labelled with both coverages, 1,267 with query coverage alone |
+| DIAMOND E-value | 1e-5 | PlasAnn: its database curation used "e-value < 1 × 10–5", and its released code searches with `-evalue 1e-5`. The same value as the cascade's T2–T4 (FESNov) |
+| DIAMOND sensitivity | `--more-sensitive`, for every database | RGI (`app/Diamond.py` passes `--more-sensitive`); one mode for every database so that the sources are searched with the same sensitivity |
+| target limit | `--max-target-seqs 0`, pre-filtered at `--id 60 --query-cover 70 --subject-cover 70` | **Measured.** A target limit keeps the top hits by bit score, not by tier, so a partial high-scoring hit can push the tier-1 hit out: on the 100-plasmid test set, 50 targets lost 1 oriTDB and 3 mobileOG-db labels and gave 2 + 2 more the wrong tier, and even 1,000 targets truncated oriTDB queries. The pre-filter is the tier-2 minimum, so it removes no hit that could qualify |
+| best hit per protein and database | best tier, then highest bit score, then reference order | a declared order, not a threshold: the tier is the statement a label is cited with, and the last key makes ties independent of hit order |
+| CARD Perfect | 100% identity over the full length of the reference | CARD: the "'Perfect' algorithm detects perfect matches to the curated reference sequences"; RGI |
+| CARD Strict | bit score >= the model's curated cut-off (`model_param.blastp_bit_score` in card.json) | CARD: the "'Strict' algorithm predicts variants of known ARGs ... using CARD's curated bit-score cut-offs"; RGI (`app/HomologModel.py` tests `>=`). Loose hits are discarded, as CARD's own resistome predictions keep only Perfect and Strict |
+| CARD models used | protein homolog models only (6,059 in CARD 4.0.2) | variant, rRNA, overexpression and knockout models detect resistance from mutations or absence, which the presence of a similar protein cannot show |
+| CARD DIAMOND settings | `--more-sensitive`, DIAMOND's defaults otherwise | RGI (`app/Diamond.py`); the curated cut-off, not the E-value, decides a Strict call |
+| AMRFinderPlus | `amrfinder -p <proteins> --plus`, its own rules and curated cut-offs; 4.2.7, database 2026-08-07.1 | AMRFinderPlus: a Reference Gene Catalog with "manually curated cutoffs"; `--plus` adds the stress-response and virulence genes. Nothing is overridden |
+| TADB entries | experimentally validated protein entries (`*_exp` files), 963 | TADB distributes validated and predicted entries separately; the predicted set is not used (plan decision 2026-09-25). The 114 RNA toxins and antitoxins are nucleotide entries and cannot be searched with proteins |
+| BacMet entries | BacMet2_EXP, 753 | BacMet: genes "with experimentally confirmed function described in the scientific literature"; the predicted set is not used |
+| oriTDB entries | relaxase, auxiliary protein and T4CP, validated plus predicted (`_all` files), 16,834 | oriTDB holds experimentally validated and predicted entries; both are used. oriTDB offers no T4SS protein download |
+| mobileOG-db entries | every entry: Manual, Homology and Keyword Search, 775,257 | user decision 2026-09-25; the evidence class of the reference entry is written into each label's sub_label |
+| dbAPIS entries | verified APIS proteins and their sequence homologues, 17,414; the anti-CRISPR entries of its FASTA are not installed | dbAPIS: "experimentally verified APIS genes ... sequence and structural homologs", and it excludes anti-CRISPRs, whose source is Anti-CRISPRdb. Evidence class in sub_label |
+| Anti-CRISPRdb entries | every entry of the core dataset: Verified, PLiterature and Putative, 3,692 | Anti-CRISPRdb: Verified are "experimentally validated Acrs in literatures", PLiterature are reported without an experiment, and putative entries were "retrieved from prokaryotes via PSI-BLAST alignment". Evidence class in sub_label |
+| AMRFinderPlus element types given a context term | AMR -> amr:; STRESS METAL and BIOCIDE -> metal:; STRESS ACID, HEAT and VIRULENCE -> none | a mapping onto the term vocabulary, not a threshold. An element type the mapping does not know stops the stage rather than being guessed |
+
+`label_disagreements.tsv` compares gene names after removing case and punctuation, and
+counts one name that is a prefix of the other of at least three characters as the same
+gene (`labeldb.same_gene`). Three characters is the length of a bacterial gene-symbol stem
+(tet, sul, mer); the code cites Demerec et al. 1966 (Genetics 54:61) for it, whose full text
+could not be retrieved to re-verify for this document. The rule changes no label: it only
+decides which pairs are listed for review.
+
+## CONJScan and DefenseFinder (S8f, S8a, added 2026-09-25)
+
+| parameter | value | source |
+|---|---|---|
+| CONJScan models and their quorums | CONJScan 2.1.0, `CONJScan/Plasmids all`, as shipped | CONJScan; Coluzzi. Referenced by construction: the definitions are the published models. The package recommends running all models of one set together |
+| plasmid mobility class | pCONJ (a T4SS_type model), else pdCONJ (dCONJ_type), else pMOB (MOB), else pMOBless | Coluzzi: conjugative when a plasmid encodes "a presumably complete machinery for conjugation (relaxase and MPF)", decayed conjugative when "a relaxase but an incomplete MPF machinery", mobilisable when "a relaxase gene but no or very few MPF genes", and pMOBless when it lacks a relaxase |
+| MacSyFinder version for CONJScan | >= 2.1.6 (envs/conjscan pins 2.1.6 with MacSyLib 1.0.4) | CONJScan README, changelog entry 2.0.2: the definitions use model grammar 2.1 and need "MacSyFinder >= 2.1.6 and MacSylib >= 1.0.4". MacSyFinder 2.1.4, which DefenseFinder pins, refuses them (measured) |
+| hit selection (`--i-evalue-sel`) | 0.001, MacSyFinder's default, for CONJScan and DefenseFinder | MacSyFinder's default, not ours. HMMER's i-evalue scales with the number of sequences searched, so both stages now search ONE database: measured on the 100-plasmid test set, 8 per-core chunks called 214 ORFs in 56 CONJScan systems and one database 212 in 55. The E-values still depend on the size of the collection searched, as with any single MacSyFinder database |
+| replicon topology | circular, as for DefenseFinder | measured: a per-replicon topology file gave identical CONJScan calls on the test set (212 of 212 ORFs), because the T4SS and dCONJ plasmid models allow up to 500 intervening genes |
+
+## Synteny (Stage 9, changed 2026-09-25)
+
+The occurrence statistic and its minimum of two occurrences are replaced; see spec section 42.
+
+| parameter | value | source |
+|---|---|---|
+| `synteny.levels` | close (90% identity) and intermediate (`clustering.primary`) | the two clusterings already cited above: UniRef90 for close, the UniRef50 analogue of Durairaj et al. for the family. The primary level must be listed |
+| unit of observation | Stage 6 lineage (Mash distance <= 0.05, single linkage), fractional vote: each voting lineage has weight 1, split equally over its values | a counting rule, not a threshold. Forty copies of one redeposited plasmid are one lineage and one vote |
+| `synteny.min_lineages` | 2 | arithmetic minimum: conservation across one lineage is a single observation (spec section 2.9). Below it the status is TOO_FEW_LINEAGES |
+
+## Context terms and their calibration (S8c and a post-run tool, added 2026-09-25)
+
+`family_context_terms.tsv` is written by `workflow/scripts/context_features.py` with the
+rules of `src/plasmidann/context_terms.py`; `tools/calibrate_context.py` runs after the
+pipeline and is not a rule.
+
+| parameter | value | source |
+|---|---|---|
+| gene-label neighbour | within `context.neighbourhood_window` (3) genes AND in the ORF's directon: same strand, intergenic gaps <= `context.max_operon_gap` (100 nt) | FESNov: neighbours "on the same orientation as FESNov family members" and "with no intergenic regions longer than 100 nucleotides", at +/-3 positions |
+| system neighbour | the ORF is a component, or a component lies within 3 genes on either strand | **Deviation from the FESNov strand rule, by definition of a system.** A DefenseFinder or CONJScan system is a co-localised multi-gene call whose components sit on both strands; requiring the ORF's strand would split one system into two |
+| tandem paralogues | a neighbour in the focal family is excluded | a counting rule: such a neighbour's label says what the family is, not what surrounds it |
+| `context_terms.MIN_LINEAGES` | 2 | arithmetic minimum, as for synteny. Below it the status is TOO_FEW_LINEAGES |
+| unit of observation | Stage 6 lineage | as for synteny |
+| calibration precision targets (`LEVELS`) | 0.5 and 0.9 | FESNov: thresholds were set on 108,823 families with known KEGG pathways at the levels that recover the function of "at least 50 or 90% of all families" (their confidence scores). The levels are taken; the measure differs - here it is precision, the fraction of known families at or above a conservation value that carry the term themselves |
+| benchmark membership | a known family carries a term when more than half of its member proteins carry it | a majority, definitional. Families where a minority carry it are excluded from both sides |
+| calibration `MIN_FAMILIES` | 10 benchmark families and 10 negatives per term, and 10 families at or above a threshold | arithmetic: 90% precision cannot be observed on fewer than 10 families, since one false positive in 9 is 8/9 = 88.9%. With no negatives every level is 100% precise by construction. A term below the minimum is UNCALIBRATED and gets no threshold |
+| threshold choice | the lowest conservation whose precision reaches the level and stays there at every higher point holding at least 10 families | a declared rule, not a tuned value |
+
+**Count for the sections added on 2026-09-25:** 19 label-database rows, 5 CONJScan and
+DefenseFinder rows, 3 synteny rows and 9 context-term rows. None is unreferenced: each has
+a published source (a paper, or the source code of the tool a paper describes), a
+measurement, or is an arithmetic minimum (2 lineages, 10 families), a counting rule or a
+mapping declared as such. Two are deviations, both stricter or definitional and stated:
+coverage on both sequences, and system terms on either strand.

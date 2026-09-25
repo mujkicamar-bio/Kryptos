@@ -20,11 +20,13 @@
 # else in the pipeline uses a GPU, so allocating one for the whole run would idle it for
 # the entire cascade.
 #
-# Run the rest of the pipeline on the CPU partition and this stage here:
+# OPTIONAL. By default workflow/run_pipeline.sbatch runs S8d on CPU inside its one job.
+# To run it here instead, run the rest of the pipeline on the CPU partition and this stage
+# here:
 #
-#   sbatch workflow/run_pipeline.sbatch          # everything up to S8d (--omit-from)
-#   sbatch workflow/structure_gpu.sbatch         # S8d
-#   sbatch workflow/run_pipeline.sbatch          # the rest, resuming
+#   STRUCTURE_ON_GPU=1 sbatch workflow/run_pipeline.sbatch   # up to S8d (--omit-from)
+#   sbatch workflow/structure_gpu.sbatch                     # S8d
+#   sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
 #
 # Snakemake resumes from what exists, so the split costs nothing but the queue wait. All
 # three share the job name dark_plasmidome and --dependency=singleton, so they can be

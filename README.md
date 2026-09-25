@@ -57,16 +57,17 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | S3 | `05_annotation_cascade` | the annotation cascade, T1…T5, self-narrowing |
 | S4 | `06_annotation_tables` | the annotated plasmidome, plus GFF3 and GenBank |
 | S4b | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
-| S4c | `08_protein_labels` | every label from every source, normalised into one table |
+| S4c | `08_protein_labels` | every label from every source, normalised into one table, and the cross-source disagreements |
+| S4d | `08_protein_labels` | plasmid label databases: TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb and AMRFinderPlus |
 | S5 | `09_quality_gate` | positive and negative controls; halts the run on failure |
 | S6 | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
 | S7 | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
-| S8 | `12_context_and_structure` | DefenseFinder, IntegronFinder, directons, Foldseek + ProstT5 |
-| S9a | `13_synteny` | context conservation across lineages |
+| S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, Foldseek + ProstT5 |
+| S9a | `13_synteny` | gene-order conservation counted over lineages, at the gene (close) and family (intermediate) level |
 | S9b | `14_rarity` | family rarity labels and the saturation curve |
 | final | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family |
 
-`snakemake -n --forceall` plans **38 jobs**.
+`snakemake -n --forceall -c 2` plans **46 jobs** with the production configuration (measured 2026-09-25).
 
 ### The cascade
 
@@ -157,6 +158,25 @@ they are several hundred gigabytes.
 | eggNOG data | `config/targets.yaml` → `orthology` | 50 GB |
 | Foldseek target DB and ProstT5 | `config/config.yaml` → `foldseek_db`, `prostt5_model` | 20 GB |
 | MacSyFinder models | `config/config.yaml` → `macsyfinder_models` | 100 MB |
+| plasmid label databases and the KEGG KO list | `config/config.yaml` → `labels`, `references.kegg_ko_list` | 0.9 GB |
+| AMRFinderPlus and its database | `config/config.yaml` → `amrfinder` | 0.24 GB, plus 1.0 GB for `envs/amrfinder` |
+| CONJScan 2.1.0 and its MacSyFinder 2.1.6 | `config/config.yaml` → `references.conjscan_models`; `config/targets.yaml` → `conjugation` | 17 MB, plus 0.7 GB for `envs/conjscan` |
+
+The last three are installed by two scripts, run once from the repository root with any
+Python 3 (both use the standard library only) and `micromamba`, `mamba` or `conda` on `PATH`:
+
+```bash
+python tools/download_label_dbs.py    # data/refs/labels/<db>/, with VERSION, SOURCE, MANIFEST.sha256
+python tools/install_tool_envs.py     # envs/conjscan, envs/amrfinder, data/refs/conjscan, data/refs/amrfinder
+```
+
+Both are idempotent: a second run downloads and builds nothing. AMRFinderPlus and CONJScan
+run from their own environments, named by path in config, because their pins conflict with
+the main one - DefenseFinder needs MacSyFinder 2.1.4, CONJScan 2.1.0 needs 2.1.6. Pre-flight
+checks both executables, every database directory and its `VERSION`, and that the
+MacSyFinder can read CONJScan's model grammar. `labels.required` and `amrfinder.required`
+are `true`, so a missing database stops the run in pre-flight rather than turning into an
+empty result.
 
 `hmmer_z` in `config/cascade.yaml` **must** equal the number of sequences actually
 searched — the unique-protein count of your analysis set plus your controls and decoys.
@@ -180,20 +200,24 @@ present, in about a second, before any compute is spent. The submission scripts 
 repository root from their own location, so they run from wherever you checked the
 repository out.
 
-### The structural stage needs a GPU
-
-S8d predicts a 3Di structural alphabet with ProstT5, a transformer. On CPU it dominates the
-whole run; on a GPU it is a small fraction of it. Nothing else here uses a GPU, so it has
-its own submission:
+### One submission runs everything
 
 ```bash
-sbatch workflow/run_pipeline.sbatch        # everything up to S8d
-sbatch workflow/structure_gpu.sbatch       # S8d
-sbatch workflow/run_pipeline.sbatch        # the rest, resuming
+sbatch workflow/run_pipeline.sbatch
+```
+
+runs every stage in one job, the structure search (S8d, ProstT5 and Foldseek) included, on
+CPU. ProstT5 is much faster on a GPU, so the split is still available on request:
+
+```bash
+STRUCTURE_ON_GPU=1 sbatch workflow/run_pipeline.sbatch   # everything up to S8d
+sbatch workflow/structure_gpu.sbatch                     # S8d on the GPU partition
+sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
 ```
 
 A run that asked for a GPU and did not get one fails loudly rather than silently taking ten
-times longer.
+times longer. Calibrating the context terms is a separate step after the run:
+`python tools/calibrate_context.py --help`.
 
 ### The SLURM account
 
@@ -266,7 +290,39 @@ touched — including stages that wrote well-formed empty tables and reported su
 - Tesson F. *et al.* Systematic and quantitative view of the antiviral arsenal of prokaryotes. *Nat. Commun.* **13**, 2561 (2022)
 - Eddy S.R. Accelerated profile HMM searches. *PLoS Comput. Biol.* **7**, e1002195 (2011)
 - Buchfink B., Reuter K. & Drost H.-G. Sensitive protein alignments at tree-of-life scale using DIAMOND. *Nat. Methods* **18**, 366–368 (2021)
+- Islam H., Sharma A., Blair J. & Lopatkin A.J. PlasAnn: a curated plasmid-specific database and annotation pipeline for standardized gene and function analysis. *Nucleic Acids Res.* **54**, gkaf1507 (2026) - its identity and coverage tiers only
+- Alcock B.P. *et al.* CARD 2023: expanded curation, support for machine learning, and resistome prediction at the Comprehensive Antibiotic Resistance Database. *Nucleic Acids Res.* **51**, D690–D699 (2023)
+- Feldgarden M. *et al.* AMRFinderPlus and the Reference Gene Catalog facilitate examination of the genomic links among antimicrobial resistance, stress response, and virulence. *Sci. Rep.* **11**, 12728 (2021)
+- Guan J. *et al.* TADB 3.0: an updated database of bacterial toxin–antitoxin loci and associated mobile genetic elements. *Nucleic Acids Res.* **52**, D784–D790 (2024)
+- Pal C. *et al.* BacMet: antibacterial biocide and metal resistance genes database. *Nucleic Acids Res.* **42**, D737–D743 (2014)
+- Liu G. *et al.* oriTDB: a database of the origin-of-transfer regions of bacterial mobile genetic elements. *Nucleic Acids Res.* **53**, D163–D168 (2025)
+- Brown C.L. *et al.* mobileOG-db: a manually curated database of protein families mediating the life cycle of bacterial mobile genetic elements. *Appl. Environ. Microbiol.* **88**, e00991-22 (2022)
+- Yan Y., Zheng J., Zhang X. & Yin Y. dbAPIS: a database of anti-prokaryotic immune system genes. *Nucleic Acids Res.* **52**, D419–D425 (2024)
+- Dong C. *et al.* Anti-CRISPRdb v2.2: an online repository of anti-CRISPR proteins including information on inhibitory mechanisms, activities and neighbors of curated anti-CRISPR proteins. *Database* **2022**, baac010 (2022)
+- Cury J. *et al.* Identifying conjugative plasmids and integrative conjugative elements with CONJscan. *Methods Mol. Biol.* **2075**, 265–283 (2020)
+- Coluzzi C., Garcillán-Barcia M.P., de la Cruz F. & Rocha E.P.C. Evolution of plasmid mobility: origin and fate of conjugative and nonconjugative plasmids. *Mol. Biol. Evol.* **39**, msac115 (2022)
+- Kanehisa M. *et al.* KEGG: biological systems database as a model of the real world. *Nucleic Acids Res.* **53**, D672–D677 (2025) - the KO list, for the disagreement file only
 
 ## Licence
 
-MIT. See [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE). The MIT licence covers this code only, not the reference
+data it downloads.
+
+### Reference data whose terms restrict redistribution or use
+
+None of these files is in the repository; each is downloaded by the installers above, and
+its terms are recorded in `data/refs/labels/<db>/SOURCE` or the package metadata. Check
+them before redistributing the databases, or outputs that reproduce their content, and
+before any commercial use.
+
+| data | terms |
+|---|---|
+| BacMet 2.0 | website footer "Copyright 2013-2018 All rights reserved"; no data licence stated, although the paper describes the database as freely available |
+| CARD | free for non-commercial research or academic use by academic, government or non-profit institutions; commercial use needs a licence from McMaster University (card.mcmaster.ca/about, Terms of Use, sections 4 and 5) |
+| CONJScan models | CC BY-NC-SA 4.0 (`data/refs/conjscan/CONJScan/metadata.yml`): non-commercial use, and derivatives under the same licence |
+| KEGG KO list | the KEGG API "is made available only for academic use by academic users"; other use needs a commercial licence (kegg.jp/kegg/legal.html) |
+| dbAPIS | no data licence stated; website footer "Copyright 2023 YIN LAB, UNL. All rights reserved"; the article is CC BY 4.0 |
+| Anti-CRISPRdb v2.2 | no data licence stated; website footer "Copyright CEFG 2021 All rights reserved"; the article is CC BY 4.0. The original hosts no longer serve the data, and the core dataset was taken from an Internet Archive capture |
+| TADB 3.0, oriTDB 2.0 | no data licence stated; the papers describe the databases as freely available |
+| mobileOG-db beatrix-1.6 | CC BY 4.0 (Zenodo archive) |
+| AMRFinderPlus | public domain (NCBI) |

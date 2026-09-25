@@ -183,3 +183,97 @@ def test_a_model_family_that_found_nothing_contributes_no_rows(tmp_path):
 
     assert parse_all_systems([empty]) == []
     assert len(parse_all_systems([empty, full])) == 2
+
+
+# ------------------------------------------------------------------------------------
+# Phase 2 is ONE MacSyFinder database, whatever the core count.
+#
+# HMMER's independent e-value is the score's p-value times the number of sequences in the
+# database searched, and MacSyFinder keeps a hit only below --i-evalue-sel (0.001 by
+# default). Phase 2 once split its input into one chunk of replicons per core: a smaller
+# database gives a smaller i-evalue, so the calls depended on -c. Measured with CONJScan on
+# the test set (leaf 1.3): 8 chunks called 214 ORFs in 56 systems, one database 212 in 55.
+# ------------------------------------------------------------------------------------
+
+import os  # noqa: E402
+import sys  # noqa: E402
+
+from conftest import FakeSnakemake, read_tsv, run_script, write_fasta, write_tsv  # noqa: E402
+
+# Stand-in for macsyfinder that reproduces the dependence under test: a planned hit is
+# kept when p-value x (sequences in --sequence-db) < 0.001, as HMMER and MacSyFinder do.
+FAKE_MACSYFINDER = r'''#!{python}
+import csv, pathlib, sys
+args = sys.argv[1:]
+opt = lambda k: args[args.index(k) + 1]
+out = pathlib.Path(opt("--out-dir"))
+out.mkdir(parents=True)
+(out / "argv.txt").write_text("\n".join(args))
+ids = [l[1:].split()[0] for l in open(opt("--sequence-db")) if l.startswith(">")]
+plan = {r["hit_id"]: r for r in csv.DictReader(open({plan!r}), delimiter="\t")}
+header = ["replicon", "hit_id", "gene_name", "hit_pos", "model_fqn", "sys_id",
+          "sys_wholeness", "sys_score", "hit_gene_ref", "hit_status", "hit_i_eval",
+          "hit_profile_cov"]
+with open(out / "best_solution.tsv", "w") as fh:
+    fh.write("# macsyfinder 2.1.4\n# Systems found:\n\n" + "\t".join(header) + "\n")
+    for gid in ids:
+        p = plan.get(gid)
+        if p is None or float(p["pvalue"]) * len(ids) >= 0.001:
+            continue
+        rep = gid.rsplit("_", 1)[0]
+        row = dict(replicon=rep, hit_id=gid, gene_name=p["component"],
+                   model_fqn="defense-finder-models/DefenseFinder/" + p["system"],
+                   sys_id=rep + "_" + p["system"] + "_1", sys_wholeness="1.000",
+                   hit_status="mandatory", hit_i_eval=str(float(p["pvalue"]) * len(ids)))
+        fh.write("\t".join(row.get(k, "") for k in header) + "\n")
+'''
+
+
+def _phase2(tmp_path, monkeypatch, threads):
+    """Run defence_systems.py over eight replicons of 25 genes with the stand-in."""
+    base = tmp_path / f"t{threads}"
+    records, mapping = [], []
+    for r in range(8):
+        for pos in range(1, 26):
+            gid = gembase_id(f"p{r}", pos)
+            records.append((gid, "MKV"))
+            mapping.append([gid, f"p{r}|{pos}", f"p{r}"])
+    # 200 sequences in one database: 4e-6 x 200 = 8e-4 is kept, 1e-5 x 200 = 2e-3 is not.
+    # A chunk of 50 sequences would keep both, which is the core-count dependence.
+    plan = [[gembase_id("p0", 3), "Gabija", "GajA", 4e-6],
+            [gembase_id("p5", 7), "Zorya", "ZorA", 1e-5]]
+    faa, gmap = base / "cand.faa", base / "map.tsv"
+    write_fasta(faa, records)
+    write_tsv(gmap, ["gembase_id", "orf_id", "plasmid_id"], mapping)
+    write_tsv(base / "plan.tsv", ["hit_id", "system", "component", "pvalue"], plan)
+    exe = base / "bin" / "macsyfinder"
+    exe.parent.mkdir(parents=True)
+    exe.write_text(FAKE_MACSYFINDER.replace("{python}", sys.executable)
+                   .replace("{plan!r}", repr(str(base / "plan.tsv"))))
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
+    models = base / "models"
+    models.mkdir()
+    (models / "defense-finder-models").mkdir()
+    out = base / "out" / "defence_systems.tsv"
+    out.parent.mkdir(parents=True)
+    run_script("defence_systems.py", FakeSnakemake(
+        input={"faa": str(faa), "map": str(gmap)}, output={"tsv": str(out)},
+        params={"models_dir": str(models), "required": True}, threads=threads))
+    return out
+
+
+def test_phase2_calls_do_not_depend_on_the_core_count(tmp_path, monkeypatch):
+    one = read_tsv(_phase2(tmp_path, monkeypatch, threads=1))
+    many_path = _phase2(tmp_path, monkeypatch, threads=4)
+    many = read_tsv(many_path)
+
+    assert one == many, "the defence calls changed with the number of threads"
+    assert [r["orf_id"] for r in one] == ["p0|3"]
+
+    # One MacSyFinder process over every candidate replicon, the cores to --worker.
+    runs = [p for p in (many_path.parent / "phase2").iterdir() if p.is_dir()]
+    assert [p.name for p in runs] == ["run"]
+    argv = (runs[0] / "argv.txt").read_text().split("\n")
+    assert argv[argv.index("--worker") + 1] == "4"
+    assert argv[argv.index("--replicon-topology") + 1] == "circular"

@@ -25,11 +25,18 @@ rule preflight:
         orthology=targets["orthology"],
         foldseek_db=config.get("foldseek_db", "data/refs/foldseek/pdb"),
         prostt5=config.get("prostt5_model", "data/refs/foldseek/prostt5"),
+        # S4d and S8f: tools named by path in their own environments, and their databases.
+        labels=config["labels"],
+        amrfinder=config["amrfinder"],
+        conjugation=targets["conjugation"],
+        conjscan_models=config["references"]["conjscan_models"],
     conda:
         "../envs/plasmidann.yaml"
     resources:
         mem_mb=2000,
-        runtime=10,
+        # `macsyfinder --version` from envs/conjscan took between 1.4 s and 2 min 53 s on
+        # /gorilla (slow Python imports), so the version check is allowed up to an hour.
+        runtime=90,
     benchmark:
         f"{OUT}/benchmarks/preflight.tsv"
     log:
@@ -259,6 +266,46 @@ rule feature_files:
         "../scripts/feature_files.py"
 
 
+rule label_databases:
+    """S4d: every unique protein against the plasmid-specific label databases.
+
+    TADB, BacMet, oriTDB, mobileOG-db, dbAPIS and Anti-CRISPRdb by DIAMOND at PlasAnn's
+    identity and coverage tiers (thresholds from the paper; PlasAnn's database and labels
+    are not used), CARD protein homolog models by Perfect / Strict, and AMRFinderPlus by
+    its own rules. One long table that protein_labels merges; a database that was not
+    searched is NOT_RUN in the status table, never an empty result. See plasmidann.labeldb.
+    """
+    input:
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        # No search starts before every tool and database has been confirmed present.
+        preflight=f"{OUT}/05_annotation_cascade/preflight.tsv",
+    output:
+        tsv=f"{OUT}/08_protein_labels/protein_labels_plasmid.tsv",
+        status=f"{OUT}/08_protein_labels/label_databases_status.tsv",
+    params:
+        labels=config["labels"],
+        amrfinder=config["amrfinder"],
+    # DIAMOND and AMRFinderPlus both thread; a third of the allocation lets the stage run
+    # beside the cascade rather than queue behind it.
+    threads: 32
+    resources:
+        # 0.61 GB peak on the test set (64 s wall, 260 CPU-s at 8 threads). DIAMOND's
+        # memory is set by its block size, not by the query count, so 32 GB is a
+        # scheduling figure with headroom, not a measurement at 3.5 M proteins.
+        mem_mb=32000,
+        # Extrapolated from the test set, linear in the query count: ~0.05 CPU-s per
+        # protein, ~50 CPU-h at 3.5 M proteins, ~2 h on 32 threads. 24 h is the ceiling.
+        runtime=1440,
+    benchmark:
+        f"{OUT}/benchmarks/label_databases.tsv"
+    log:
+        f"{OUT}/logs/08_protein_labels/label_databases.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/label_databases.py"
+
+
 rule protein_labels:
     """S4c: every functional label every tool produced, in one long table.
 
@@ -276,8 +323,17 @@ rule protein_labels:
         pfam_dat=config["references"]["pfam_dat"],
         # Search-cluster members take their representative's labels.
         selection=f"{OUT}/03_dereplication/selection.tsv",
+        # S4d: the plasmid label databases, merged in as their own kinds.
+        labels_plasmid=f"{OUT}/08_protein_labels/protein_labels_plasmid.tsv",
+        # For the disagreement table: Tier 0 gene symbols (orthology + the KEGG KO list),
+        # DefenseFinder and CONJScan components per protein (via the protein map).
+        ko_list=config["references"]["kegg_ko_list"],
+        defence=f"{OUT}/12_context_and_structure/defence_systems.tsv",
+        conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
     output:
         tsv=f"{OUT}/08_protein_labels/protein_labels.tsv",
+        disagreements=f"{OUT}/08_protein_labels/label_disagreements.tsv",
     params:
         pfam_version=config["references"]["pfam_version"],
         swissprot_version=config["references"]["swissprot_version"],

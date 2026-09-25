@@ -2,7 +2,7 @@
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
 required: [input, outdir, orf, discovery, qc, cascade, controls, seed,
-           references]
+           references, labels, amrfinder]
 properties:
   input:
     type: object
@@ -31,7 +31,7 @@ properties:
   references:
     type: object
     required: [pfam_dat, pfam_version, swissprot_version, nr_version, eggnog_version,
-               pharokka_db_version, plasmidscope_version]
+               pharokka_db_version, plasmidscope_version, conjscan_models, kegg_ko_list]
     properties:
       pfam_dat: {type: string}
       pfam_version: {type: string}
@@ -41,6 +41,24 @@ properties:
       pharokka_db_version: {type: string}
       plasmidscope_version: {type: string}
       macsyfinder_models: {type: string}
+      conjscan_models: {type: string}
+      kegg_ko_list: {type: string}
+  # S4d label databases and AMRFinderPlus (rule label_databases).
+  labels:
+    type: object
+    required: [dir, required]
+    additionalProperties: false
+    properties:
+      dir: {type: string}
+      required: {type: boolean}
+  amrfinder:
+    type: object
+    required: [executable, database, required]
+    additionalProperties: false
+    properties:
+      executable: {type: string}
+      database: {type: string}
+      required: {type: boolean}
   qc:
     type: object
     required: [max_opposite_strand_overlap_fraction, antifam]

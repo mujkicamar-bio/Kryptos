@@ -95,6 +95,28 @@ properties:
     properties:
       required:
         type: boolean
+  # S8f CONJScan (rule conjugation_systems). exe is the MacSyFinder of envs/conjscan,
+  # named by path; version is the CONJScan release the calls are stamped with.
+  conjugation:
+    type: object
+    required: [required, exe, version]
+    additionalProperties: false
+    properties:
+      required: {type: boolean}
+      exe: {type: string}
+      version: {type: string}
+  # Stage 9: the clustering levels synteny is measured at, and the lineage minimum.
+  synteny:
+    type: object
+    required: [levels, min_lineages]
+    additionalProperties: false
+    properties:
+      levels:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items: {type: string}
+      min_lineages: {type: integer, minimum: 2}
   context:
     type: object
     properties:
@@ -188,3 +210,5 @@ required:
 - orthology
 - context
 - structure
+- conjugation
+- synteny

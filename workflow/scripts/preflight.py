@@ -17,12 +17,16 @@ stratum. The registry now lives in plasmidann.tools and a test scans workflow/sc
 subprocess calls, so it cannot fall behind the code again.
 """
 import os
+import pathlib
 import shutil
 import subprocess
 
 import _ctx  # noqa: F401
 
-from plasmidann.tools import required_tools
+from plasmidann import labeldb
+from plasmidann.conjscan import installed_version
+from plasmidann.tools import (grammar_problem, macsyfinder_version, model_grammars,
+                              required_tools)
 
 tiers = snakemake.params.tiers
 artefact = snakemake.params.artefact
@@ -123,6 +127,91 @@ if structure_required:
                 "Download it, or set structure.required to false in config/targets.yaml "
                 "to run without structural evidence.")
 
+# ------------------------------------------------------------------------------------
+# S4d plasmid label databases, and AMRFinderPlus in its own environment. The same contract
+# as the stage (label_databases.py): an absent database directory fails only when the
+# databases are required, and otherwise becomes NOT_RUN; a directory that is present but
+# incomplete always fails, because the stage would stop on it hours into the run.
+# ------------------------------------------------------------------------------------
+labels_cfg = snakemake.params.labels
+labels_dir = labels_cfg["dir"]
+for db in labeldb.DATABASES:
+    d = os.path.join(labels_dir, db)
+    if not os.path.isdir(d):
+        if labels_cfg["required"]:
+            problems.append(f"label database {db}: {d} is not installed - run "
+                            "tools/download_label_dbs.py, or set labels.required to false")
+        continue
+    version = os.path.join(d, "VERSION")
+    if not (os.path.isfile(version) and open(version).read().strip()):
+        problems.append(f"label database {db}: {version} is missing or empty; every label "
+                        "carries its release")
+    # CARD is read from card.json (sequences and curated cut-offs); the others from the
+    # FASTA the installer writes; BacMet also needs its compound mapping.
+    needed = ["card.json"] if db == "card" else [f"{db}.faa"]
+    for name in needed:
+        path = os.path.join(d, name)
+        if not (os.path.isfile(path) and os.path.getsize(path) > 0):
+            problems.append(f"label database {db}: {path} is missing or empty")
+    if db == "bacmet" and not list(pathlib.Path(d).rglob("*mapping*.txt")):
+        problems.append(f"label database bacmet: no BacMet mapping file (*mapping*.txt) "
+                        f"under {d}")
+
+amr = snakemake.params.amrfinder
+amr_missing = []
+if not os.access(amr["executable"], os.X_OK):
+    amr_missing.append(f"AMRFinderPlus executable not found or not executable: "
+                       f"{amr['executable']!r} - run tools/install_tool_envs.py")
+if not os.path.isfile(os.path.join(amr["database"], "version.txt")):
+    amr_missing.append(f"AMRFinderPlus database {amr['database']} has no version.txt - "
+                       "run tools/install_tool_envs.py")
+if amr["required"]:
+    problems.extend(amr_missing)
+
+# ------------------------------------------------------------------------------------
+# S8f CONJScan, run by the MacSyFinder named in conjugation.exe. The models' grammar
+# decides which MacSyFinder can read them, and the wrong one stops with a parse error
+# (plasmidann.tools.MIN_MACSYFINDER). Checked whenever both are installed, required or
+# not: the stage runs then, and would fail after the cascade rather than here.
+# ------------------------------------------------------------------------------------
+conj = snakemake.params.conjugation
+conj_models = snakemake.params.conjscan_models
+conj_exe = conj["exe"]
+conj_version = installed_version(conj_models)
+conj_exe_ok = os.access(conj_exe, os.X_OK)
+if conj["required"]:
+    if not conj_exe_ok:
+        problems.append(f"conjugation.required is true but the MacSyFinder executable is "
+                        f"absent or not executable: {conj_exe!r} - run "
+                        "tools/install_tool_envs.py")
+    if conj_version is None:
+        problems.append(f"conjugation.required is true but CONJScan is not installed "
+                        f"under {conj_models}")
+macsyfinder_found = ""
+if conj_exe_ok and conj_version is not None:
+    if conj_version != str(conj["version"]):
+        problems.append(f"CONJScan {conj_version} is installed at {conj_models}, but "
+                        f"conjugation.version is {conj['version']}")
+    grammars = model_grammars(conj_models)
+    # MacSyFinder's start-up imports took up to 2 min 53 s on /gorilla, so a slow answer
+    # is waited for; only an hour without one is a failure.
+    try:
+        answer = subprocess.run([conj_exe, "--version"], capture_output=True, text=True,
+                                timeout=3600)
+        found = macsyfinder_version(answer.stdout + answer.stderr)
+    except subprocess.TimeoutExpired:
+        found = None
+    if not grammars:
+        problems.append(f"CONJScan at {conj_models} holds no model definition")
+    elif found is None:
+        problems.append(f"{conj_exe} --version reported no MacSyFinder version")
+    else:
+        macsyfinder_found = ".".join(map(str, found))
+        problem = grammar_problem(grammars, found)
+        if problem:
+            problems.append(f"CONJScan at {conj_models}: {problem} ({conj_exe}). Use the "
+                            "MacSyFinder of envs/conjscan (tools/install_tool_envs.py).")
+
 if problems:
     raise SystemExit(
         "pre-flight failed - the run would have died mid-search:\n  "
@@ -138,5 +227,10 @@ with open(snakemake.output[0], "w") as out:
         path = os.path.join(db, "phrogs_profile_db") if os.path.isdir(db) else db
         out.write(f"{db}\t{os.path.getsize(path) if os.path.exists(path) else 0}\n")
     out.write(f"\nstructure_required\t{structure_required}\n")
+    # What the S4d and S8f stages will find, so a NOT_RUN in their outputs can be traced.
+    out.write(f"labels_dir\t{labels_dir}\n")
+    out.write(f"amrfinder\t{'; '.join(amr_missing) or amr['executable']}\n")
+    out.write(f"conjscan\t{conj_version or 'not installed'}\n")
+    out.write(f"conjscan_macsyfinder\t{macsyfinder_found or 'not checked'}\n")
 
 print(f"pre-flight OK: {len(resolved)} tool(s), {len(checked_dbs) + 1} database(s)")

@@ -215,3 +215,117 @@ def test_every_script_that_takes_a_scratch_directory_releases_it():
         if "scratch.scratch_dir" in text and "scratch.release" not in text:
             offenders.append(f"{path.name} takes a scratch directory and never releases it")
     assert not offenders, "; ".join(offenders)
+
+
+def _rule(name):
+    """The text of one rule, from its `rule` line to the next."""
+    text = smk_text()
+    body = text[text.index(f"rule {name}:"):]
+    nxt = body.find("\nrule ", 1)
+    return body if nxt < 0 else body[:nxt]
+
+
+def test_the_label_and_conjugation_stages_are_rules_with_declared_resources():
+    """S4d and S8f run inside the one submission, so the scheduler must know what each
+    takes, and neither may start a search before pre-flight has passed."""
+    for name, script in (("label_databases", "label_databases.py"),
+                         ("conjugation_systems", "conjugation_systems.py")):
+        rule = _rule(name)
+        assert f'"../scripts/{script}"' in rule
+        assert "threads:" in rule and "mem_mb=" in rule and "runtime=" in rule, name
+        assert "preflight.tsv" in rule, f"{name} can start before pre-flight passes"
+
+
+def test_protein_labels_merges_the_label_databases_and_writes_the_disagreements():
+    rule = _rule("protein_labels")
+    for needed in ("protein_labels_plasmid.tsv", "label_disagreements.tsv",
+                   "kegg_ko_list", "defence_systems.tsv", "conjugation_systems.tsv",
+                   "protein_map.tsv"):
+        assert needed in rule, f"protein_labels does not declare {needed}"
+
+
+def test_synteny_reads_one_cluster_table_per_level_and_the_lineages():
+    rule = _rule("synteny")
+    assert 'res=targets["synteny"]["levels"]' in rule
+    assert "plasmid_lineage.tsv" in rule and "dark_ids.txt" in rule
+    assert 'synteny=targets["synteny"]' in rule
+
+
+def test_context_features_reads_the_labels_and_conjugation_and_writes_the_terms():
+    rule = _rule("context_features")
+    for needed in ("conjugation_systems.tsv", "protein_labels.tsv", "protein_families.tsv",
+                   "plasmid_lineage.tsv", "family_context_terms.tsv",
+                   'primary=targets["clustering"]["primary"]'):
+        assert needed in rule, f"context_features does not declare {needed}"
+
+
+def test_the_report_reads_the_new_evidence():
+    rule = _rule("annotation_report")
+    for needed in ("conjugation_systems.tsv", "conjugation_plasmid_class.tsv",
+                   "protein_labels_plasmid.tsv", "families_close_cluster.tsv"):
+        assert needed in rule, f"annotation_report does not declare {needed}"
+
+
+def test_one_submission_runs_every_stage_including_structure_search():
+    """The user asked for one run that annotates everything. The structure search is
+    omitted only when the optional GPU split is asked for explicitly."""
+    sbatch = (WORKFLOW / "run_pipeline.sbatch").read_text()
+    omit = sbatch[sbatch.index("OMIT=()"):sbatch.index("fi\n", sbatch.index("OMIT=()"))]
+    assert "STRUCTURE_ON_GPU" in omit, (
+        "structure_search is omitted from the default submission")
+    assert "--until" not in sbatch.split("\nset -euo pipefail", 1)[1]
+
+
+def _operative_text(path):
+    """What a file DOES, without its prose: comments and docstrings removed.
+
+    Python through ast (every identifier and every string that is not a docstring), rule
+    files by stripping triple-quoted blocks and comments, YAML by loading it. Prose may say
+    why PlasAnn is not used; an operative reference is what must not exist."""
+    import ast
+    text = path.read_text()
+    if path.suffix == ".py":
+        tree = ast.parse(text)
+        docstrings = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Expr)
+                      and isinstance(getattr(n, "value", None), ast.Constant)}
+        parts = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                    and id(node) not in docstrings:
+                parts.append(node.value)
+            elif isinstance(node, ast.Name):
+                parts.append(node.id)
+            elif isinstance(node, ast.Attribute):
+                parts.append(node.attr)
+            elif isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.alias)):
+                parts.append(getattr(node, "name", ""))
+        return "\n".join(parts)
+    if path.suffix == ".yaml":
+        return yaml.safe_dump(yaml.safe_load(text))
+    text = re.sub(r'"""(?:.|\n)*?"""', "", text)
+    return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+
+
+def test_the_pipeline_never_uses_plasann_labels_or_kegg_context_terms():
+    """User decision 2026-09-25: PlasAnn's database and labels are not used (only its
+    published tier thresholds), and KEGG gives no context term. The KEGG KO list maps Tier 0
+    KOs to gene symbols for the disagreement table, and nothing else."""
+    from plasmidann import context_terms
+    code = [WORKFLOW / "Snakefile", *sorted((WORKFLOW / "rules").glob("*.smk")),
+            *sorted((WORKFLOW / "scripts").glob("*.py")),
+            *sorted((ROOT / "src").rglob("*.py")),
+            *sorted((ROOT / "config").rglob("*.yaml"))]
+    offenders = [str(p.relative_to(ROOT)) for p in code
+                 if "plasann" in _operative_text(p).lower()]
+    assert not offenders, f"PlasAnn referenced operatively in: {offenders}"
+
+    # KEGG: no context term type, and the KO list reaches only protein_labels.
+    assert not any("kegg" in t.lower() for t in context_terms.TERM_PREFIX.values())
+    assert not any("kegg" in k.lower() for k in context_terms.TERM_PREFIX)
+    readers = [p.name for p in code if "kegg_ko_list" in _operative_text(p)
+               and p.suffix != ".yaml"]
+    assert readers == ["annotation_cascade.smk"], readers
+    assert "kegg_ko_list" in _rule("protein_labels")
+    context_code = _operative_text(WORKFLOW / "scripts" / "context_features.py") \
+        + _operative_text(ROOT / "src" / "plasmidann" / "context_terms.py")
+    assert "kegg" not in context_code.lower(), "KEGG reaches the context terms"

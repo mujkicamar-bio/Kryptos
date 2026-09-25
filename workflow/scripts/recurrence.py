@@ -14,7 +14,7 @@ So this stage reports SEVEN different counts for each family and never collapses
     unique_plasmid_count              distinct plasmid records.
     independent_plasmid_cluster_count distinct Stage 6 lineages. THIS is the denominator a
                                       recurrence claim needs.
-    host_count / species_count        distinct host species (binomials).
+    host_count                        distinct host species (binomials).
     genus_count                       distinct host genera, including hosts named only to
                                       the genus ("Acidovorax sp.").
     MOB_count                         distinct relaxase types. Breadth of mobility, not of
@@ -28,7 +28,6 @@ reader who is shown only the first will draw the wrong conclusion.
 DATABASE RECURRENCE (section 34.1)
 
     database_source_count   how many source databases contributed the records
-    database_record_count   the raw record count
 
 These are PROVENANCE, not biology. They are reported because section 34.1 asks for them and
 because a reader should be able to see that a number is large for a database reason; they
@@ -91,7 +90,7 @@ COLS = [
     # section 34, the seven biological counts
     "plasmid_occurrence_count", "unique_plasmid_count",
     "independent_plasmid_cluster_count", "independent_cluster_status",
-    "host_count", "species_count", "genus_count",
+    "host_count", "genus_count",
     # how many of the family's plasmids have a recorded host; host_count is NOT_MEASURED,
     # not 0, when none has (clonal_registry, plasmidann.hosts)
     "n_plasmids_with_host", "n_plasmids_with_species", "host_count_status",
@@ -101,7 +100,7 @@ COLS = [
     "predicted_host_ranges",
     "MOB_count", "habitat_count",
     # section 34.1, provenance - never a denominator
-    "database_record_count", "database_source_count",
+    "database_source_count",
 ]
 
 n_rows = 0
@@ -142,10 +141,7 @@ with open(snakemake.input.families, newline="") as fh, \
             # measured for independence; reporting 0 would read as "no independent
             # lineages", which is a much stronger and quite different claim (section 2.9).
             "independent_cluster_status": status.SUCCESS if lineages else status.NOT_RUN,
-            # host and species are the same measurement in this collection; section 34
-            # names both, and collapsing them would drop a field the spec asks for.
             "host_count": len(species),
-            "species_count": len(species),
             "genus_count": len(genera),
             "n_plasmids_with_host": n_with_host,
             # SINGLE_HOST (Stage 14) needs every plasmid named to the species.
@@ -157,7 +153,6 @@ with open(snakemake.input.families, newline="") as fh, \
             "predicted_host_ranges": ";".join(sorted(set(predicted))),
             "MOB_count": len(mobs),
             "habitat_count": len(habitats),
-            "database_record_count": len(plasmids),
             "database_source_count": len(sources),
         })
         n_rows += 1

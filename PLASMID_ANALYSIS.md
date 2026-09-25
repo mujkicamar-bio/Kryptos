@@ -387,12 +387,18 @@ Use explicit status values such as:
 NOT_RUN
 NO_HIT
 TOO_FEW_MEMBERS
+TOO_FEW_LINEAGES
 NO_DIVERGENCE
 SATURATED
 NO_OUTPUT
 FAILED
 NOT_APPLICABLE
 SUCCESS
+
+DECIDED 2026-09-25: TOO_FEW_LINEAGES (darkorf.status) is reported when a measurement counted
+over Stage 6 lineages has fewer lineages than it needs - synteny (section 42) and the context
+terms (section 53), both below two lineages. It is distinct from TOO_FEW_MEMBERS: a family
+with forty members on copies of one plasmid lineage has enough members and one lineage.
 
 7.3 Text fields
 
@@ -647,6 +653,8 @@ coverage; clustering.primary). Selection, dark families, synteny and the report'
 labels all use it; close and broad are computed and reported, never used as the family.
 The counts above were measured with broad families; intermediate families are smaller, so
 fewer proteins are selected and the nr estimate is an upper bound until re-measured.
+Synteny is additionally measured at the close level (90% identity: one gene), reported per
+ORF beside the family-level rows (section 42); that does not make close a family level.
 
 Family table (Stage 5) additions: n_small_members, n_large_members, n_not_searched,
 family_small_plasmid_count, scope (small_only_known | small_only_unknown | mixed_known |
@@ -657,7 +665,8 @@ all its dark members (members) and the small-plasmid ones (small_members).
 Synteny (Stage 9) and evolution (S7b) report every measurement twice: over all occurrences
 or members, and with the prefix small_ over those on small plasmids. Synteny compares
 neighbours by family, not by label: every gene has a family, dark genes included, and
-it means the same on small and large plasmids.
+it means the same on small and large plasmids. Since 2026-09-25 this holds at each synteny
+level: a neighbour is named by its cluster at the level measured (close or intermediate).
 
 The 1,000 proteins for experimental follow-up are chosen by hand from these tables; the
 pipeline does not select them.
@@ -977,6 +986,124 @@ PSEUDOGENE
 OTHER
 
 The normalization dictionary must be versioned.
+
+24b. Stage 4d — Plasmid Label Databases (ADDED 2026-09-25)
+
+The cascade names a protein; it does not say that the protein is a relaxase of the MOBP
+family, a type II antitoxin, a mercury-resistance gene or an anti-CRISPR. Seven curated
+databases and NCBI AMRFinderPlus say exactly that, each within its own domain. Rule
+label_databases searches every unique protein (03_dereplication/unique_proteins.faa), named
+and dark alike, because these labels are the vocabulary of a dark protein's neighbours
+(section 53) and the neighbours are the named proteins.
+
+Each source is its own label kind, so a statement from one is never read as a statement
+from another. No single "functional group" vocabulary is built across them.
+
+source     database, version                      entries kept                           label kind         term
+tadb       TADB 3.0 (June 2023)                   experimentally validated protein       tadb_ta            ta:
+                                                  entries (*_exp files), 963
+bacmet     BacMet 2.0 (March 2018)                experimentally confirmed genes         bacmet_compound    metal:
+                                                  (BacMet2_EXP), 753
+oritdb     oriTDB 2.0 (June 2024)                 relaxase, auxiliary protein and T4CP,  oritdb_role        conj_role:
+                                                  validated plus predicted, 16,834
+card       CARD 4.0.2                             every protein homolog model, 6,059     card_amr_family    amr:
+mobileog   mobileOG-db beatrix-1.6                every entry: Manual, Homology and      mobileog_category  mge:
+                                                  Keyword Search, 775,257
+dbapis     dbAPIS (release 2026-06-18)            verified APIS proteins and their       dbapis_family      antidefence:
+                                                  sequence homologues, 17,414
+acrdb      Anti-CRISPRdb v2.2                     every entry: Verified, PLiterature     acrdb_family       antidefence:
+                                                  and Putative, 3,692
+amrfinder  AMRFinderPlus 4.2.7, database          the Reference Gene Catalog with        amrfinder_gene     amr: or metal:
+           2026-08-07.1                           --plus (AMR, stress, virulence)
+
+Versions, sources, licences and the evidence rule of each database are in
+data/refs/labels/<db>/VERSION and SOURCE, written by tools/download_label_dbs.py.
+AMRFinderPlus and its database are installed by tools/install_tool_envs.py.
+
+Where a database keeps entries of several evidence classes (mobileOG-db, dbAPIS,
+Anti-CRISPRdb), all classes are searched and the class of the reference entry that gave
+the label is written into the label's sub_label (evidence=...), so a label from a curated
+entry and one from a predicted or keyword-recovered entry can be told apart downstream.
+
+Search and label rules (constants of plasmidann.labeldb; sources in
+docs/PARAMETER_PROVENANCE.md):
+
+TADB, BacMet, oriTDB, mobileOG-db, dbAPIS, Anti-CRISPRdb
+    DIAMOND blastp --more-sensitive, E <= 1e-5, every target reported.
+    tier 1: identity >= 80% and coverage >= 90%
+    tier 2: identity > 60% and coverage > 70%
+    Coverage is required on the query AND on the subject: query coverage alone lets a
+    fragment carry the label of a full-length reference, subject coverage alone lets a
+    multidomain protein carry the label of one domain. The tiers are those of Islam et al.
+    2026 (Nucleic Acids Res. 54:gkaf1507). The best tier wins, then the highest bit score.
+
+CARD protein homolog models
+    Perfect: 100% identity over the full length of the reference.
+    Strict: bit score at or above the model's curated cut-off (card.json).
+    Loose hits are discarded. Variant, rRNA, overexpression and knockout models are not
+    used: they detect resistance from mutations or absence, which the presence of a
+    similar protein cannot show (Alcock et al. 2023, Nucleic Acids Res. 51:D690).
+
+AMRFinderPlus
+    amrfinder -p <proteins> --plus, with its own curated rules; the method (EXACTP,
+    BLASTP, PARTIALP, HMM ...) is the tier and the element type/subtype the sub_label
+    (Feldgarden et al. 2021, Sci. Rep. 11:12728).
+
+Outputs (08_protein_labels/):
+
+protein_labels_plasmid.tsv
+    seq_id, source, label_kind, label, sub_label, tier, cut_off, pident, qcov, scov,
+    bitscore, subject, database_version. protein_labels merges these rows into
+    protein_labels.tsv as their own kinds, keeping sub_label.
+
+label_databases_status.tsv
+    database, status (SUCCESS, NO_HIT, NOT_RUN), version, n_proteins. A database that was
+    not searched is NOT_RUN, never an empty result (section 7). With labels.required and
+    amrfinder.required true (the production setting) an absent database stops the run in
+    pre-flight instead.
+
+The labels do not change the functional class, the cascade tier or the dark set. They are
+evidence beside the cascade, as eggNOG orthology is (section 20).
+
+DECIDED 2026-09-25: PlasAnn (Islam et al. 2026) is not used - neither its database nor its
+labels nor its annotation tool. Measured on the 100-plasmid test set, its labels are
+unreliable: the downloadable database (Zenodo record 15583460, 213,884 CDS) is not the
+version the paper describes (v4.1.5, 227,714 CDS), and the paper's archive DOI holds no
+database table; the released code applies no coverage filter, whereas the paper states one;
+1,164 identical sequences carry more than one functional group; and genes of one
+vancomycin-resistance cluster are split across groups (of the 11 van-cluster proteins it
+labelled on the test set, only the two vanA are "Antibiotic Resistance"; vanH is
+"Metabolism", vanR and vanS "Other", vanX, vanY and vanZ "Virulence and Defense
+Mechanism"). Only the identity and coverage tiers published in the paper are cited, and
+they are applied to the databases above.
+
+DECIDED 2026-09-25: every cross-source conflict is written to
+08_protein_labels/label_disagreements.tsv (seq_id, source_a, label_a, source_b, label_b,
+conflict_type) by the protein_labels step (plasmidann.labeldb.disagreements), and no label
+is removed, re-ranked or rewritten because of it. The file is kept for later analysis:
+deciding which source is right is a review question. Conflict types:
+
+tier0_vs_<source>       the Tier 0 gene symbol and BacMet, CARD, AMRFinderPlus or oriTDB
+                        name different genes
+card_vs_amrfinder       both call an AMR gene and share no gene name
+bacmet_vs_amrfinder     BacMet and an AMRFinderPlus STRESS METAL/BIOCIDE element share no
+                        gene name
+card_vs_bacmet          both label the protein and share no gene name
+tadb_vs_defencefinder   a TADB toxin-antitoxin label on a DefenseFinder component; listed
+                        for every such protein, because no cited source says which defence
+                        systems are toxin-antitoxin-derived
+oritdb_vs_conjscan      the oriTDB role (relaxase, auxiliary protein, T4CP) and the CONJScan
+                        component disagree, or both say relaxase and the MOB families differ
+
+Gene names are compared after removing case and punctuation; one name that is a prefix of
+the other of at least three characters (the bacterial gene-symbol stem) counts as the same
+gene. A one-sided call is not a conflict: it is read directly from
+protein_labels_plasmid.tsv.
+
+DECIDED 2026-09-25: KEGG is not a label or context source. The KEGG KO list
+(rest.kegg.jp/list/ko, references.kegg_ko_list) is used only to name the gene symbols of
+PlasmidScope's Tier 0 KOs in the disagreement file, because PlasmidScope's eggNOG results
+carry KOs but, on the test set, not one preferred gene name (0 of 2,724 Tier 0 proteins).
 
 25. Hypothetical and Uncharacterized Proteins
 
@@ -1352,6 +1479,58 @@ as a contextual hypothesis.
 
 Do not automatically assign the defense function to the dark ORF.
 
+DECIDED 2026-09-25: DefenseFinder runs as ONE MacSyFinder process over every candidate
+replicon, with --worker set to the rule's threads, not as one chunk of replicons per core.
+HMMER's independent E-value scales with the number of sequences in the database searched
+and MacSyFinder keeps a hit only below --i-evalue-sel (0.001, its default), so a smaller
+chunk admitted weaker hits and the calls depended on the core count (-c). With one database
+they do not; the E-values still depend on the size of the candidate set, as with any single
+MacSyFinder database.
+
+38b. CONJScan (ADDED 2026-09-25)
+
+Run CONJScan 2.1.0 (Cury et al., Methods Mol. Biol. 2020, 2075:265), its Plasmids model set
+(Coluzzi et al., Mol. Biol. Evol. 2022, 39:msac115), on every plasmid (rule
+conjugation_systems). The shipped model definitions are the thresholds, as DefenseFinder's
+are; none is overridden.
+
+CONJScan 2.1.0 writes its models in grammar 2.1, which needs MacSyFinder >= 2.1.6.
+DefenseFinder pins MacSyFinder 2.1.4, so CONJScan runs from its own environment
+(envs/conjscan: MacSyFinder 2.1.6, MacSyLib 1.0.4, HMMER 3.4), named by path in config
+(conjugation.exe). Pre-flight refuses an executable too old for the installed models.
+
+The input is every ORF of every plasmid in genomic order, as ONE MacSyFinder database, for
+the reason given for DefenseFinder above. Measured on the 100-plasmid test set: 8 chunks
+called 214 ORFs in 56 systems, one database 212 ORFs in 55 systems. The defence stage's
+pruned input is not reused: 31 of the 55 plasmids with a CONJScan system on the test set
+carry no defence component.
+
+Record (12_context_and_structure/conjugation_systems.tsv):
+
+orf_id
+plasmid_id
+system
+system_id
+component
+hit_status
+sys_wholeness
+conjscan_version
+
+and per plasmid (conjugation_plasmid_class.tsv) the mobility class of Coluzzi et al. 2022:
+
+pCONJ     a complete mating-pair formation (MPF) system with its relaxase (a T4SS_type<X>
+          model)
+pdCONJ    a relaxase with an incomplete MPF (a dCONJ_type<X> model)
+pMOB      a relaxase with no or very few MPF genes (the MOB model)
+pMOBless  no relaxase detected (no system)
+
+A plasmid takes the most complete class it carries. The quorum each class needs is the
+model's own, not re-derived here. A model type the class table does not know stops the
+stage, so a model renamed in a later release cannot fall through to pMOBless.
+
+Membership is context, reported per family as cons_conj and as conj: terms (section 53);
+the conjugation function is not assigned to a dark ORF inside a system.
+
 39. IntegronFinder
 
 Run IntegronFinder as configured.
@@ -1446,6 +1625,49 @@ Left and right are upstream and downstream on the dark gene's own strand, so one
 arrangement written in the two orientations counts once. On a circular plasmid the
 neighbour window wraps across the origin. operon_like means sharing a directon with a
 FUNCTIONAL partner, the definition Stage 8 uses.
+
+DECIDED 2026-09-25: synteny is counted over Stage 6 plasmid lineages, not over
+occurrences, at two levels (targets.yaml synteny.levels):
+
+close          a gene is its close cluster (90% identity); neighbours are named by their
+               close cluster
+intermediate   a gene is its protein family (clustering.primary); neighbours are named by
+               their family
+
+Each level gives one row per cluster holding a dark small-plasmid member, measured over the
+occurrences of its dark members (family_id close:<rep> or intermediate:<rep>). The
+intermediate rows must equal dark_families.tsv, and the run stops if they do not.
+
+The occurrence statistic counted forty copies of one redeposited plasmid as forty
+observations of one arrangement. Each measurement is now a fractional vote over lineages:
+empty values are dropped; each lineage that still has a value votes with weight 1, split
+equally over its k values (1/k each); the conservation is the largest summed score divided
+by the number of voting lineages, and the modal value is the value with that score (ties to
+the lexicographically smallest). When every lineage holds one copy, the value equals the
+former occurrence statistic.
+
+The measurements are renamed so that the old and new numbers cannot be confused:
+
+lineage_left_conservation
+lineage_right_conservation
+lineage_neighborhood_conservation
+lineage_operon_like_conservation   the mean over lineages of the within-lineage fraction
+lineage_synteny_conservation
+context_recurrence                 still counts occurrences with usable context
+
+beside n_occurrences, n_lineages (lineages with usable context) and n_lineages_discordant
+(lineages whose copies show more than one left-right arrangement, so a rearrangement within
+a lineage is visible rather than averaged away). Every measurement is repeated with the
+prefix small_ over the occurrences on small plasmids.
+
+Below synteny.min_lineages (2) the status is TOO_FEW_LINEAGES and no value is written: one
+lineage is conserved with itself by construction (section 2.9). Two is the arithmetic
+minimum for a comparison, not a tuned threshold. TOO_FEW_MEMBERS is no longer produced by
+this stage; NO_CONTEXT marks a cluster none of whose occurrences has a neighbour.
+
+The family table (section 64) carries the intermediate rows; the ORF table carries, per
+ORF, the close row of its close cluster (close_family_id, close_n_lineages,
+close_lineage_synteny_conservation, close_modal_synteny, close_synteny_status).
 
 43. Stage 10 — Evolutionary Analysis
 
@@ -1690,6 +1912,56 @@ in a defence system, an integron or an IS element, has an annotated neighbour, s
 directon with an annotated gene, or is in a two-gene directon (cons_* columns). They are
 not corrected for plasmid size. Neighbour identity per family is described by synteny
 (Stage 9).
+
+DECIDED 2026-09-25: S8c also reports cons_conj, the fraction of a family's plasmids on which
+a member lies inside a CONJScan system (section 38b).
+
+DECIDED 2026-09-25: what a family's context holds is reported as context terms, in
+12_context_and_structure/family_context_terms.tsv (plasmidann.context_terms), one row per
+family and term:
+
+family_id
+family_set                       dark or known
+term_type
+term
+n_lineages
+n_lineages_with_term
+conservation                     n_lineages_with_term / n_lineages
+status                           SUCCESS or TOO_FEW_LINEAGES (fewer than 2 lineages)
+window_covers_plasmid_fraction
+
+A term is '<type>:<name>'. Gene-label terms come from the plasmid label databases (section
+24b): amr: (CARD; AMRFinderPlus AMR), metal: (BacMet; AMRFinderPlus STRESS METAL and
+BIOCIDE), ta: (TADB), conj_role: (oriTDB), mge: (mobileOG-db), antidefence: (dbAPIS,
+Anti-CRISPRdb). System terms are defence: (DefenseFinder) and conj: (CONJScan). KEGG is
+not a context source, and neither are pharokka's CARD rows.
+
+Two neighbour rules. A gene-label term counts only from a neighbour within +-3 genes that
+is in the same directon as the ORF - same strand, intergenic gaps of at most
+context.max_operon_gap (100 nt) - which is the FESNov rule (Rodriguez del Rio et al.,
+Nature 2024). A system is a multi-gene call with components on both strands, so a system
+term counts when the ORF is itself a component or a component lies within +-3 genes on
+either strand. A neighbour in the focal family is a tandem paralogue and is excluded: its
+label says what the family is, not what surrounds it. The ORF's own system membership is
+never excluded.
+
+The unit is the Stage 6 lineage, so clonal copies of one plasmid are one observation;
+this corrects, for the terms, the clonal redundancy the cons_* rates leave in place.
+window_covers_plasmid_fraction is the fraction of the family's occurrences whose +-3
+window already holds every other gene of the plasmid: on such a plasmid every gene is
+every other gene's neighbour, and a term there says little about the ORF.
+
+Rows are written for the dark families, over their dark members, AND for every other
+family at the primary resolution over all its members (family_set known). The known
+families are the benchmark: tools/calibrate_context.py, run after the pipeline and not a
+rule, measures for each term how often a known family whose context holds the term carries
+the term itself, and writes the conservation at which that precision reaches 50% and 90%,
+the two confidence levels of FESNov. A term needs at least 10 benchmark families and 10
+negative families to be CALIBRATED (90% precision cannot be observed on fewer than 10
+families: one false positive in 9 is 89%); otherwise it is UNCALIBRATED and has no
+threshold. The pipeline therefore reports no top term and no confidence: a term becomes a
+prediction only with a calibrated threshold, and no functional_hypothesis is produced
+(section 57).
 
 54. Stage 14 — Rarity and Conservation
 
@@ -1958,6 +2230,23 @@ This is the authoritative integrated view, and it is the primary storage model r
 an export of one. One row per ORF, every piece of evidence side by side, nothing filtered
 and nothing ranked.
 
+DECIDED 2026-09-25: the ORF table adds, per ORF,
+
+amr_labels, metal_labels, ta_labels, conj_role_labels, mge_labels, antidefence_labels
+    the plasmid label databases' labels of its protein by term type, as source:label
+    (section 24b); AMRFinderPlus VIRULENCE and STRESS acid and heat elements have no term
+    type and no column
+conj_system, conj_component
+    its CONJScan system and component (section 38b)
+plasmid_conjscan_class
+    its plasmid's mobility class
+close_family_id, close_n_lineages, close_lineage_synteny_conservation,
+close_modal_synteny, close_synteny_status
+    the close-level synteny row of its close cluster, where Stage 9 measured one (section
+    42)
+
+The context terms are not columns: family_context_terms.tsv is their table (section 53).
+
 64. Dark Family Output
 
 Generate:
@@ -1985,6 +2274,11 @@ habitat_count
 family_annotation_summary
 family_context_summary
 family_structural_summary
+
+DECIDED 2026-09-25: the family table carries the intermediate-level synteny row of section
+42 (n_lineages, n_lineages_discordant, the lineage_* measurements, modal values,
+synteny_status, synteny_min_lineages, and the small_ repeats) in place of the occurrence
+measurements, and cons_conj beside the other context rates (section 53).
 
 65. Dark Family Membership
 
@@ -2357,6 +2651,18 @@ workflow/bench_nr.sbatch (2,000 queries, 16 threads, more than 12 hours) showed 
 dominates the run. Sharding the query set multiplies it by the shard count. Resumability is
 per stage: --rerun-incomplete keeps every stage that finished and rebuilds the one that did
 not.
+
+DECIDED 2026-09-25: one submission annotates everything. `sbatch
+workflow/run_pipeline.sbatch` runs every stage in one job - the cascade, the plasmid label
+databases and AMRFinderPlus, DefenseFinder, CONJScan, IntegronFinder, ISEScan, synteny, the
+context terms, the structure search (ProstT5 and Foldseek on CPU) and the report. The
+structure search on CPU is the slower route; the GPU split remains available on request:
+STRUCTURE_ON_GPU=1 stops the job before structure_search until
+workflow/structure_gpu.sbatch has written structure_hits.tsv, and a second submission
+finishes the rest. Calibrating the context terms (tools/calibrate_context.py) is a post-run
+tool, not a stage. Because a stage's thread count follows the job's core count (-c), no
+call may depend on it; DefenseFinder and CONJScan were changed for that reason (sections 38
+and 38b).
 
 73. Resume Semantics
 

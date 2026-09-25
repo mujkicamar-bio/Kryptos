@@ -143,7 +143,7 @@ COLS = [
     "n_unnamed_excluded",
     "percentage_dark_in_family", "family_class", "dark_only",
     # section 31.3
-    "family_plasmid_count", "family_host_count", "family_species_count",
+    "family_plasmid_count", "family_host_count",
     "family_genus_count", "family_MOB_count", "family_plasmid_lineage_count",
     "family_plasmid_lineage_status", "family_habitat_count",
     "family_small_plasmid_count",
@@ -237,12 +237,8 @@ with open(snakemake.output.families, "w", newline="") as out:
                 "family_class": family_class,
                 "dark_only": dark_only,
                 "family_plasmid_count": len(plasmids),
-                # The host IS the organism the plasmid was recovered from, which this
-                # collection records as `species`. Reported under both names because
-                # section 31.3 asks for both and they are the same measurement here;
-                # collapsing them would silently drop a field the specification names.
+                # The host is the species the plasmid was recovered from.
                 "family_host_count": len(species),
-                "family_species_count": len(species),
                 "family_genus_count": len(genera),
                 "family_MOB_count": len(mobs),
                 "family_plasmid_lineage_count": len(lineages),
