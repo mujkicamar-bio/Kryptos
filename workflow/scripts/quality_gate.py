@@ -34,15 +34,15 @@ so those rules had never fired, and nobody could tell from any output.
 The curated family table is gone. Pfam-A 38.2 holds 30,134 families, of which 67 mention
 replication in their description and 42 mention conjugation; the list named 16 and 15, and
 nine of its 73 names did not exist in Pfam-A at all. Functional labels now come from the
-tools themselves, in results/08_protein_labels/protein_labels.tsv, and are grouped into categories from
-the observed vocabulary rather than by hand - and they LABEL a protein that stays in the
-table rather than excluding it. Nothing excludes anything by name.
+tools themselves, in results/08_protein_labels/protein_labels.tsv - and they LABEL a
+protein that stays in the table rather than excluding it. Nothing excludes anything by name.
 
 Nothing is deleted here (P5). Proteins are flagged, and the flags are counted.
 """
-import _ctx  # noqa: F401
 import collections
 import csv
+
+import _ctx  # noqa: F401
 
 from plasmidann.controls import control_recall
 
@@ -79,13 +79,15 @@ failed = [r["seq_id"] for r in control_rows if r["functional_class"] != "FUNCTIO
 
 # WHICH TIER resolved each control, not just whether one did.
 #
-# The controls are Swiss-Prot proteins and T3 searches swissprot.dmnd, so they self-hit
-# there at essentially perfect identity. That is a real annotation path and not a bug, but
+# The controls are Swiss-Prot proteins and one tier searches swissprot.dmnd, so they
+# self-hit there at essentially perfect identity. That is a real annotation path and not a bug, but
 # it makes overall recall a weak test: the gate would pass even if the curated Pfam tiers
-# were completely broken, because T3 would rescue every control on its own.
+# were completely broken, because the Swiss-Prot tier would rescue every control on its own.
 #
 # Reporting resolution per tier turns a nearly-trivial pass into a diagnostic. If controls
-# only ever resolve at T3, T1 and T2 have a recall problem that overall recall hides.
+# only ever resolve at the Swiss-Prot tier, T1 and T2 have a recall problem that overall
+# recall hides. Which tier that is comes from the cascade configuration (T3 in an earlier
+# layout, T4 now), so the report names each tier's database rather than assuming one.
 by_tier = collections.Counter(r.get("annot_tier") or "UNRESOLVED" for r in control_rows)
 shallow = sum(n for t, n in by_tier.items() if t in ("T1", "T2"))
 shallow_fraction = round(shallow / len(control_rows), 4) if control_rows else 0.0
@@ -113,6 +115,9 @@ by_class = collections.Counter(
     "shuffled" if "_shuf_" in r["seq_id"] else "reverse_complement" for r in decoy_rows)
 named_by_class = collections.Counter(
     "shuffled" if "_shuf_" in r["seq_id"] else "reverse_complement" for r in decoy_named)
+# And by the tier that named each one: a decoy named at nr is a false positive of the free
+# text tier specifically, and nothing else in the gate measures that tier.
+named_by_tier = collections.Counter(r.get("annot_tier") or "" for r in decoy_named)
 
 # ------------------------------------------------------------------------------------
 # Artefact flags from S2b and edge-partial ORFs are the other two exclusions.
@@ -125,6 +130,11 @@ with open(snakemake.input.artefact, newline="") as fh:
 
 cols = ["seq_id", "is_artefact", "target_eligible", "exclusion_reason"]
 n_eligible = 0
+# The dark set under two definitions (spec section 25). Ours counts a protein whose only
+# homologues are themselves unnamed (UNCHARACTERIZED_HOMOLOG) as dark; FESNov
+# (Rodriguez del Rio et al. 2024, Nature 626:377) calls a family unknown only when it has
+# no homologue at all, which here is functional_class NONE. Both counts are reported.
+n_dark_strict = 0
 with open(snakemake.output.flags, "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
@@ -135,28 +145,41 @@ with open(snakemake.output.flags, "w", newline="") as out:
         reasons = []
         if sid in artefact_ids:
             reasons.append("artefact")
-        # Only proteins nothing could name are screening candidates at all.
-        if r["functional_class"] not in ("UNCHARACTERIZED_HOMOLOG", "NONE"):
+        # Only proteins nothing could name are screening candidates at all. A protein the
+        # selection did not search (S2s) is neither named nor dark, and says so.
+        if r["functional_class"] == "NOT_SEARCHED":
+            reasons.append("not_searched")
+        elif r["functional_class"] not in ("UNCHARACTERIZED_HOMOLOG", "NONE"):
             reasons.append("annotated")
         eligible = int(not reasons)
         n_eligible += eligible
+        n_dark_strict += int(eligible and r["functional_class"] == "NONE")
         w.writerow({"seq_id": sid,
                     "is_artefact": int(sid in artefact_ids),
                     "target_eligible": eligible,
                     "exclusion_reason": ",".join(reasons)})
 
 summary = (f"proteins={len(rows)} artefact={len(artefact_ids)} "
-           f"target_eligible={n_eligible} control_n={len(control_rows)} "
+           f"target_eligible={n_eligible} dark_no_homologue={n_dark_strict} "
+           f"control_n={len(control_rows)} "
            f"control_recall={recall} decoy_n={len(decoy_rows)} "
            f"decoy_false_positive_rate={decoy_fpr}")
 with open(snakemake.output.report, "w") as out:
     out.write(summary + "\n")
     out.write(f"min_control_recall={cfg['min_control_recall']}\n")
-    out.write(f"\ncontrols resolved per tier (T3 is swissprot, where controls self-hit):\n")
+    out.write("\ncontrols resolved per tier (controls self-hit at the swissprot tier):\n")
+    sources = snakemake.params.tier_sources
     for tier, n in sorted(by_tier.items()):
-        out.write(f"  {tier}\t{n}\n")
+        out.write(f"  {tier}\t{sources.get(tier, '')}\t{n}\n")
     out.write(f"resolved at T1 or T2 (curated Pfam path)\t{shallow}/{len(control_rows)}"
               f"\t{shallow_fraction}\n")
+    out.write("NOTE: the controls are Swiss-Prot proteins, so they are named at or before the "
+              "swissprot tier and never reach nr (skip_if_named_by). Label accuracy at the nr "
+              "tier is therefore NOT validated by the positive controls; the decoys named "
+              "per tier below are its only false-positive measurement.\n")
+    out.write(f"\ndark set: {n_eligible} target-eligible (no informative name: "
+              f"UNCHARACTERIZED_HOMOLOG or NONE), of which {n_dark_strict} have no homologue "
+              "at all (NONE; the FESNov definition)\n")
     out.write("\nnegative controls (decoys): expected DARK, reported not halting\n")
     if not decoy_rows:
         out.write("  NONE REACHED THE GATE - the cascade has no false-positive "
@@ -165,6 +188,12 @@ with open(snakemake.output.report, "w") as out:
         n = by_class[construction]
         named = named_by_class.get(construction, 0)
         out.write(f"  {construction}\t{named}/{n}\t{round(named / n, 4)}\n")
+    if decoy_rows:
+        out.write("  named per tier (false-positive rate of each tier over all decoys):\n")
+        for tier in snakemake.params.tier_sources:
+            named = named_by_tier.get(tier, 0)
+            out.write(f"    {tier}\t{snakemake.params.tier_sources[tier]}\t{named}/"
+                      f"{len(decoy_rows)}\t{round(named / len(decoy_rows), 4)}\n")
     if decoy_named:
         out.write(f"\ndecoys named FUNCTIONAL ({len(decoy_named)}):\n")
         for r in decoy_named[:50]:

@@ -1,4 +1,4 @@
-from plasmidann.cascade import informative_spans, explained_fraction
+from plasmidann.cascade import explained_fraction, informative_spans
 
 
 def test_a_hypothetical_hit_explains_nothing_however_well_it_aligns():

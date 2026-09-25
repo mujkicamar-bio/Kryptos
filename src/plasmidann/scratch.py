@@ -32,9 +32,10 @@ def scratch_dir(parent, name=None):
     """Create and return a working directory under `parent`.
 
     `name` gives a stable, readable path - mmseqs_tmp_broad rather than tmpaixkezqn - for a
-    stage that produces one output. Omit it for a stage that runs concurrently across
-    shards: two shards sharing one scratch path would overwrite each other's intermediates,
-    and the corruption would present as a search error rather than as a collision.
+    stage that produces one output. Omit it for a stage whose jobs share an output
+    directory - the cascade tiers - since two jobs sharing one scratch path would overwrite
+    each other's intermediates, and the corruption would present as a search error rather
+    than as a collision.
 
     A stale directory from a previous failed attempt is cleared before use. Keeping failed
     directories guarantees those exist, and mmseqs refuses to start against a tmp directory

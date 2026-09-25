@@ -19,11 +19,18 @@ name: plasmidann
 channels: [conda-forge, bioconda]
 dependencies:
   - python=3.11
+  # --- the workflow engine itself ------------------------------------------------------
+  # Snakemake belongs in THIS environment, not beside it. Snakemake executes a `script:`
+  # directive with the interpreter that is running Snakemake, so running it from anywhere
+  # else splits the workflow: the shell tools below resolve through PATH while every
+  # Python script runs somewhere with a different set of libraries.
+  - snakemake=9.26.1
+  - jsonschema             # config schema validation, used by Snakemake and by the tests
   # --- S1 gene calling ---------------------------------------------------------------
   - pyrodigal=3.7.1        # meta-mode ORF calling
   # --- S2b artefact screen, S3 cascade -------------------------------------------------
   - hmmer=3.4              # T1, T2, the AntiFam screen, and DefenseFinder's profiles
-  - diamond=2.2.6          # T3 (Swiss-Prot), T4 (nr)
+  - diamond=2.2.6          # T4 (Swiss-Prot), T5 (nr)
   - tantan=51              # low-complexity masking
   # --- S6 clustering, S7 evolution -----------------------------------------------------
   - mmseqs2=18.8cc5c       # deep-homology clustering into families
@@ -34,11 +41,13 @@ dependencies:
   - foldseek=10.941cd33    # structural homology from sequence, via ProstT5
   - prodigal=2.6.3         # IntegronFinder calls genes with it and exits non-zero without
   - infernal=1.1.5
+  - isescan=1.7.3          # S8e insertion sequence elements (brings FragGeneScan)
   # Stage 6 plasmid lineage clustering (spec section 33.1 names Mash)
   - mash=2.3         # IntegronFinder locates attC sites with cmsearch
   # --- the Python libraries the src/ modules import ------------------------------------
-  - pyyaml=6.0.3           # config parsing, including plasmidann.categories
-  - scipy=1.17.1           # plasmidann.enrich, for fisher_exact
+  - pyyaml=6.0.3           # config parsing
+  - networkx=3.6.1         # plasmidann.network, Stage 5b communities
+  - matplotlib-base=3.11.0 # tools/ figures: family summaries, neighbourhood diagrams
   - pip
   - pip:
     - mdmparis-defense-finder==3.0.0   # S8a phase 1, and macsyfinder with it

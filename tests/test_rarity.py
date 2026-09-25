@@ -10,9 +10,8 @@ from plasmidann import rarity
 THRESHOLDS = {
     "rare_max_lineages": 3,
     "widely_conserved_min_lineages": 50,
-    "cross_min_mob": 3,
-    "cross_min_hosts": 5,
-    "cross_min_genera": 3,
+    "cross_min_hosts": 2,
+    "cross_min_genera": 2,
 }
 
 
@@ -58,12 +57,41 @@ def test_a_family_can_carry_several_labels_at_once():
     assert "CROSS_MOB" in labels, "rare and cross-MOB are not mutually exclusive"
 
 
-def test_a_family_confined_to_one_mob_type_across_lineages_is_plasmid_family_specific():
-    """It travels with a plasmid type rather than with a host or an environment."""
-    family = {"independent_plasmid_cluster_count": 20, "MOB_count": 1,
-              "host_count": 8, "genus_count": 4}
+def test_mobsuite_is_reported_as_single_or_cross_mob_only():
+    """MOB-suite clusters are a reported label, never a lineage count: exactly one cluster
+    is SINGLE_MOB, two or more CROSS_MOB, and a family with none carries neither."""
+    def labels(mob, lineages=20):
+        return set(rarity.rarity_labels(
+            {"independent_plasmid_cluster_count": lineages, "MOB_count": mob}, THRESHOLDS))
 
-    assert "PLASMID_FAMILY_SPECIFIC" in rarity.rarity_labels(family, THRESHOLDS)
+    assert "SINGLE_MOB" in labels(1) and "CROSS_MOB" not in labels(1)
+    assert "SINGLE_MOB" in labels(1, lineages=1)
+    assert "CROSS_MOB" in labels(2) and "SINGLE_MOB" not in labels(2)
+    assert not labels(0) & {"SINGLE_MOB", "CROSS_MOB"}
+
+
+def test_single_host_needs_every_plasmid_to_have_a_species():
+    """One species on 1 of 5 plasmids says nothing about the other 4, so it is not
+    SINGLE_HOST; one species on all 5 is."""
+    def labels(with_species):
+        return set(rarity.rarity_labels(
+            {"independent_plasmid_cluster_count": 5, "unique_plasmid_count": 5,
+             "host_count": 1, "genus_count": 1,
+             "n_plasmids_with_species": with_species}, THRESHOLDS))
+
+    assert "SINGLE_HOST" not in labels(1)
+    assert "SINGLE_HOST" in labels(5)
+    assert "CROSS_HOST" not in labels(5)
+
+
+def test_two_hosts_or_two_genera_are_cross_host_and_cross_taxon():
+    family = {"independent_plasmid_cluster_count": 2, "unique_plasmid_count": 2,
+              "host_count": 2, "genus_count": 2, "n_plasmids_with_species": 2}
+
+    labels = set(rarity.rarity_labels(family, THRESHOLDS))
+
+    assert {"CROSS_HOST", "CROSS_TAXON"} <= labels
+    assert "SINGLE_HOST" not in labels
 
 
 def test_every_emitted_label_is_declared():

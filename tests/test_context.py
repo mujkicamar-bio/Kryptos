@@ -6,8 +6,14 @@ resistance genes. Plasmids suit this better than metagenomes - small, gene-dense
 with cargo organised into recognisable islands.
 """
 import pytest
-from plasmidann.context import (overlapping_islands, directons, neighbourhood, overlapping_island,
-                                context_conservation, background_rate, enrichment)
+
+from plasmidann.context import (
+    context_conservation,
+    directons,
+    neighbourhood,
+    overlapping_island,
+    overlapping_islands,
+)
 
 
 def _g(oid, start, end, strand):
@@ -42,6 +48,66 @@ def test_overlapping_genes_are_in_the_same_directon():
     genes = [_g("a", 1, 300, 1), _g("b", 295, 600, 1)]
 
     assert directons(genes, max_gap=100) == [["a", "b"]]
+
+
+def test_a_gap_of_exactly_max_gap_stays_in_the_directon():
+    """FESNov breaks a unit at intergenic regions ABOVE 100 nt, so 100 itself joins."""
+    genes = [_g("a", 1, 300, 1), _g("b", 401, 700, 1)]
+
+    assert directons(genes, max_gap=100) == [["a", "b"]]
+
+
+# --- directons across the origin of a circular plasmid ---------------------------------
+
+def test_a_directon_crossing_the_origin_of_a_circular_plasmid_is_one_unit():
+    """The record's last run and first run are one operon on the molecule when the strand
+    matches and the gap across the origin is small: here 50 nt (1000-950) + 10 nt."""
+    genes = [_g("a", 11, 300, 1), _g("b", 320, 600, 1),
+             _g("m", 700, 800, -1),
+             _g("y", 820, 900, 1), _g("z", 910, 950, 1)]
+
+    assert directons(genes, max_gap=100, circular=True, length=1000) == [
+        ["y", "z", "a", "b"], ["m"]]
+
+
+def test_a_linear_record_is_not_merged_across_its_ends():
+    genes = [_g("a", 11, 300, 1), _g("m", 400, 500, -1), _g("z", 910, 950, 1)]
+
+    assert directons(genes, max_gap=100) == [["a"], ["m"], ["z"]]
+
+
+def test_a_strand_change_at_the_origin_keeps_the_runs_apart():
+    genes = [_g("a", 11, 300, -1), _g("m", 800, 900, 1), _g("z", 910, 950, 1)]
+
+    assert directons(genes, max_gap=100, circular=True, length=1000) == [
+        ["a"], ["m", "z"]]
+
+
+def test_a_long_gap_across_the_origin_keeps_the_runs_apart():
+    """150 nt to the end of the molecule plus 10 nt past the origin is 160 > 100."""
+    genes = [_g("a", 11, 300, 1), _g("m", 400, 500, -1), _g("z", 700, 850, 1)]
+
+    assert directons(genes, max_gap=100, circular=True, length=1000) == [
+        ["a"], ["m"], ["z"]]
+
+
+def test_a_gene_spanning_the_origin_joins_the_run_after_it():
+    """z runs 950..1000 then 1..40 (start > end); a starts 30 nt after it ends."""
+    genes = [_g("a", 71, 300, 1), _g("m", 400, 500, -1), _g("z", 950, 40, 1)]
+
+    assert directons(genes, max_gap=100, circular=True, length=1000) == [
+        ["z", "a"], ["m"]]
+
+
+def test_a_circle_that_is_one_directon_is_not_merged_with_itself():
+    genes = [_g("a", 11, 300, 1), _g("b", 320, 600, 1), _g("c", 640, 990, 1)]
+
+    assert directons(genes, max_gap=100, circular=True, length=1000) == [["a", "b", "c"]]
+
+
+def test_a_circular_directon_needs_the_molecule_length():
+    with pytest.raises(ValueError):
+        directons([_g("a", 11, 300, 1), _g("m", 400, 500, -1)], circular=True)
 
 
 # --- neighbourhood -------------------------------------------------------------------
@@ -101,30 +167,6 @@ def test_an_empty_family_has_no_conservation():
     assert context_conservation([], "defence") == 0.0
 
 
-# --- the small-plasmid trap ----------------------------------------------------------
-
-def test_co_occurrence_is_measured_against_a_background():
-    """On a 5 kb cryptic plasmid with six genes, +/-3 neighbours IS the whole plasmid, so
-    everything co-occurs with everything. Raw frequency would rank the smallest plasmids
-    as the most informative when they are the least."""
-    # 'defence' appears near 60% of family members, but near 60% of ALL proteins too.
-    assert enrichment(observed=0.60, background=0.60) == pytest.approx(1.0)
-    # The same 60% is meaningful when the background is 5%.
-    assert enrichment(observed=0.60, background=0.05) == pytest.approx(12.0)
-
-
-def test_background_rate_is_computed_over_the_whole_corpus():
-    all_orfs = [{"context": {"defence"}}, {"context": set()},
-                {"context": {"amr"}}, {"context": {"defence"}}]
-
-    assert background_rate(all_orfs, "defence") == 0.5
-
-
-def test_enrichment_against_a_zero_background_does_not_divide_by_zero():
-    assert enrichment(observed=0.4, background=0.0) == float("inf")
-    assert enrichment(observed=0.0, background=0.0) == 1.0
-
-
 # --- islands: a gene can sit in more than one, and can cross the origin ---------------
 
 def test_a_gene_inside_two_islands_reports_both():
@@ -158,3 +200,15 @@ def test_a_gene_crossing_the_origin_still_matches_its_island():
         wrapped, [{"name": "integron", "start": 50, "end": 300}])] == ["integron"]
     assert overlapping_islands(
         wrapped, [{"name": "integron", "start": 1000, "end": 2000}]) == []
+
+
+def test_a_circular_neighbourhood_wraps_across_the_origin():
+    """On a circle the first gene's left neighbours are the last genes of the record; a
+    gene is never its own neighbour, however small the circle."""
+    from plasmidann.context import flanks
+    genes = [{"orf_id": x, "start": 100 * i + 1, "end": 100 * i + 90, "strand": 1}
+             for i, x in enumerate("abcde")]
+    assert flanks(genes, "a", window=2, circular=True) == (["e", "d"], ["b", "c"])
+    assert flanks(genes, "a", window=2) == ([], ["b", "c"])
+    two = genes[:2]
+    assert flanks(two, "a", window=3, circular=True) == (["b"], ["b"])

@@ -19,36 +19,34 @@ flags travel as attributes so a reader can act on them; the record stays complet
 
 ONE PASS OVER EACH INPUT
 
-The annotation table is held indexed by plasmid, and the shards are streamed once. Reading
-the annotation per shard instead would be 600 scans of a 9.3M-row file, which is the
-quadratic pattern this pipeline has already had to fix twice.
+The annotation table is held indexed by plasmid, and the FASTA is streamed once. Reading
+the annotation per plasmid instead would be a scan of a 9.3M-row file per record, which is
+the quadratic pattern this pipeline has already had to fix twice.
 
-THE SCOPE IS THE SHARDS
+THE SCOPE IS THE ANALYSIS SET
 
 This stage used to stream the whole working-set FASTA and write a record for every sequence
 in it. That is the corpus, not the run: on the 100-plasmid test configuration it produced
 208,245 GenBank records and 11.9 GB. The TSV beside it was correctly scoped, so every count
-a reader would think to check looked right.
+a reader would think to check looked right. It now reads the analysis-set FASTA from S0.
 """
-import _ctx  # noqa: F401
 import collections
 import csv
 
-from plasmidann.features import gff3_features, gff3_attributes, genbank_location
-from plasmidann.shards import iter_fasta
+import _ctx  # noqa: F401
+
+from darkorf.circular import is_circular
+from plasmidann.fasta import iter_fasta
+from plasmidann.features import genbank_location, gff3_features
 
 # ------------------------------------------------------------------------------------
-# Topology and length, from the master table. Length decides where a join() wraps, so it
-# must come from the record itself rather than from the coordinates.
+# Topology, from the master table. Length decides where a join() wraps, so it comes from
+# the record itself (write_record), never from the table or the coordinates.
 # ------------------------------------------------------------------------------------
-topology, length_of = {}, {}
+topology = {}
 with open(snakemake.input.master, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
         topology[r["plasmid_id"]] = r.get("topology", "") or "linear"
-        try:
-            length_of[r["plasmid_id"]] = int(r["size_bp"])
-        except (KeyError, TypeError, ValueError):
-            pass
 
 # ------------------------------------------------------------------------------------
 # Every ORF, grouped by plasmid.
@@ -98,9 +96,9 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
     def write_record(name, seq):
         """Write one plasmid's GFF3 and GenBank records."""
         global n_features, n_records
-        # The record's own length. size_bp from the master table is authoritative where the
-        # two disagree, because that is what S1 used when it wrapped the coordinates.
-        L = length_of.get(name, len(seq))
+        # The record's own length, as S0 wrote it: S1 wrapped the coordinates on this
+        # sequence, which is shorter than size_bp wherever S0 removed a terminal repeat.
+        L = len(seq)
         rows = genes.get(name, [])
         n_records += 1
 
@@ -112,12 +110,12 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
                 gff.write("\t".join(str(x) for x in feature) + "\n")
                 n_features += 1
 
-        circular = "circular" if topology.get(name, "").lower() == "circular" else "linear"
+        circular = "circular" if is_circular(topology.get(name)) else "linear"
         gbk.write(f"LOCUS       {name:<20}{L} bp    DNA     {circular}  UNK\n")
         gbk.write(f"DEFINITION  {name} annotated by plasmidann.\n")
         gbk.write("FEATURES             Location/Qualifiers\n")
         gbk.write(f"     source          1..{L}\n")
-        gbk.write(f'                     /mol_type="genomic DNA"\n')
+        gbk.write('                     /mol_type="genomic DNA"\n')
         for r in rows:
             loc = genbank_location(int(r["start"]), int(r["end"]), r["strand"], L)
             gbk.write(f"     CDS             {loc}\n")
@@ -132,7 +130,7 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
             gbk.write(f"{i * 60 + 1:>9} {blocks}\n")
         gbk.write("//\n")
 
-    for name, sequence in iter_fasta(snakemake.input.shards):
+    for name, sequence in iter_fasta([snakemake.input.fasta]):
         write_record(name, sequence)
 
 print(f"feature files: {n_records} records, {n_features} GFF3 features")

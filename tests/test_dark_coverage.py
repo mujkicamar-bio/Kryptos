@@ -7,8 +7,7 @@ pipeline exists to characterise (measured: 71/71 and 703/703).
 dark_covered_fraction is its analogue for the dark set, built from the uninformative
 spans that were previously recorded as labels and then thrown away.
 """
-from plasmidann.cascade import (uninformative_spans, explained_fraction,
-                                n_dark_databases)
+from plasmidann.cascade import explained_fraction, n_dark_databases, uninformative_spans
 
 
 def test_a_full_length_unnamed_protein_is_separated_from_a_fragment():

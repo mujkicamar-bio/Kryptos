@@ -137,14 +137,11 @@ def test_homology_depth_follows_the_configured_tiers_not_a_fixed_list():
 # --- homology_depth means how deep we had to dig, not where the best E-value was -------
 
 def test_homology_depth_is_the_shallowest_tier_that_named_the_protein():
-    """Ranking the label by E-value was right, and it broke this field as a side effect.
-
-    They answer different questions. `annot_label` asks "what is this protein?", and the
-    strongest alignment is the best answer. `homology_depth` asks "how far did we have to
-    dig before anything named it?", and that is a property of the CASCADE, not of one hit.
-    A protein Pfam named at T1 is a shallow, well-characterised protein even if nr later
-    produced a better E-value for the same thing - and depth is used downstream to describe
-    how obscure a protein is."""
+    """`homology_depth` asks "how far did we have to dig before anything named it?", and
+    that is a property of the CASCADE, not of one hit. A protein Pfam named at T1 is a
+    shallow, well-characterised protein even if a deeper tier produced a better E-value
+    for the same thing - and depth is used downstream to describe how obscure a protein
+    is."""
     hits = [
         {"tier": "T1", "label": "RepA_N", "coverage": 0.4, "evalue": "1e-20",
          "start": 1, "end": 40},
@@ -154,9 +151,6 @@ def test_homology_depth_is_the_shallowest_tier_that_named_the_protein():
     out = classify(hits, explained=0.9, min_coverage=0.5,
                    tier_order=["T1", "T2", "T3", "T4"])
 
-    assert out["annot_label"] == "replication initiator protein RepA", (
-        "the label must still come from the strongest hit")
-    assert out["annot_tier"] == "T4"
     assert out["homology_depth"] == 1, (
         "T1 named this protein, so the cascade dug one tier - not four")
 
@@ -207,3 +201,43 @@ def test_a_measured_span_still_governs_when_one_is_present():
 
     assert r["functional_class"] == "FUNCTIONAL"
     assert r["span_measured"] == 1
+
+
+# --- the label comes from the most authoritative tier (spec section 20) ----------------
+
+def test_a_curated_tier_keeps_the_label_when_a_deeper_tier_aligns_better():
+    """Automated transfer must not outrank curated evidence. Ranked on E-value alone, an
+    nr title took the label from an informative Swiss-Prot hit on 39% of the proteins that
+    had one. The strongest label is still reported beside it."""
+    hits = [
+        {"tier": "T4", "label": "Replication initiator protein RepA", "coverage": 0.9,
+         "evalue": "1e-40", "start": 1, "end": 90},
+        {"tier": "T5", "label": "WP_1.1 replication protein [Escherichia coli]",
+         "coverage": 0.95, "evalue": "1e-90", "start": 1, "end": 95},
+    ]
+    out = classify(hits, explained=0.95, min_coverage=0.5,
+                   tier_order=["T1", "T2", "T3", "T4", "T5"])
+
+    assert out["annot_label"] == "Replication initiator protein RepA"
+    assert out["annot_tier"] == "T4"
+    assert out["best_evalue_label"] == "WP_1.1 replication protein [Escherichia coli]"
+    assert out["best_evalue_tier"] == "T5"
+
+
+def test_a_protein_named_only_by_its_domain_is_domain_only():
+    """"X domain-containing protein" is PGAP's name for a domain-level assignment: it
+    explains its span but does not make the protein FUNCTIONAL, however much it covers.
+    Any full name beside it does."""
+    domain = {"tier": "T5", "label": "WP_2.1 GNAT domain-containing protein [Bacillus]",
+              "coverage": 0.95, "evalue": "1e-60", "start": 1, "end": 95}
+    out = classify([domain], explained=0.95, min_coverage=0.5,
+                   tier_order=["T1", "T2", "T3", "T4", "T5"])
+    assert out["functional_class"] == "DOMAIN_ONLY"
+    assert out["named_by_domain_only"] == 1
+
+    full = {"tier": "T5", "label": "WP_3.1 N-acetyltransferase [Bacillus]",
+            "coverage": 0.9, "evalue": "1e-50", "start": 1, "end": 90}
+    out = classify([domain, full], explained=0.95, min_coverage=0.5,
+                   tier_order=["T1", "T2", "T3", "T4", "T5"])
+    assert out["functional_class"] == "FUNCTIONAL"
+    assert out["named_by_domain_only"] == 0

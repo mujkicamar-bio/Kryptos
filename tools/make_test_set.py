@@ -17,9 +17,7 @@ The selection is seeded, so the same command reproduces the same sample.
 
 OUTPUT
 
-One or more FASTA shards in the target directory, ready for config.input.shard_dir. The
-pipeline discovers whatever is there, so the shard count here is a convenience, not a
-pipeline parameter.
+One FASTA, ready for config.input.fasta.
 """
 import argparse
 import collections
@@ -33,9 +31,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--master", required=True, help="the analysis-set TSV")
     ap.add_argument("--fasta", required=True, help="the working-set FASTA, gzipped")
-    ap.add_argument("--out-dir", required=True, help="directory to write shards into")
+    ap.add_argument("--out", required=True, help="the FASTA to write")
     ap.add_argument("--n", type=int, default=100, help="plasmids to select")
-    ap.add_argument("--shards", type=int, default=4, help="shards to spread them over")
     ap.add_argument("--seed", type=int, default=20260917)
     ap.add_argument("--exclude-hab-top", default="Simulated-artifact")
     args = ap.parse_args()
@@ -95,26 +92,22 @@ def main():
     for key in sorted(counts):
         print(f"  {key[0]:<24} {key[1]:<6} {counts[key]}")
 
-    # ---- stream the FASTA once, writing each wanted record to its shard ---------------
-    out_dir = pathlib.Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    handles = [open(out_dir / f"test{i:02d}.fna", "w") for i in range(args.shards)]
-
-    written, current = 0, None
-    with gzip.open(args.fasta, "rt") as fh:
+    # ---- stream the FASTA once, writing each wanted record ---------------------------
+    out = pathlib.Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    written, keep = 0, False
+    with gzip.open(args.fasta, "rt") as fh, open(out, "w") as fout:
         for line in fh:
             if line[0] == ">":
                 pid = line[1:].split()[0]
-                current = handles[written % len(handles)] if pid in wanted else None
-                if current is not None:
+                keep = pid in wanted
+                if keep:
                     written += 1
                     wanted.discard(pid)
-            if current is not None:
-                current.write(line)
-    for h in handles:
-        h.close()
+            if keep:
+                fout.write(line)
 
-    print(f"wrote {written} records to {args.shards} shards in {out_dir}")
+    print(f"wrote {written} records to {out}")
     if wanted:
         # A selected plasmid absent from the FASTA means the master table and the sequence
         # file disagree, which every downstream count would inherit silently.

@@ -9,14 +9,27 @@ recombination site, and it has been physically excised, mobilised and re-integra
 then retained. That is direct physical evidence of both existence and selection, obtained
 without any homology at all.
 """
-import _ctx  # noqa: F401
+import concurrent.futures
 import csv
 import pathlib
+import shutil
 import subprocess
 
-shard = pathlib.Path(snakemake.input.fasta)
-outdir = pathlib.Path(snakemake.output[0]).parent / f"if_{shard.stem}"
-outdir.mkdir(parents=True, exist_ok=True)
+import _ctx  # noqa: F401
+
+from plasmidann.fasta import split_fasta
+
+fasta = pathlib.Path(snakemake.input.fasta)
+outdir = pathlib.Path(snakemake.output[0]).parent / "integron_finder"
+# A rerun starts clean: result files from an interrupted run would be read below.
+shutil.rmtree(outdir, ignore_errors=True)
+outdir.mkdir(parents=True)
+
+# IntegronFinder walks replicons one at a time and threads only its HMM searches: the test
+# run used 11.6 CPU-s in 57 s of wall time on 14 threads, which scales to ~25 h holding the
+# whole node. So the analysis set is dealt into one chunk per core and each chunk runs on
+# one thread; ~0.3 GB per process (measured), ~30 GB at 96.
+chunks = split_fasta(fasta, snakemake.threads, outdir / "chunks")
 
 # --local-max is the sensitive mode: it searches for attC sites beyond those adjacent to a
 # detected integrase, which is what finds CALIN elements - cassette arrays whose integrase
@@ -24,8 +37,8 @@ outdir.mkdir(parents=True, exist_ok=True)
 # nobody has characterised.
 # `--pdf-off` is not an IntegronFinder option - the real flag is `--pdf`, and it is
 # opt-IN, so it is simply omitted. Passing the invented flag made argparse exit 2 before
-# any work was done, and check=False swallowed it: every one of the 600 shards wrote a
-# header-only TSV and the rule reported success.
+# any work was done, and check=False swallowed it: the stage wrote a header-only TSV and
+# the rule reported success.
 #
 # `--circ` sets circular topology, which matters because 94% of these plasmids are closed
 # and an integron spanning the origin is invisible under linear topology.
@@ -33,10 +46,15 @@ outdir.mkdir(parents=True, exist_ok=True)
 # `--keep-tmp` is dropped: it would create one directory per replicon, 143,503 of them.
 #
 # check=True: a tool failure must stop the run rather than produce an empty table.
-subprocess.run(
-    f"integron_finder --local-max --circ --cpu {snakemake.threads} "
-    f"--outdir {outdir} {shard}",
-    shell=True, check=True)
+def run(chunk):
+    subprocess.run(
+        f"integron_finder --local-max --circ --cpu 1 "
+        f"--outdir {outdir / chunk.stem} {chunk}",
+        shell=True, check=True, stdout=subprocess.DEVNULL)
+
+
+with concurrent.futures.ThreadPoolExecutor(snakemake.threads) as pool:
+    list(pool.map(run, chunks))
 
 # Column order verified against integron_finder/results.py, not guessed. The earlier
 # version read f[8] as the integron type; f[8] is `annotation` and the type is f[10].
@@ -81,4 +99,5 @@ with open(snakemake.output[0], "w", newline="") as out:
     w.writeheader()
     w.writerows(rows)
 
-print(f"{shard.stem}: integron elements={len(rows)}")
+print(f"integron elements={len(rows)} from {len(chunks)} chunks")
+shutil.rmtree(outdir / "chunks")

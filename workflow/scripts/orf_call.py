@@ -15,11 +15,13 @@ TWO DEFECTS FROM v1 ARE ADDRESSED HERE.
    and 160,375 ORFs (1.12 per plasmid) are fragments created by the cut rather than by
    biology. Those fragments are indistinguishable from novel dark proteins downstream.
 """
-import _ctx  # noqa: F401
 import csv
+import multiprocessing
 
-import pyrodigal
-from darkorf.circular import is_circular, overlap_for, resolve_origin_genes
+import _ctx  # noqa: F401
+
+from darkorf import genecall
+from plasmidann.fasta import iter_fasta
 
 min_aa = snakemake.params.min_orf_aa
 
@@ -31,79 +33,40 @@ min_aa = snakemake.params.min_orf_aa
 # ORFs matter numerically.
 min_gene_nt = (min_aa + 1) * 3
 
-gene_finder = pyrodigal.GeneFinder(
-    meta=True,                              # no training set: every plasmid is called alone
-    min_gene=min_gene_nt,
-    min_edge_gene=min(min_gene_nt, 60),     # edge genes on genuinely linear molecules
-)
-
-# Topology decides whether a record gets origin repair. Unknown topology is treated as
-# linear: extending a genuinely linear molecule would fabricate a junction that does not
-# exist and could invent a chimeric gene across the two ends.
 topology = {}
 with open(snakemake.input.master, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
         topology[row["plasmid_id"]] = row.get("topology", "")
 
-n_records = n_genes = n_partial = n_origin = n_dropped_dup = 0
+n_records = n_genes = n_partial = n_origin = n_dropped_dup = n_table4 = 0
 
-with open(snakemake.output.tsv, "w", newline="") as tsv:
+records = ((rec, topology.get(rec[0], "")) for rec in iter_fasta([snakemake.input.fasta]))
+with open(snakemake.output.tsv, "w", newline="") as tsv, \
+        multiprocessing.Pool(snakemake.threads, initializer=genecall.configure,
+                             initargs=(min_gene_nt,)) as pool:
     writer = csv.writer(tsv, delimiter="\t")
     writer.writerow(["plasmid_id", "start", "end", "strand", "partial",
-                     "spans_origin", "seq"])
-
-    def call(plasmid_id, chunks):
-        """Call genes for one record and write them out."""
-        global n_records, n_genes, n_partial, n_origin, n_dropped_dup
-        if plasmid_id is None:
-            return
-        sequence = "".join(chunks)
-        length = len(sequence)
-        if not length:
-            return
+                     "spans_origin", "translation_table", "seq"])
+    # imap keeps input order, so the output is deterministic whatever the pool size.
+    for plasmid_id, genes, dropped in pool.imap(genecall.call_record, records, chunksize=64):
         n_records += 1
-
-        circular = is_circular(topology.get(plasmid_id))
-        if circular:
-            # Append the head to the tail so a gene straddling the cut becomes contiguous.
-            search_seq = sequence + sequence[:overlap_for(length)]
-        else:
-            search_seq = sequence
-
-        raw = [{"start": g.begin, "end": g.end, "strand": g.strand,
-                "partial": int(g.partial_begin or g.partial_end),
-                "seq": g.translate().rstrip("*")}
-               for g in gene_finder.find_genes(search_seq)]
-
-        if circular:
-            before = len(raw)
-            genes = resolve_origin_genes(raw, original_length=length)
-            n_dropped_dup += before - len(genes)
-        else:
-            genes = [dict(g, origin_spanning=False) for g in raw]
-
+        n_dropped_dup += dropped
         for g in genes:
             n_genes += 1
             n_partial += g["partial"]
             n_origin += g["origin_spanning"]
+            n_table4 += g["translation_table"] == 4
             writer.writerow([plasmid_id, g["start"], g["end"], g["strand"],
-                             g["partial"], int(g["origin_spanning"]), g["seq"]])
+                             g["partial"], int(g["origin_spanning"]),
+                             g["translation_table"], g["seq"]])
 
-    current_id, buffer = None, []
-    for line in open(snakemake.input.fasta):
-        if line[0] == ">":
-            call(current_id, buffer)
-            current_id, buffer = line[1:].split()[0], []
-        else:
-            buffer.append(line.strip())
-    call(current_id, buffer)
-
-# An empty output here is always a bug, never a legitimate result: every shard contains
-# plasmids and every plasmid contains genes. v1's silent 0-byte outputs are the reason
-# this assertion exists.
+# An empty output here is always a bug, never a legitimate result: every plasmid contains
+# genes. v1's silent 0-byte outputs are the reason this assertion exists.
 assert n_genes > 0, (
     f"{snakemake.output.tsv}: no genes called from {n_records} records - "
-    "check the shard is not empty and that pyrodigal is the expected version")
+    "check the input is not empty and that pyrodigal is the expected version")
 
 print(f"records={n_records} genes={n_genes} partial={n_partial} "
-      f"spans_origin={n_origin} redundant_dropped={n_dropped_dup}")
+      f"spans_origin={n_origin} redundant_dropped={n_dropped_dup} "
+      # Genes called with table 4 (TGA read as Trp): an open issue, counted so it is seen.
+      f"translation_table_4={n_table4}")

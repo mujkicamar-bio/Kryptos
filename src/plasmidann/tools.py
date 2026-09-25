@@ -42,6 +42,8 @@ REQUIRED_TOOLS = [
      "why": "IntegronFinder calls genes with prodigal and exits non-zero without it"},
     {"name": "cmsearch", "stage": "S8b (invoked by integron_finder)",
      "why": "IntegronFinder locates attC sites with an Infernal covariance model"},
+    {"name": "isescan.py", "stage": "S8e",
+     "why": "IS elements; without it no ORF can be placed inside or beside an IS element"},
     {"name": "RNAcode", "stage": "S7b",
      "why": "coding-potential signal independent of the gene caller, on both strands"},
     {"name": "emapper.py", "stage": "S4b",

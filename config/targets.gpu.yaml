@@ -7,9 +7,8 @@ quality_gate:
 rarity:
   rare_max_lineages: 3
   widely_conserved_min_lineages: 50
-  cross_min_mob: 3
-  cross_min_hosts: 5
-  cross_min_genera: 3
+  cross_min_hosts: 2
+  cross_min_genera: 2
   rarefaction_replicates: 20
 lineage:
   max_distance: 0.05
@@ -27,9 +26,15 @@ clustering:
     broad:
       min_seq_id: 0.3
       coverage: 0.5
-  primary: broad
-  cov_mode: 0
-  cluster_mode: 0
+  primary: intermediate
+  cov_mode: 1
+  cluster_mode: 2
+network:
+  node_resolution: intermediate
+  min_cov: 0.5
+  max_evalue: 0.0001
+  max_out_edges: 4
+  dark_brightness: 0.05
 evolution:
   min_codons: 20
   min_members_for_dnds: 3

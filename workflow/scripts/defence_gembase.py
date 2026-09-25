@@ -7,20 +7,22 @@ PROPAGATE   A component hit on a unique protein applies to every ORF that shares
             dereplicated set.
 
 PRUNE       A plasmid carrying no component cannot satisfy any model's quorum, so it never
-            needs the expensive ordered representation. Measured in review terms, this is
-            roughly a 4-5x reduction in what reaches MacSyFinder.
+            needs the expensive ordered representation. Measured on the test run it kept
+            41 of 100 plasmids but 83% of their ORFs - the plasmids it removes are the
+            small ones - so the saving in what reaches MacSyFinder is ~1.2x, not the 4-5x
+            once estimated.
 
 ORDER       ORFs are written in genomic order under MacSyFinder's gembase naming, so one
             file can hold many replicons and each is still treated separately. Origin-
             spanning genes sort to the front, because on a circular replicon the gene
             straddling the cut precedes position 1 - and 94% of these plasmids are circular.
 """
-import _ctx  # noqa: F401
 import collections
 import csv
 
-from plasmidann.defence import (propagate_components, candidate_plasmids,
-                                order_orfs, gembase_id)
+import _ctx  # noqa: F401
+
+from plasmidann.defence import candidate_plasmids, gembase_id, order_orfs, propagate_components
 
 # component hits on unique proteins, from phase 1
 component_of_seq = {}

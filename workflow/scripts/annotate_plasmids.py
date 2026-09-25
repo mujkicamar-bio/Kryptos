@@ -19,8 +19,9 @@ Three things travel with each row that did not exist in v1:
 Every row also carries the thresholds that produced its classification, so any downstream
 table can be traced back to the numbers that made it (design principle P4).
 """
-import _ctx  # noqa: F401
 import csv
+
+import _ctx  # noqa: F401
 
 # Per-unique-protein annotation from the cascade.
 with open(snakemake.input.prot, newline="") as fh:
@@ -41,7 +42,11 @@ for line in open(snakemake.input.map):
 cols = [
     # where the ORF is
     "orf_id", "plasmid_id", "start", "end", "strand", "partial", "spans_origin",
-    # what it is
+    # 11, or 4 where meta mode chose the Mycoplasma code - an open issue, see the spec
+    "translation_table",
+    # what it is, and where that came from (self, representative, plasmidscope,
+    # not_searched; see cascade_resolve.py)
+    "annot_source", "annot_representative",
     "annot_tier", "annot_label", "functional_class", "homology_depth",
     "annot_qcov", "annot_tcov", "annot_evalue", "n_informative_hits",
     # how much of it is accounted for

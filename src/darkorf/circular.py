@@ -77,9 +77,11 @@ tests/test_circular.py.
 MAX_OVERLAP_BP = 5000
 
 # Topologies that denote a closed molecule. 'direct terminal repeat' is the signature of a
-# circular molecule that an assembler resolved and reported linearly; measured, those
-# records have their repeats already trimmed (0.9% intra-plasmid duplicate rate against
-# 32.2% for 'circular', which is genuine multi-copy IS biology).
+# circular molecule that an assembler resolved and reported linearly, with the overlap
+# between its two ends left in the record: measured on 400 such records, every one begins
+# with an exact copy of its own last >= 20 bp, and in 76% the copy is not a multiple of 3
+# long. Joining those ends as they stand shifts the reading frame of every gene across the
+# junction, so S0 removes one copy first (terminal_repeat_length, rule analysis_set).
 #
 # 'inverted terminal repeat' is deliberately NOT here. An ITR is the signature of a
 # genuinely linear replicon with hairpin or protein-capped telomeres - the Borrelia and
@@ -94,6 +96,30 @@ CIRCULAR_TOPOLOGIES = frozenset({
     "circular",
     "direct terminal repeat",
 })
+
+
+def terminal_repeat_length(seq, min_repeat):
+    """Length of the longest exact repeat between the start and the end of a record, or 0.
+
+    The overlap an assembler leaves when it reports a circular molecule linearly: the
+    record's first k bases equal its last k. Only repeats of at least `min_repeat` bp count
+    (20 bp, CheckV's direct-terminal-repeat criterion; Nayfach et al. 2021, Nat.
+    Biotechnol. 39:578), and at most half the record, so the two copies cannot overlap.
+
+    Linear in the record length: only positions in the second half where the first
+    `min_repeat` bases recur are candidates, and the earliest one that matches through to
+    the end is the longest repeat.
+    """
+    n = len(seq)
+    if n < 2 * min_repeat:
+        return 0
+    seed = seq[:min_repeat]
+    pos = seq.find(seed, n - n // 2)
+    while pos != -1:
+        if seq[pos:] == seq[:n - pos]:
+            return n - pos
+        pos = seq.find(seed, pos + 1)
+    return 0
 
 
 def overlap_for(length):

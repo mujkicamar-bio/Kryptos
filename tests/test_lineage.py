@@ -7,7 +7,6 @@ not establish that it is, because one widespread lineage can carry one relaxase 
 """
 from plasmidann import lineage
 
-
 MASH = "\n".join([
     # reference query distance p-value shared-hashes
     "pA\tpA\t0\t0\t1000/1000",

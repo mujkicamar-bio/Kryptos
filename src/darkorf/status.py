@@ -15,8 +15,9 @@ NO_OUTPUT = "NO_OUTPUT"              # the tool exited successfully but produced
 FAILED = "FAILED"                    # the tool errored; see the log referenced in the row
 NOT_APPLICABLE = "NOT_APPLICABLE"    # the field has no meaning for this record
 SUCCESS = "SUCCESS"                  # a value is present and usable
+NOT_MEASURED = "NOT_MEASURED"        # no input record carried what the value is counted from
 
 ALL = frozenset({
     NOT_RUN, NO_HIT, TOO_FEW_MEMBERS, NO_DIVERGENCE,
-    SATURATED, NO_OUTPUT, FAILED, NOT_APPLICABLE, SUCCESS,
+    SATURATED, NO_OUTPUT, FAILED, NOT_APPLICABLE, SUCCESS, NOT_MEASURED,
 })

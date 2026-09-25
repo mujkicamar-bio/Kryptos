@@ -1,5 +1,7 @@
-import _ctx  # noqa: F401
 import csv
+
+import _ctx  # noqa: F401
+
 from plasmidann.dereplicate import dereplicate
 
 with open(snakemake.input.index, newline="") as fh:

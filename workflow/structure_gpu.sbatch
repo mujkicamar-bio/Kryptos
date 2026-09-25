@@ -6,7 +6,8 @@
 #SBATCH -c 16
 #SBATCH --mem=120G
 #SBATCH -t 12:00:00
-#SBATCH -J darkplasmid_structure
+#SBATCH -J dark_plasmidome
+#SBATCH --dependency=singleton
 #SBATCH -o results/logs/structure_gpu_%j.out
 #
 # S8d structural screening on a GPU.
@@ -21,11 +22,17 @@
 #
 # Run the rest of the pipeline on the CPU partition and this stage here:
 #
-#   sbatch workflow/run_pipeline.sbatch          # everything up to S8d
+#   sbatch workflow/run_pipeline.sbatch          # everything up to S8d (--omit-from)
 #   sbatch workflow/structure_gpu.sbatch         # S8d
 #   sbatch workflow/run_pipeline.sbatch          # the rest, resuming
 #
-# Snakemake resumes from what exists, so the split costs nothing but the queue wait.
+# Snakemake resumes from what exists, so the split costs nothing but the queue wait. All
+# three share the job name dark_plasmidome and --dependency=singleton, so they can be
+# submitted together and SLURM runs them one after another.
+#
+# --rerun-triggers mtime, as in run_pipeline.sbatch: targets.gpu.yaml changes the params
+# of rules upstream of structure_search (preflight among them), and with the default
+# triggers that would re-run preflight and everything after it - the cascade included.
 #
 # WHY --gpu IS SET IN CONFIG RATHER THAN DETECTED
 #
@@ -35,8 +42,10 @@
 # not get one should fail visibly rather than take ten times longer without saying so.
 set -euo pipefail
 
-export PATH="$PWD/envs/plasmidann/bin:$PATH"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$PWD/.cache}"
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT"
+export PATH="$ROOT/envs/plasmidann/bin:$PATH"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$ROOT/.cache}"
 
 nvidia-smi --query-gpu=name,memory.total --format=csv || {
     echo "no GPU visible in this allocation - refusing to fall back to CPU silently" >&2
@@ -47,4 +56,5 @@ snakemake \
     --configfile "${CONFIGFILE:-config/config.yaml}" \
     --config targets_config=config/targets.gpu.yaml \
     -j 16 --rerun-incomplete \
+    --rerun-triggers mtime \
     --until structure_search

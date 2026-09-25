@@ -82,6 +82,20 @@ def test_a_diamond_hit_yields_the_product_name_and_the_accession():
     assert "organism" not in by_kind
 
 
+def test_a_qualifier_before_recname_is_kept_and_recname_is_still_parsed():
+    """Seen in the validation run: 'Q47718.1 PUTATIVE PSEUDOGENE: RecName: Full=...'.
+    Before this case was handled the whole 'PUTATIVE PSEUDOGENE: RecName: Full=' string
+    became the product."""
+    title = ("Q47718.1 PUTATIVE PSEUDOGENE: RecName: Full=Putative transposase InsO for "
+             "insertion sequence element IS911B [Escherichia coli K-12]")
+
+    parsed = labels.parse_ncbi_title(title)
+
+    assert parsed["product"] == ("PUTATIVE PSEUDOGENE: Putative transposase InsO for "
+                                 "insertion sequence element IS911B")
+    assert parsed["accession"] == "Q47718.1"
+
+
 def test_an_nr_hit_yields_the_pgap_product_name():
     """On WP_ accessions the product name comes from PGAP's controlled vocabulary, which
     will be the largest single source of role-bearing names in the collection."""
@@ -295,3 +309,15 @@ def test_a_row_without_a_source_is_refused():
            "label": "RepA_N"}
     with pytest.raises(ValueError):
         labels.labels_from_hit(row)
+
+
+def test_mag_and_tpa_prefixes_are_removed_from_an_nr_product():
+    """'MAG: ABC transporter permease' is the product 'ABC transporter permease' from a
+    metagenome-assembled genome; ClusteredNR carries MAG: on 3.2% of its titles."""
+    for title, product in (
+            ("MBD3193859.1 MAG: ABC transporter permease [Clostridia bacterium]",
+             "ABC transporter permease"),
+            ("DAD1.1 TPA_asm: MobA/MobL family protein [Siphoviridae sp.]",
+             "MobA/MobL family protein"),
+            ("WP_1.1 MULTISPECIES: relaxase [Bacillus]", "relaxase")):
+        assert labels.parse_ncbi_title(title)["product"] == product

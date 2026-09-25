@@ -30,17 +30,22 @@ the OTHER strand.
 The consensus re-check matters because a protein can miss every per-sequence threshold
 while its family is collectively recognisable; this removed 6.5% of clusters in
 Pavlopoulos et al.
+
+TWO MEMBER SETS PER FAMILY
+
+Every measurement is made over all of the family's dark members, and again, in columns
+prefixed small_, over the dark members that occur on small plasmids (dark_families.tsv
+small_members). The consensus is built from all members. Families are processed in
+parallel, one alignment per process (mafft --thread 1).
 """
-import _ctx  # noqa: F401
-import collections
 import csv
-import itertools
+import multiprocessing
 import pathlib
-import statistics
-import subprocess
+
+import _ctx  # noqa: F401
 
 from plasmidann import scratch
-from plasmidann.evolution import dnds_detail, back_translate, consensus
+from plasmidann.evolution_worker import COLS, configure, measure
 
 cfg = snakemake.params.evolution
 
@@ -68,180 +73,44 @@ with open(snakemake.input.families, newline="") as fh:
 tmpdir = str(scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent))
 # The consensus carries the family's shared signal and is re-searched at S7c.
 consensus_out = open(snakemake.output.consensus, "w")
-cols = ["family_id", "n_aligned", "dnds_median", "dnds_min", "n_pairs",
-        "under_purifying_selection", "dnds_status", "rnacode_p", "rnacode_p_antisense",
-        "rnacode_status", "coding_signal", "evidence_note"]
-
-
-def clustal(alignment, path):
-    """Write a codon alignment as Clustal W.
-
-    RNAcode reads Clustal W or MAF and nothing else - handed FASTA it prints
-    "ERROR: Unknown alignment file format" and EXITS 0, so the caller has to look at what
-    it wrote rather than at its status.
-    """
-    names = list(alignment)
-    width = 60
-    with open(path, "w") as fh:
-        fh.write("CLUSTAL W (1.81) multiple sequence alignment\n\n\n")
-        length = len(alignment[names[0]])
-        for i in range(0, length, width):
-            for n in names:
-                fh.write(f"{n[:15]:<16}{alignment[n][i:i + width]}\n")
-            fh.write("\n\n")
-
-
-def rnacode(alignment, path):
-    """Best sense and antisense P from RNAcode over a codon alignment.
-
-    Returns (p_sense, p_antisense, status). Tabular columns are
-    HSS, strand, frame, length, from, to, name, start, end, score, P.
-
-    A tool that reports failure on stdout and exits 0 cannot be trusted to its return code,
-    so an unparsable output is NO_OUTPUT rather than "no coding signal". The distinction
-    matters: no signal is evidence against a family, and a tool that did not run is not.
-    """
-    clustal(alignment, path)
-    proc = subprocess.run(f"RNAcode -t {path}", shell=True, capture_output=True, text=True)
-    best = {"+": None, "-": None}
-    for line in proc.stdout.splitlines():
-        f = line.split()
-        if len(f) < 11 or f[1] not in best:
-            continue
-        try:
-            p = float(f[10])
-        except ValueError:
-            continue
-        if best[f[1]] is None or p < best[f[1]]:
-            best[f[1]] = p
-    if best["+"] is None and best["-"] is None:
-        note = proc.stdout.strip().splitlines()
-        return None, None, ("NO_OUTPUT" if any(l.startswith("ERROR") for l in note)
-                            else "NO_SIGNAL")
-    return best["+"], best["-"], "MEASURED"
+jobs = []
+# A family whose dark members all sit on small plasmids has one member set, not two: the
+# small_ measurement is then the same alignment, and is copied rather than recomputed.
+same = {}
+for fam in families:
+    members = fam["members"].split(",")
+    small = [m for m in fam.get("small_members", "").split(",") if m]
+    same[fam["family_id"]] = set(small) == set(members)
+    jobs.append((fam["family_id"], "all", members))
+    if not same[fam["family_id"]]:
+        jobs.append((fam["family_id"], "small", small))
 
 n_tested = n_purifying = n_coding = 0
-with open(snakemake.output.tsv, "w", newline="") as out:
-    w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
+out_cols = COLS + [f"small_{c}" for c in COLS if c != "family_id"]
+with open(snakemake.output.tsv, "w", newline="") as out, \
+        multiprocessing.Pool(snakemake.threads, initializer=configure,
+                             initargs=(proteins, cds, cfg, tmpdir)) as pool:
+    w = csv.DictWriter(out, fieldnames=out_cols, delimiter="\t")
     w.writeheader()
-
+    # imap keeps the job order, so each family's "all" result is followed by its "small"
+    # when it has a separate one.
+    results = pool.imap(measure, jobs, chunksize=4)
     for fam in families:
-        members = fam["members"].split(",")
-        row = dict.fromkeys(cols, "")
-        row.update(family_id=fam["family_id"], n_aligned=0, n_pairs=0)
-
-        usable = [m for m in members if m in cds and m in proteins]
-        if len(usable) < cfg["min_members_for_dnds"]:
-            # Not an error: most families are small. Reported so the shortfall is visible
-            # rather than looking like a failed test.
-            row["evidence_note"] = "too_few_members"
-            row["dnds_status"] = "TOO_FEW_MEMBERS"
-            row["rnacode_status"] = "TOO_FEW_MEMBERS"
-            w.writerow(row)
-            continue
-
-        # Alignment is superlinear and the marginal information from the 200th member is
-        # negligible, so cap it. Members are taken in file order, which is deterministic.
-        usable = usable[:cfg["max_members_aligned"]]
-        row["n_aligned"] = len(usable)
-
-        pf = f"{tmpdir}/{fam['family_id']}.faa"
-        with open(pf, "w") as fh:
-            for m in usable:
-                fh.write(f">{m}\n{proteins[m]}\n")
-
-        # Proteins are aligned, not nucleotides: protein alignment is far more reliable at
-        # the 30% identities these families show. The alignment is then projected onto
-        # codons, so every protein gap becomes exactly three nucleotide gaps.
-        aln = subprocess.run(f"mafft --auto --quiet --thread 1 {pf}",
-                             shell=True, capture_output=True, text=True)
-        if aln.returncode != 0:
-            row["evidence_note"] = "alignment_failed"
-            row["dnds_status"] = "ALIGNMENT_FAILED"
-            row["rnacode_status"] = "ALIGNMENT_FAILED"
-            w.writerow(row)
-            continue
-
-        aligned = {}
-        name, buf = None, []
-        for line in aln.stdout.splitlines():
-            if line.startswith(">"):
-                if name:
-                    aligned[name] = "".join(buf)
-                name, buf = line[1:].split()[0], []
-            else:
-                buf.append(line.strip())
-        if name:
-            aligned[name] = "".join(buf)
-
-        # One consensus per family, from the PROTEIN alignment. Written for every family
-        # that could be aligned at all, including those with no usable codon pairs: the
-        # re-check asks whether the family is collectively recognisable, which is a
-        # different question from whether its divergence can be measured.
-        family_consensus = consensus(aligned)
+        fid = fam["family_id"]
+        row, family_consensus = next(results)
+        small_row = dict(row) if same[fid] else next(results)[0]
         if family_consensus:
-            consensus_out.write(f">{fam['family_id']}\n{family_consensus}\n")
-
-        codon_aln = {}
-        for m, ap in aligned.items():
-            try:
-                codon_aln[m] = back_translate(ap, cds[m])
-            except ValueError:
-                continue
-
-        # Statuses are counted, not just values. A family of identical sequences
-        # (NO_DIVERGENCE) is a different thing from one measured and found neutral, and S9
-        # scores them differently - the first withholds judgement, the second is evidence
-        # against. Collapsing both into a bare None penalised the most conserved families.
-        ratios, statuses = [], collections.Counter()
-        for a, b in itertools.combinations(sorted(codon_aln), 2):
-            # min_codons comes from config and is applied HERE, per pair. It was
-            # declared and never read: the only floor in force was the arithmetic
-            # minimum of three, so eight-codon fragments produced dN/dS values that
-            # then fired purifying_selection, the strongest of the four reality tests.
-            r, status = dnds_detail(codon_aln[a], codon_aln[b],
-                                    min_codons=cfg["min_codons"])
-            statuses[status] += 1
-            if r is not None and r != float("inf"):
-                ratios.append(r)
-
-        # Coding potential, independent of the gene caller and of dN/dS. Both strands: for
-        # a shadow ORF the antisense signal is expected to be the stronger one.
-        if len(codon_aln) >= cfg["min_members_for_dnds"]:
-            p_sense, p_anti, rc_status = rnacode(
-                codon_aln, f"{tmpdir}/{fam['family_id']}.aln")
-            row["rnacode_status"] = rc_status
-            if p_sense is not None:
-                row["rnacode_p"] = p_sense
-                row["coding_signal"] = int(p_sense < cfg["rnacode_max_p"])
-                n_coding += int(p_sense < cfg["rnacode_max_p"])
-            if p_anti is not None:
-                row["rnacode_p_antisense"] = p_anti
-        else:
-            row["rnacode_status"] = "TOO_FEW_MEMBERS"
-
-        row["n_pairs"] = len(ratios)
-        if ratios:
-            n_tested += 1
-            row["dnds_median"] = round(statistics.median(ratios), 4)
-            row["dnds_min"] = round(min(ratios), 4)
-            purifying = int(row["dnds_median"] < cfg["dnds_purifying_max"])
-            row["under_purifying_selection"] = purifying
-            n_purifying += purifying
-            row["dnds_status"] = "MEASURED"
-        else:
-            row["evidence_note"] = "no_informative_pairs"
-            # Which kind of absence? The commonest status across the pairs is the honest
-            # summary, and it is what S9 reads.
-            row["dnds_status"] = (statuses.most_common(1)[0][0] if statuses
-                                  else "NO_INFORMATIVE_PAIRS")
-
+            consensus_out.write(f">{fid}\n{family_consensus}\n")
+        n_tested += row["dnds_status"] == "MEASURED"
+        n_purifying += row["under_purifying_selection"] == 1
+        n_coding += row["coding_signal"] == 1
+        row.update({f"small_{k}": v for k, v in small_row.items() if k != "family_id"})
         w.writerow(row)
 
 consensus_out.close()
 
 print(f"families={len(families)} with_dnds={n_tested} purifying={n_purifying} "
-      f"coding_signal={n_coding}")
+      f"coding_signal={n_coding} (all dark members; small-plasmid members in small_*)")
 
 # The scratch directory is removed only here, on the ordinary path. A script that raised
 # never reaches this line, and its intermediates are what the failure is diagnosed from.

@@ -7,10 +7,8 @@ how to say that - GFF3 forbids it outright, GenBank has a dedicated syntax for i
 either wrong produces a file that loads without complaint and places genes in the wrong
 part of the molecule.
 """
-import pytest
 
-from plasmidann.features import gff3_attributes, gff3_features, genbank_location
-
+from plasmidann.features import genbank_location, gff3_attributes, gff3_features
 
 # --- GenBank: the join() convention S1 already writes ---------------------------------
 

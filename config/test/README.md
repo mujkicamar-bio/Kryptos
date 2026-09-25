@@ -7,14 +7,14 @@ biology: 100 plasmids cannot estimate a dark fraction, a background rate or a re
 ## Building it
 
 ```bash
-envs/plasmidann/bin/python tools/make_test_shards.py \
+envs/plasmidann/bin/python tools/make_test_set.py \
   --master data/plasmidscope_primary/analysis_set.tsv \
   --fasta  data/plasmidscope_primary/provenance/working_set.fna.gz \
-  --out-dir data/shards_test --n 100 --shards 4
+  --out data/test_plasmids.fna --n 100
 ```
 
-The selection is seeded, so the same command reproduces the same 100 plasmids. The shards
-are ignored by git with the rest of `/data/`; the generator is committed, which is what
+The selection is seeded, so the same command reproduces the same 100 plasmids. The file
+is ignored by git with the rest of `/data/`; the generator is committed, which is what
 makes the set reproducible rather than merely archived.
 
 ## Running it
@@ -62,9 +62,8 @@ with different thresholds is not testing the pipeline that produces results.
 
 | setting | test | production | why it must differ |
 |---|---|---|---|
-| `hmmer_z` | 5804 | 3497616 | hmmsearch reports `E = (sequences searched) x P(score \| null)`. A `-Z` pinned to the production size would rescale every E-value in the run by a factor of 600. `plasmidann.cascade.check_hmmer_z` refuses the mismatch at load time rather than letting it through. |
+| `hmmer_z` | 5504 | 3498616 | hmmsearch reports `E = Z x P(score \| null)`, and Z counts every unique protein plus the controls, including the proteins PlasmidScope annotates and the cascade does not search. A `-Z` pinned to the production size would rescale every E-value in the run. `plasmidann.cascade.check_hmmer_z` refuses the mismatch at load time rather than letting it through. |
 | tiers | T1, T2, T3 | T1..T4 | nr is 375 GB and DIAMOND streams the whole database whatever the query size, so including it would make a smoke run cost a production run. T1 and T2 exercise hmmer, T3 exercises diamond, so both search methods stay covered. |
-| `shards.protein` | 4 | 64 | 64 shards over 5,804 proteins is 90 sequences each, which measures scheduler overhead rather than the pipeline. |
 | `outdir` | `results_test` | `results` | a smoke run must not overwrite a production run. |
 | controls | 100 + 100 | 500 + 500 | the gate needs at least 100 positives to measure recall at 1% resolution; below that one failure is a 1% swing. |
 

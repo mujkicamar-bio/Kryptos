@@ -14,8 +14,9 @@ So this stage reports SEVEN different counts for each family and never collapses
     unique_plasmid_count              distinct plasmid records.
     independent_plasmid_cluster_count distinct Stage 6 lineages. THIS is the denominator a
                                       recurrence claim needs.
-    host_count / species_count        distinct source organisms.
-    genus_count                       distinct genera.
+    host_count / species_count        distinct host species (binomials).
+    genus_count                       distinct host genera, including hosts named only to
+                                      the genus ("Acidovorax sp.").
     MOB_count                         distinct relaxase types. Breadth of mobility, not of
                                       evolution - section 33 keeps these separate.
     habitat_count                     distinct environments.
@@ -41,9 +42,10 @@ would be easy to merge them; keeping them apart is what stops the independent co
 quietly replaced by the occurrence count when someone needs "a number for how common this
 is".
 """
-import _ctx  # noqa: F401
 import collections
 import csv
+
+import _ctx  # noqa: F401
 
 from darkorf import status
 
@@ -84,17 +86,20 @@ with open(snakemake.input.master, newline="") as fh:
                 s.strip() for s in raw.replace(";", ",").split(",") if s.strip()}
 
 
-def genus_of(species):
-    """The genus is the first token of a binomial. See plasmidann family counting."""
-    return (species or "").split()[0] if species else ""
-
-
 COLS = [
     "family_id", "family_resolution", "representative",
     # section 34, the seven biological counts
     "plasmid_occurrence_count", "unique_plasmid_count",
     "independent_plasmid_cluster_count", "independent_cluster_status",
-    "host_count", "species_count", "genus_count", "MOB_count", "habitat_count",
+    "host_count", "species_count", "genus_count",
+    # how many of the family's plasmids have a recorded host; host_count is NOT_MEASURED,
+    # not 0, when none has (clonal_registry, plasmidann.hosts)
+    "n_plasmids_with_host", "n_plasmids_with_species", "host_count_status",
+    # MOB-suite's predicted host range over EVERY plasmid, hosted or not: a separate
+    # measurement at any rank, never counted as a host (clonal_registry)
+    "n_plasmids_with_predicted_range", "predicted_host_range_count",
+    "predicted_host_ranges",
+    "MOB_count", "habitat_count",
     # section 34.1, provenance - never a denominator
     "database_record_count", "database_source_count",
 ]
@@ -116,6 +121,10 @@ with open(snakemake.input.families, newline="") as fh, \
 
         meta = [meta_of.get(p, {}) for p in plasmids]
         species = {m.get("species") for m in meta if m.get("species")}
+        genera = {m.get("genus") for m in meta if m.get("genus")}
+        n_with_host = sum(1 for m in meta if m.get("genus"))
+        predicted = [m.get("predicted_host_range") for m in meta
+                     if m.get("predicted_host_range")]
         mobs = {m.get("mob_cluster") for m in meta if m.get("mob_cluster")}
         habitats = {m.get("hab_top") for m in meta if m.get("hab_top")}
         lineages = {lineage_of[p] for p in plasmids if p in lineage_of}
@@ -137,7 +146,15 @@ with open(snakemake.input.families, newline="") as fh, \
             # names both, and collapsing them would drop a field the spec asks for.
             "host_count": len(species),
             "species_count": len(species),
-            "genus_count": len({genus_of(s) for s in species if genus_of(s)}),
+            "genus_count": len(genera),
+            "n_plasmids_with_host": n_with_host,
+            # SINGLE_HOST (Stage 14) needs every plasmid named to the species.
+            "n_plasmids_with_species": sum(1 for m in meta if m.get("species")),
+            "host_count_status": status.SUCCESS if n_with_host else status.NOT_MEASURED,
+            "n_plasmids_with_predicted_range": len(predicted),
+            "predicted_host_range_count": len(set(predicted)),
+            # ';' between ranges: a single range may itself list several phyla with ','.
+            "predicted_host_ranges": ";".join(sorted(set(predicted))),
             "MOB_count": len(mobs),
             "habitat_count": len(habitats),
             "database_record_count": len(plasmids),

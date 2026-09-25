@@ -3,8 +3,8 @@
 These are cheap text checks over Snakefile, the rule modules and the batch scripts. They
 exist because three of the defects that would have killed a real run were not in any
 function - they were in the wiring: conda environments that no submission script ever
-activated, a rule that declared an environment missing the tool it invokes, and an
-unsharded tier that would have lost three days of work to one failure.
+activated, a rule that declared an environment missing the tool it invokes, and a
+cascade tier that streamed a 375 GB database once per shard.
 """
 import os
 import pathlib
@@ -13,8 +13,8 @@ import subprocess
 
 import pytest
 import yaml
-
 from conftest import requires
+
 from plasmidann.tools import REQUIRED_TOOLS
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -54,7 +54,8 @@ def test_the_declared_environment_provides_every_required_tool():
                 "macsyfinder": ("macsyfinder",),
                 "integron_finder": ("integron_finder",),
                 "rnacode": ("RNAcode",),
-                "eggnog-mapper": ("emapper.py",)}
+                "eggnog-mapper": ("emapper.py",),
+                "isescan": ("isescan.py",)}
 
     for env_path in declared_envs():
         spec = yaml.safe_load(env_path.read_text())
@@ -86,19 +87,19 @@ def test_the_submission_script_activates_the_environment_it_declares():
         "--use-conda, so the conda: directives do nothing")
 
 
-def test_the_cascade_is_sharded():
-    """T4 searches 3.5M queries against nr. Unsharded it is a single job of several days,
-    and any failure in it - a node eviction, a full filesystem - loses all of that work.
-    The design requires the same shard-and-resume unit the gene caller already uses."""
+def test_each_cascade_tier_is_one_job_with_every_core():
+    """A search against a streamed database has a fixed cost per invocation - DIAMOND
+    reads the whole of nr each time it runs, and 2,000 queries took more than 12 hours
+    on 16 threads. Sharding the query set multiplies that cost by the shard count, so a
+    tier is one job, and it must be given every core the run has or it runs on one."""
     text = (WORKFLOW / "rules" / "annotation_cascade.smk").read_text()
     rule = text[text.index("rule tier_search"):]
     rule = rule[:rule.index("\nrule ")]
-    assert "{cshard}" in rule, (
-        "tier_search has no shard wildcard: the deepest tier is one multi-day job whose "
-        "failure loses everything")
-    assert "{{cshard}}/hits.tsv" in rule, (
-        "tier_search shards its work but not its output, so shards would overwrite "
-        "each other")
+    assert "{cshard}" not in rule, (
+        "tier_search is sharded again: every shard streams the database")
+    assert "threads: workflow.cores" in rule, (
+        "tier_search does not take every core, so a single-job tier runs on a fraction "
+        "of the allocation")
 
 
 def test_the_codon_model_stage_is_gone():
@@ -154,7 +155,7 @@ def test_the_resolved_dag_matches_the_rules_that_exist(tmp_path):
     its file quota, so the cache is pointed at tmp_path.
     """
     env = {**os.environ, "XDG_CACHE_HOME": str(tmp_path)}
-    proc = subprocess.run(["snakemake", "-n", "--quiet", "rules"], cwd=ROOT, env=env,
+    proc = subprocess.run(["snakemake", "-n", "-c", "1", "--quiet", "rules"], cwd=ROOT, env=env,
                           capture_output=True, text=True, timeout=600)
     assert proc.returncode == 0, f"dry-run failed:\n{proc.stderr[-3000:]}"
 
@@ -166,28 +167,31 @@ def test_the_resolved_dag_matches_the_rules_that_exist(tmp_path):
         assert rule in jobs, f"{rule} is missing from the resolved DAG"
 
 
-def test_no_rule_reads_the_whole_corpus_fasta():
-    """The shards define the analysis scope; the corpus FASTA does not.
+def test_only_s0_reads_the_configured_fasta():
+    """The analysis set defines the scope; the configured FASTA does not.
 
-    rule feature_files streamed config["input"]["working_set_fasta"] and wrote one record
-    per sequence it found there. On the 100-plasmid test configuration that produced
-    208,245 GenBank records - 11.9 GB - for a run that had been asked to look at 100
-    plasmids. The TSV written by the same stage was correctly scoped, which is what kept
-    the defect out of sight: every count a reader checks came from the TSV.
+    rule feature_files once streamed the configured corpus and wrote one record per
+    sequence it found there. On the 100-plasmid test configuration that produced 208,245
+    GenBank records - 11.9 GB - for a run that had been asked to look at 100 plasmids.
+    The TSV written by the same stage was correctly scoped, which is what kept the defect
+    out of sight: every count a reader checks came from the TSV.
 
-    A rule that needs sequence must take the shards, because those are what the run was
-    given. Reading the corpus instead makes the analysis scope a property of a file path
-    in the config rather than of the input the pipeline was handed.
+    The configured FASTA may hold the whole working set, simulated plasmids included, so
+    exactly one rule may read it: analysis_set, which applies the exclusion and writes the
+    FASTA every other stage takes.
     """
     offenders = []
     for path in SMK:
+        text = path.read_text()
         for match in re.finditer(
-                r"(\w+)\s*=\s*config\[[\"']input[\"']\]\[[\"']working_set_fasta[\"']\]",
-                path.read_text()):
-            offenders.append(f"{path.name} takes {match.group(1)}=working_set_fasta")
+                r"config\[[\"']input[\"']\]\[[\"']fasta[\"']\]", text):
+            rule = text[:match.start()].rsplit("\nrule ", 1)[-1].split(":", 1)[0]
+            if rule != "analysis_set":
+                offenders.append(f"{path.name}: rule {rule}")
     assert not offenders, (
-        "these rules read the whole corpus rather than the shards they were given, so "
-        "their output covers plasmids outside the analysis scope: " + "; ".join(offenders))
+        "these rules read the configured FASTA rather than the analysis-set FASTA S0 "
+        "wrote, so their output covers plasmids outside the analysis scope: "
+        + "; ".join(offenders))
 
 
 def test_every_script_that_takes_a_scratch_directory_releases_it():

@@ -1,0 +1,72 @@
+# Packaging for the two libraries the workflow scripts import.
+#
+# The pipeline is run through Snakemake, not through a console entry point, so this file
+# exists to make `plasmidann` and `darkorf` importable and testable by the usual means
+# rather than only through the path insertion the Snakefile performs.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rebus-pipeline"
+version = "2.0.0"
+description = "Complete annotation of the plasmid protein universe and its dark subset"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Amar Mujkic", email = "mujkicamar321@gmail.com" }]
+keywords = ["plasmid", "annotation", "dark proteome", "snakemake", "bioinformatics"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+# Exactly the third-party modules that src/ and workflow/ import, derived from the source
+# rather than assumed. The twenty external EXECUTABLES the workflow invokes - diamond,
+# hmmsearch, mmseqs, foldseek and the rest - are not Python packages and are pinned in
+# workflow/envs/plasmidann.yaml, which remains the single place they are declared.
+dependencies = [
+    "snakemake>=9",  # the workflow engine; `snakemake -s workflow/Snakefile` is the entry point
+    "pyrodigal",     # darkorf.genecall
+    "pyyaml",        # config and cascade loading
+]
+
+[project.optional-dependencies]
+# jsonschema is a TEST dependency: the config schemas are validated by Snakemake at run
+# time, and tests/test_config.py checks them directly without starting a workflow.
+dev = ["pytest", "jsonschema", "ruff"]
+
+[project.urls]
+Repository = "https://github.com/mujkicamar-bio/Rebus"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    # Line length is governed by the formatter setting above, not by a second rule that
+    # would flag prose in the long explanatory comments this codebase relies on.
+    "E501",
+    # `l` as a loop variable over lines. Twenty-seven occurrences, all of the form
+    # `for l in open(path)`. Renaming them is cosmetic, and two of the sites are
+    # multi-line comprehensions where a mechanical rewrite is not safe. Left as a
+    # deliberate decision rather than churned immediately before a release.
+    "E741",
+    # `zip()` without `strict=`. NOT cosmetic, and NOT resolved - see below. Six sites,
+    # most of them parsing a tool's TSV output into a dict via `dict(zip(header, fields))`,
+    # where a short row is silently truncated instead of raising. Adding `strict=True`
+    # is very probably correct, but it converts silent data loss into a hard failure and
+    # so changes the behaviour of a validated pipeline. That is a scientific decision
+    # about how to treat malformed tool output, not a lint fix, and it is recorded in
+    # docs/PARAMETER_PROVENANCE.md rather than made here by a linter.
+    "B905",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"workflow/scripts/*.py" = ["F821"]

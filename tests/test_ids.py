@@ -4,7 +4,7 @@ The failure these tests prevent: an earlier implementation numbered families by
 enumerate(sorted(...)), so adding one protein renumbered every later family and silently
 broke every join against a previous run.
 """
-from darkorf.ids import protein_id, occurrence_id, family_id, observation_id
+from darkorf.ids import family_id, observation_id, occurrence_id, protein_id
 
 
 def test_protein_id_is_a_32_character_hash_of_the_sequence():

@@ -43,11 +43,12 @@ things downstream need it: the nucleic_acid_binding stratum, which is assigned f
 the fold IS, and the hypothesis written into the synthesis order, which a bench scientist
 has to be able to read.
 """
-import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
 import sys
+
+import _ctx  # noqa: F401
 
 from plasmidann import scratch
 

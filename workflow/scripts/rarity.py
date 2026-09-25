@@ -9,9 +9,10 @@ Two outputs, because they answer two questions:
 See src/plasmidann/rarity.py for why breadth is counted in independent lineages rather than
 plasmid records, and why the curve is averaged over replicate orderings.
 """
-import _ctx  # noqa: F401
 import collections
 import csv
+
+import _ctx  # noqa: F401
 
 from plasmidann.rarity import RARITY_VERSION, rarefaction, rarity_labels, saturation
 
@@ -22,7 +23,7 @@ cfg = snakemake.params.rarity
 # ------------------------------------------------------------------------------------
 COLS = ["family_id", "rarity_labels", "independent_plasmid_cluster_count",
         "unique_plasmid_count", "MOB_count", "host_count", "genus_count",
-        "rarity_version", "rare_max_lineages", "widely_conserved_min_lineages"]
+        "n_plasmids_with_species", "rarity_version", "rare_max_lineages", "widely_conserved_min_lineages"]
 
 counts = collections.Counter()
 n_families = 0
@@ -43,6 +44,7 @@ with open(snakemake.input.recurrence, newline="") as fh, \
             "MOB_count": family.get("MOB_count", ""),
             "host_count": family.get("host_count", ""),
             "genus_count": family.get("genus_count", ""),
+            "n_plasmids_with_species": family.get("n_plasmids_with_species", ""),
             # The thresholds travel with every row: a label is meaningless without the
             # number that produced it, and section 54 requires them to be explicit.
             "rarity_version": RARITY_VERSION,
@@ -55,7 +57,13 @@ for label, n in counts.most_common():
     print(f"  {label:<26} {n}")
 
 # ------------------------------------------------------------------------------------
-# Rarefaction: dark families discovered against plasmids sampled (section 55).
+# Rarefaction: dark families discovered against SMALL plasmids sampled (section 55).
+#
+# The x-axis is every small plasmid, including the ones that carry no dark family: those
+# are part of what was sampled, and leaving them out (58 of 100 plasmids were kept on the
+# test set) made each step look richer than a real sample of small plasmids is. A family
+# is discovered on a plasmid through its dark small-plasmid members (small_members), since
+# the large plasmids are not on the axis.
 # ------------------------------------------------------------------------------------
 orfs_of_seq = collections.defaultdict(list)
 with open(snakemake.input.map) as fh:
@@ -63,12 +71,15 @@ with open(snakemake.input.map) as fh:
         sid, orf_ids = line.rstrip("\n").split("\t")
         orfs_of_seq[sid] = orf_ids.split(",")
 
-plasmid_families = collections.defaultdict(set)
+small_plasmids = {l.strip() for l in open(snakemake.input.small_ids) if l.strip()}
+plasmid_families = {p: set() for p in small_plasmids}
 with open(snakemake.input.dark_families, newline="") as fh:
     for family in csv.DictReader(fh, delimiter="\t"):
-        for member in family["members"].split(","):
+        for member in filter(None, family["small_members"].split(",")):
             for orf_id in orfs_of_seq.get(member, ()):
-                plasmid_families[orf_id.rsplit("|", 1)[0]].add(family["family_id"])
+                plasmid = orf_id.rsplit("|", 1)[0]
+                if plasmid in plasmid_families:
+                    plasmid_families[plasmid].add(family["family_id"])
 
 curve = rarefaction(plasmid_families, n_replicates=cfg["rarefaction_replicates"],
                     seed=snakemake.params.seed)
@@ -82,7 +93,7 @@ with open(snakemake.output.rarefaction, "w", newline="") as out:
 
 if curve:
     final = curve[-1]
-    print(f"rarefaction: {final['n_plasmids']} plasmids -> "
+    print(f"rarefaction: {final['n_plasmids']} small plasmids -> "
           f"{final['mean_families']} dark families "
           f"(replicate range {final['min_families']}-{final['max_families']})")
     gained = saturation(curve)

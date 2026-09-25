@@ -16,9 +16,7 @@ proteins adjacent gave 1 system, separated by 5 decoys gave 0, with identical HM
 The fix searches the dereplicated set once, propagates component labels to every ORF that
 shares the sequence, and calls systems on ordered per-plasmid gene lists.
 """
-from plasmidann.defence import (propagate_components, candidate_plasmids,
-                                order_orfs, gembase_id)
-
+from plasmidann.defence import candidate_plasmids, gembase_id, order_orfs, propagate_components
 
 ORF_TO_SEQ = {
     "p1|1": "aaa", "p1|2": "bbb", "p1|3": "ccc",
@@ -127,7 +125,7 @@ def test_underscores_in_a_plasmid_id_do_not_break_the_replicon_split():
 # ------------------------------------------------------------------------------------
 
 ALL_SYSTEMS = """\
-# macsyfinder 2.1.4 
+# macsyfinder 2.1.4
 # models : defense-finder-models-3.1.0
 # defense-finder run --db-type unordered
 # Likely Systems found:

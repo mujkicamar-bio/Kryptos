@@ -26,11 +26,12 @@ per model family, and that is what this stage reads. So the exit code alone cann
 whether the stage succeeded - the OUTPUT decides. No all_systems.tsv anywhere means the
 search really did fail, and that is still fatal.
 """
-import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
 import sys
+
+import _ctx  # noqa: F401
 
 from darkorf import status
 from plasmidann import defence

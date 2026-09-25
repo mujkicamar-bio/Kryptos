@@ -6,31 +6,36 @@ input:
   # The analysis set: the master table with the locked artifact exclusions already applied.
   # The plasmid count is NOT recorded here - it is derived at runtime and written to the
   # manifest (spec §3.1), because a hard-coded denominator silently goes stale.
-  #
-  # There is deliberately no corpus FASTA here. Every stage that needs sequence reads the
-  # shards, so the analysis scope is the input the run was handed rather than a path in
-  # this file - the feature stage once wrote 208,245 records for a 100-plasmid run.
   master_table: data/plasmidscope_primary/analysis_set.tsv
-  # The plasmid shards, PREPARED OUTSIDE THE PIPELINE. Every FASTA in this directory is a
-  # shard; its name is the file name without the extension. The pipeline no longer creates
-  # the partition, so a new batch of plasmids is one more file here: the per-shard stages
-  # run for it alone, and only the aggregating stages re-run. An empty directory is an
-  # error, because an empty shard set would let every stage succeed while writing nothing.
-  shard_dir: data/shards_test
+  # The plasmid sequences, ONE FILE, plain or gzipped. Records outside the analysis set
+  # (the exclusion below) are dropped at S0, so this may be the whole working set: the
+  # analysis scope is the master table's filter, not the content of this file.
+  fasta: data/plasmidscope_primary/provenance/working_set.fna.gz
   # The locked exclusion (spec section 3.1). "Simulated communities" is a PlasmidScope
   # ecosystem artifact, not an environment, and it is excluded from every analysis.
   exclude_hab_top: ["Simulated-artifact"]
+  # The study is about SMALL plasmids: size_bp below this. Every plasmid is processed, but
+  # the cascade annotates only families holding a small-plasmid protein (rule
+  # cascade_selection), and families are labelled small-only or mixed. 20 kb is the
+  # antimode of this collection's bimodal size distribution, rounded: Gaussian KDE of
+  # log10(size_bp) over
+  # the 143,503 plasmids (scipy gaussian_kde, Scott bandwidth) has modes at 4,831 and
+  # 96,828 bp and its antimode at 19,011 bp (measured 2026-09-24). The bimodality itself
+  # is described by Smillie et al. 2010, Microbiol. Mol. Biol. Rev. 74:434.
+  max_plasmid_size_bp: 20000
+  # PlasmidScope's per-protein table for its whole ALL set (Li et al., Nucleic Acids Res.
+  # 2025, 53:D179), fetched by tools/download_plasmidscope_annotation.sh. Proteins of ours
+  # with an identical, eggNOG-annotated protein in it skip the cascade (rule
+  # plasmidscope_import, plasmidann.plasmidscope).
+  plasmidscope_proteins: data/PlasmidScope/annotation/ALL.protein_list.tsv.gz
+  # Host names beyond PLSDB's: PlasmidScope's per-record host (IMG/PR's among them) and the
+  # GenBank/RefSeq source organism. With PLSDB species they name a host for 61.1% of the
+  # analysis set (98.6% of isolate plasmids, 24.0% of metagenomic ones), against 31.9% for
+  # PLSDB alone (plasmidann.hosts, rule clonal_registry).
+  host_provenance: data/plasmidscope_primary/provenance/complete_provenance.tsv
+  working_set: data/plasmidscope_primary/provenance/working_set.tsv
 
 outdir: results
-
-# The PROTEIN partition only. Plasmid shards are discovered from input.shard_dir and are
-# not configured here: the pipeline no longer partitions plasmids.
-#
-# This one the pipeline must still create itself, because the dereplicated protein set does
-# not exist until S2 has run, so there is nothing on disk to discover at load time.
-# Changing it between resumed runs invalidates the cascade (spec section 72).
-shards:
-  protein: 64     # cascade shards over the dereplicated protein set
 
 orf:
   # The gene caller's own floor. Distinct from the discovery cutoff below (spec §11.1).
@@ -38,6 +43,11 @@ orf:
   # Prodigal in metagenomic mode: plasmids are too short and too compositionally varied to
   # train a single-genome model on.
   meta_mode: true
+  # A circular record whose first and last bases repeat for at least this many bp carries
+  # the assembler's overlap; S0 removes one copy (rule analysis_set). 20 bp is CheckV's
+  # direct-terminal-repeat criterion (Nayfach et al. 2021, Nat. Biotechnol. 39:578).
+  # Measured: 400 of 400 sampled 'direct terminal repeat' records carry one.
+  min_terminal_repeat_bp: 20
 
 discovery:
   # Proteins shorter than this are flagged discovery_excluded_short, never deleted (spec §10, §11).
@@ -53,22 +63,22 @@ references:
   # which reports 38.2 with 30,134 families.
   pfam_dat: data/refs/pfam/Pfam-A.hmm.dat.gz
   pfam_version: "38.2"
-  # The NCBI BLAST database snapshot behind the DIAMOND indexes. The path
+  # The NCBI BLAST database snapshot behind the Swiss-Prot DIAMOND index. The path
   # /sw/data/diamond_databases/Blast/latest resolves to .../20250303-003013.
   swissprot_version: "2025-03-03"
-  nr_version: "2025-03-03"
+  # T5 is NCBI ClusteredNR (last-updated in its metadata.json), built into
+  # data/refs/clustered_nr by tools/download_clustered_nr.sh.
+  nr_version: "ClusteredNR 2026-08-30"
   eggnog_version: "5.0.2"
+  # PlasmidScope has no release number; the download date identifies the tables used.
+  # Its labels come from eggNOG-mapper 2.1.12 (Li et al. 2025).
+  plasmidscope_version: "2026-09-23"
   # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
   # covers the phage families (PHROG v4 table), CARD and VFDB together.
   pharokka_db_version: "1.8.0"
   # MacSyFinder model sets: DefenseFinder for S8 defence systems. macsydata reports
   # CONJScan 2.1.0 installed in the same tree.
   macsyfinder_models: data/refs/macsyfinder
-  # Grouping tool labels into functional categories. null means no grouping: every
-  # (kind, label) is its own category. The categories are derived from the observed
-  # vocabulary in results/s4c/protein_labels.tsv after a full annotation run; see
-  # config/label_categories.yaml.
-  label_categories: null
 
 qc:
   # Spec §9.3. A protein whose coding region is mostly antisense to a longer ORF on the

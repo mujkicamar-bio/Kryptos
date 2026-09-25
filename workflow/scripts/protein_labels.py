@@ -22,6 +22,15 @@ and a protein carries a different number of labels from every source. One row pe
 family, and it is the shape a grouping step reads naturally: select the distinct labels of
 one kind, decide their categories, join back.
 
+SEARCH-CLUSTER MEMBERS, CONTROLS AND DECOYS
+
+The cascade searched only the representative of each 90% search cluster (S2s), so hits.tsv
+holds representatives alone. Every label a representative's hits produced is written for
+each of its members too, with the representative in `via_representative`: without that,
+about 140,000 members of the selected families carried no Pfam, pharokka, Swiss-Prot or nr
+label at all. The spiked controls (CTRL_) and decoys (DECOY_) are instrumentation, not
+plasmid proteins, and contribute no labels.
+
 DEDUPLICATION
 
 A label seen several times for one protein - the same Pfam family hit by two tiers, the
@@ -30,12 +39,16 @@ same product name from ten nr subjects - is one statement, not ten. Rows are key
 unmerged table would let a widespread label outvote a rare one purely by copy number when
 the categories are counted.
 """
-import _ctx  # noqa: F401
 import csv
 import sys
 
+import _ctx  # noqa: F401
+
 from plasmidann import labels, pfam_meta
 from plasmidann.cascade import as_float
+from plasmidann.decoys import DECOY_PREFIX
+
+CONTROL_PREFIX = "CTRL_"
 
 # Which database and version produced each source, for the provenance columns. A label
 # without its database release cannot be reproduced, and a category built on it cannot be
@@ -43,7 +56,7 @@ from plasmidann.cascade import as_float
 _DATABASE = {
     "pfam": ("Pfam-A", "pfam_version"),
     "swissprot": ("NCBI swissprot", "swissprot_version"),
-    "nr": ("NCBI nr", "nr_version"),
+    "nr": ("NCBI ClusteredNR", "nr_version"),
     "eggnog": ("eggNOG", "eggnog_version"),
     # pharokka ships the phage families, CARD and VFDB as ONE versioned bundle
     # (data/refs/pharokka/VERSION_x_y_z) and does not expose the CARD or VFDB snapshot
@@ -61,10 +74,15 @@ pfam = pfam_meta.load(snakemake.input.pfam_dat)
 # than the last row read.
 rows = {}
 
+# Representative -> the members that take its result (selection.tsv, role 'member').
+members_of = {}
+with open(snakemake.input.selection, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        if r["role"] == "member":
+            members_of.setdefault(r["search_representative"], []).append(r["seq_id"])
 
 
-
-def add(protein_id, source, tier, entry, evalue="", coverage=""):
+def add(protein_id, source, tier, entry, evalue="", coverage="", representative=""):
     """Admit one label, merging it with any previous sighting of the same statement."""
     if entry["kind"] not in labels.KINDS:
         # An undeclared kind is a statement nothing downstream can group. Failing here
@@ -82,6 +100,7 @@ def add(protein_id, source, tier, entry, evalue="", coverage=""):
             "accession": entry.get("accession", ""),
             "evidence_evalue": evalue, "evidence_coverage": coverage,
             "database": database, "database_version": str(params.get(version_key, "")),
+            "via_representative": representative,
         }
         return
     if as_float(evalue) < as_float(existing["evidence_evalue"]):
@@ -97,13 +116,18 @@ n_hits = 0
 for path in snakemake.input.hits:
     with open(path, newline="") as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
+            q = row["query"]
+            if q.startswith(CONTROL_PREFIX) or q.startswith(DECOY_PREFIX):
+                continue
             n_hits += 1
             # The source travels with the row, declared per tier in config/cascade.yaml.
             # It used to be looked up from the tier id here, which broke the moment a tier
             # was inserted. labels_from_hit refuses a row without one.
             for entry in labels.labels_from_hit(row, pfam=pfam):
-                add(row["query"], row["source"], row.get("tier", ""), entry,
-                    evalue=row.get("evalue", ""), coverage=row.get("coverage", ""))
+                for pid, via in [(q, "")] + [(m, q) for m in members_of.get(q, ())]:
+                    add(pid, row["source"], row.get("tier", ""), entry,
+                        evalue=row.get("evalue", ""), coverage=row.get("coverage", ""),
+                        representative=via)
 
 # ------------------------------------------------------------------------------------
 # Orthology: gene symbols and every controlled identifier eggNOG assigns.
@@ -116,7 +140,8 @@ with open(snakemake.input.orthology, newline="") as fh:
             add(row["seq_id"], "eggnog", "S4b", entry)
 
 cols = ["protein_id", "source", "tier", "kind", "label", "accession",
-        "evidence_evalue", "evidence_coverage", "database", "database_version"]
+        "evidence_evalue", "evidence_coverage", "database", "database_version",
+        "via_representative"]
 with open(snakemake.output.tsv, "w", newline="") as out:
     writer = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     writer.writeheader()

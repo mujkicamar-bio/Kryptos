@@ -135,7 +135,7 @@ def build_decoys(cds_records, n_shuffled, n_reverse_complement, rng, min_length=
     source = iter(usable)
 
     for _ in range(n_shuffled):
-        for name, cds in source:
+        for _name, cds in source:
             protein = translate(cds)
             if len(protein) >= min_length:
                 out.append((f"{DECOY_PREFIX}shuf_{len(out):05d}",
@@ -143,7 +143,7 @@ def build_decoys(cds_records, n_shuffled, n_reverse_complement, rng, min_length=
                 break
 
     for _ in range(n_reverse_complement):
-        for name, cds in source:
+        for _name, cds in source:
             protein = reverse_complement_decoy(cds)
             if len(protein) >= min_length:
                 out.append((f"{DECOY_PREFIX}rc_{len(out):05d}", protein,

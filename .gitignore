@@ -32,3 +32,9 @@ slurm-*.out
 .venv/
 results*/
 .snakemake/
+
+# ---- Agent skills and their working state ----
+.claude/skills/
+.unlazy/
+.unlazy-hook-state.json
+graphify-out/

@@ -6,23 +6,30 @@ circular. Under linear topology a system spanning the origin is invisible, and o
 spanning genes are exactly what S1 worked to reconstruct.
 
 `--db-type gembase` lets a single run hold every candidate replicon and still treat each
-separately, which turns tens of thousands of per-plasmid invocations into one job.
+separately, which turns tens of thousands of per-plasmid invocations into one job. That one
+job is split again into one chunk of whole replicons per core, each run as its own
+MacSyFinder process with one worker: MacSyFinder's --worker parallelises only the profile
+searches, and the test run kept 0.6 of 16 cores busy (2.2 CPU-s in 99 s), which scales to
+~35-40 h for the production candidates. A system never spans two replicons, so splitting
+between replicons changes no call.
 
 Thresholds are MacSyFinder's and DefenseFinder's own published defaults (Tesson et al.
 2022; Abby et al. 2014 for MacSyFinder). The quorum and co-localisation rules come from the
 711 shipped model definitions - referenced by construction, since they ARE the published
 models rather than our reinterpretation of them.
 """
-import _ctx  # noqa: F401
+import concurrent.futures
 import csv
 import pathlib
+import shutil
 import subprocess
 import sys
+
+import _ctx  # noqa: F401
 
 from darkorf import status
 
 outdir = pathlib.Path(snakemake.output.tsv).parent / "phase2"
-outdir.mkdir(parents=True, exist_ok=True)
 
 # The same NOT_RUN contract as phase 1. Phase 2 cannot call a system from models that are
 # not installed, and spec section 7.2 separates "not run" from "ran and found nothing": an
@@ -45,13 +52,40 @@ if not (models_dir.is_dir() and any(models_dir.iterdir())):
 # skip_run exists for the parser test, which pre-populates the output tree. It is never
 # set by the workflow: a missing MacSyFinder run in production must fail, not be skipped.
 if not snakemake.params.get("skip_run", False):
-    subprocess.run(
-        f"macsyfinder --models-dir {snakemake.params.models_dir} "
-        f"--models defense-finder-models all "
-        f"--sequence-db {snakemake.input.faa} "
-        f"--db-type gembase --replicon-topology circular "
-        f"--worker {snakemake.threads} --out-dir {outdir} --mute",
-        shell=True, check=True)
+    # A rerun starts clean: results from an interrupted run would be read below.
+    shutil.rmtree(outdir, ignore_errors=True)
+    chunk_dir = outdir / "chunks"
+    chunk_dir.mkdir(parents=True)
+    # Whole replicons to the chunk with the fewest genes so far. defence_gembase writes each
+    # replicon's genes together, and the replicon is the gembase id up to the last '_'.
+    n = snakemake.threads
+    handles = [open(chunk_dir / f"chunk_{i:03d}.faa", "w") for i in range(n)]
+    genes = [0] * n
+    current, target = None, 0
+    with open(snakemake.input.faa) as fh:
+        for line in fh:
+            if line.startswith(">"):
+                replicon = line[1:].split()[0].rsplit("_", 1)[0]
+                if replicon != current:
+                    current, target = replicon, genes.index(min(genes))
+                genes[target] += 1
+            handles[target].write(line)
+    for h in handles:
+        h.close()
+    chunks = [chunk_dir / f"chunk_{i:03d}.faa" for i in range(n) if genes[i]]
+
+    def run(chunk):
+        subprocess.run(
+            f"macsyfinder --models-dir {snakemake.params.models_dir} "
+            f"--models defense-finder-models all "
+            f"--sequence-db {chunk} "
+            f"--db-type gembase --replicon-topology circular "
+            f"--worker 1 --out-dir {outdir / chunk.stem} --mute",
+            shell=True, check=True)
+
+    with concurrent.futures.ThreadPoolExecutor(n) as pool:
+        list(pool.map(run, chunks))
+    shutil.rmtree(chunk_dir)
 
 # Map gembase ids back to our orf_ids.
 back = {}

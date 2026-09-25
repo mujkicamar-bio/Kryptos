@@ -22,23 +22,12 @@ At 2% of 3.5M proteins this is ~70,000 sequences and roughly 2% of the compute.
 The sample is deterministic given the seed, so the cohort is identical across re-runs and
 the comparison is stable.
 """
-import _ctx  # noqa: F401
 import random
-
-from plasmidann.cascade import check_hmmer_z
 
 fraction = snakemake.params.fraction
 seed = snakemake.params.seed
 
-ids = [l[1:].split()[0] for l in open(snakemake.input[0]) if l[0] == ">"]
-
-# This rule is the first to see the finished protein set and is a dependency of every
-# tier, which makes it the right place to confirm that the declared -Z still describes the
-# data. hmmer_z is DERIVED from this file: change the ORF set - as S1 origin repair does,
-# by reconstructing ~160,000 genes the linearisation had split - and the count moves. A
-# stale -Z silently rescales every E-value in the run, which is precisely the failure -Z
-# was introduced to prevent.
-check_hmmer_z(declared=snakemake.params.hmmer_z, actual=len(ids))
+ids = [l[1:].split()[0] for l in open(snakemake.input.faa) if l[0] == ">"]
 
 # A uniform random sample, not the first N: the FASTA is ordered by sequence hash, which
 # correlates with nothing biological, but a systematic slice would still be a slice.

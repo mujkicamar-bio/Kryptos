@@ -37,14 +37,6 @@ Foldseek is deliberately its own dimension despite also being homology. Structur
 further back than sequence, so a structural match where sequence found nothing is a genuinely
 different measurement - but section 2.8 warns they are still related, which is why they are
 two named dimensions and not two points on a scale.
-
-THE HYPOTHESIS LAYER (section 57)
-
-A hypothesis is a named association with traceable support, and it never changes what the
-protein IS. Section 57 is explicit: "The protein remains DARK unless direct sequence/domain
-evidence supports a specific function." A dark ORF beside a CBASS system is
-defence_associated; it is not a defence protein, and section 2.7 makes that distinction a
-design principle.
 """
 
 # Section 56.1, verbatim. A dimension not in this set is one nothing downstream can read.
@@ -57,21 +49,6 @@ DIMENSIONS = (
     "DISTRIBUTION",
     "STRUCTURAL_RELATIONSHIP",
     "PROTEIN_PROPERTIES",
-)
-
-# Section 57. `unknown` is a real value, not a failure to assign: a dark protein with no
-# contextual association is the most common case and the one the project is built around.
-HYPOTHESES = (
-    "defence_associated",
-    "mobilization_associated",
-    "toxin_antitoxin_associated",
-    "replication_associated",
-    "partition_associated",
-    "regulatory_associated",
-    "membrane_associated",
-    "metabolic_associated",
-    "structural_associated",
-    "unknown",
 )
 
 # Which databases feed which dimension. Several databases to ONE dimension is the whole
@@ -103,7 +80,9 @@ def dimensions_present(record):
     if record.get("eggnog_searched") or record.get("cog_category"):
         present.append("ORTHOLOGY")
 
-    if record.get("context_status") == "SUCCESS" or record.get("top_hypothesis"):
+    # The S8c context rates (0 is a measurement) or a synteny status.
+    if (record.get("cons_annotated_neighbour") not in (None, "")
+            or record.get("synteny_status")):
         present.append("GENOMIC_CONTEXT")
 
     # Status rather than value: NO_DIVERGENCE and SATURATED are measurements, and a family
@@ -154,47 +133,3 @@ def evidence_summary(record):
         "supporting_observations_are_not_independent": 1,
     }
 
-
-def functional_hypothesis(record):
-    """A named association with traceable support (section 57).
-
-    Returns (hypothesis, support) where `support` names the evidence behind it. The protein
-    remains DARK: section 57 states that a hypothesis does not change what the protein IS
-    unless direct sequence or domain evidence supports a specific function, and section 2.7
-    makes it a design principle - a dark ORF repeatedly beside a defence system is
-    defence_associated, never defence_protein.
-
-    Only ONE hypothesis is returned, the best-supported, because a hypothesis is what
-    someone takes to the bench and a list of ten is not a testable prediction. Every
-    association that fired is still in the context table, so nothing is lost.
-    """
-    context = (record.get("top_hypothesis") or "").lower()
-    if not context:
-        return "unknown", ""
-
-    support = []
-    for field in ("top_conservation", "top_q_value", "synteny_conservation",
-                  "context_recurrence"):
-        if record.get(field) not in (None, ""):
-            support.append(f"{field}={record[field]}")
-    detail = "; ".join(support)
-
-    # The mapping is intentionally narrow and reads the category names the label vocabulary
-    # produces. An association this does not recognise stays `unknown` WITH its context
-    # recorded, rather than being forced into the nearest hypothesis - a wrong hypothesis
-    # sends someone to the bench to test the wrong thing.
-    for token, hypothesis in (
-            ("defence", "defence_associated"),
-            ("defense", "defence_associated"),
-            ("mobilis", "mobilization_associated"),
-            ("mobiliz", "mobilization_associated"),
-            ("conjug", "mobilization_associated"),
-            ("toxin", "toxin_antitoxin_associated"),
-            ("antitoxin", "toxin_antitoxin_associated"),
-            ("replicat", "replication_associated"),
-            ("partition", "partition_associated"),
-    ):
-        if token in context:
-            return hypothesis, detail
-
-    return "unknown", f"context={record['top_hypothesis']}" + (f"; {detail}" if detail else "")

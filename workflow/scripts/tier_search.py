@@ -8,17 +8,24 @@ this order, and the order matters:
   3. Accumulate INFORMATIVE spans (only) into the running explained fraction.
   4. Write out the residue for the next tier, honouring the sweep cohort.
 
-Four defects found in review are fixed here; each is marked FIX in place.
+Each step carries the reasoning for why it is done the way it is, including the measured
+consequence of the alternative where one was measured.
 """
-import _ctx  # noqa: F401  - puts src/ on sys.path for the plasmidann package
 import csv
 import os
 import pathlib
 import subprocess
 
+import _ctx  # noqa: F401  - puts src/ on sys.path for the plasmidann package
+
 from plasmidann import pharokka, scratch
-from plasmidann.cascade import (as_float, explained_fraction, narrow_by_explained,
-                                is_informative, passes_significance)
+from plasmidann.cascade import (
+    as_float,
+    explained_fraction,
+    is_informative,
+    narrow_by_explained,
+    passes_significance,
+)
 
 spec = snakemake.params.spec              # one entry from cascade.yaml: tiers
 faa = snakemake.input.faa                 # this tier's queries
@@ -27,6 +34,24 @@ hmmer_z = snakemake.params.hmmer_z        # fixed -Z / --domZ, see docs/annotati
 max_target_seqs = snakemake.params.max_target_seqs
 
 ids = [l[1:].split()[0] for l in open(faa) if l[0] == ">"]
+
+# Proteins an earlier tier already NAMED from a source this tier defers to are not searched
+# here (skip_if_named_by in config/cascade.yaml). Decided for nr: a protein Pfam or
+# Swiss-Prot named keeps that curated name, and nr - free text, one representative per
+# cluster - is spent only on what they could not name. They still pass through the
+# narrowing below with the explained fraction they arrived with; the sweep cohort is not
+# exempt, since the rule is about which database may name a protein, not about narrow_at.
+skip_sources = set(spec.get("skip_if_named_by") or [])
+skipped = set()
+if skip_sources:
+    id_set0 = set(ids)
+    for path in snakemake.input.named:
+        with open(path, newline="") as fh:
+            for r in csv.DictReader(fh, delimiter="\t"):
+                if r["informative"] == "True" and r["source"] in skip_sources \
+                        and r["query"] in id_set0:
+                    skipped.add(r["query"])
+search_ids = [i for i in ids if i not in skipped]
 
 # Proteins that bypass narrowing entirely and are searched by EVERY tier. For these the
 # counterfactual actually exists, which is the only way to measure what the narrowing
@@ -58,7 +83,7 @@ n_rejected = 0 # hits dropped for insignificance - reported, so the gate is visi
 
 
 def record(q, label, qcov, tcov, ev, start, end, tlen, accession="", source=None,
-           category=""):
+           category="", identity="", align_length="", bitscore="", target_length=""):
     """Admit one parsed hit, or reject it.
 
     `start`/`end` may be None for a tier that reports no alignment span - the pharokka
@@ -66,11 +91,16 @@ def record(q, label, qcov, tcov, ev, start, end, tlen, accession="", source=None
     to `explained`; it is a family-level assignment, and cascade.classify treats it as one.
     The columns are written empty rather than invented.
 
-    FIX (significance gate). Nothing enters until it clears the tier's declared
-    max_evalue. Previously an insignificant domain could contribute a span, push a protein
-    over the narrowing threshold, and thereby withhold it from every deeper tier.
-    Measured: 7.2% of T2 resolutions depended on domains that were not individually
+    SIGNIFICANCE GATE. Nothing enters until it clears the tier's declared max_evalue.
+    This matters because an insignificant domain that contributed a span could push a
+    protein over the narrowing threshold and so withhold it from every deeper tier.
+    Measured: 7.2% of T2 resolutions depend on domains that are not individually
     significant, because -E sets only the SEQUENCE threshold.
+
+    identity, align_length, bitscore and target_length are what a tool reports and are
+    written empty where it reports none (spec sections 19 and 21 require them for the
+    DIAMOND tiers). Identity is what any later limit on label transfer needs, and it cannot
+    be recovered from hits.tsv without repeating the search.
     """
     global n_rejected
     if not passes_significance(ev, max_evalue):
@@ -82,25 +112,28 @@ def record(q, label, qcov, tcov, ev, start, end, tlen, accession="", source=None
     if is_informative(label):
         if spanned:
             spans.setdefault(q, []).append((start, end))
-        # FIX (keep EVERY informative hit, not one per tier). Two documented claims depend
-        # on this and neither could hold while the others were discarded:
+        # EVERY informative hit is kept, not one per tier. Two documented claims depend
+        # on this, and neither holds if the remaining hits are discarded:
         #
         #   * n_informative_hits is meant to tell a reader whether 0.9 coverage came from
         #     one domain or six. Capped at one per tier, its maximum was the tier count.
-        #   * the coordinates are meant to let explained_fraction be recomputed from
-        #     hits.tsv as an independent cross-check of spans.tsv. With the other domains
-        #     gone that recomputation is smaller every time, so the check would fail on
-        #     exactly the multi-domain proteins it exists for - a replication initiator
-        #     carrying RepA_N and Bac_RepA_C being the case that matters most here.
+        #   * the coordinates let explained_fraction be recomputed from hits.tsv as an
+        #     independent cross-check of spans.tsv. Keeping only one hit per tier makes
+        #     that recomputation smaller every time, so the check fails on exactly the
+        #     multi-domain proteins it exists for - a replication initiator carrying
+        #     RepA_N and Bac_RepA_C being the case that matters most here.
         hit = {"query": q, "label": label, "target_accession": accession,
                "coverage": round(qcov, 4) if qcov is not None else "",
                "target_coverage": round(tcov, 4) if tcov is not None else "",
                "evalue": ev, "informative": True,
                "start": start if spanned else "", "end": end if spanned else "",
-               "source": source or spec["source"], "category": category}
+               "source": source or spec["source"], "category": category,
+               "identity": identity, "align_length": align_length, "bitscore": bitscore,
+               "target_length": target_length}
         named.setdefault(q, []).append(hit)
-        # FIX (best hit by significance, not width). A longer alignment is not a better
-        # identification. Measured: 15.4% of labels change. The case that settled it was
+        # The best hit is the most SIGNIFICANT one, not the widest: a longer alignment is
+        # not a better identification. Measured: 15.4% of labels change. The case that
+        # settled it was
         # ABC_membrane at E=1e-23 being chosen over Peptidase_C39 at E=6.5e-40 purely
         # because it aligned further.
         if q not in best or as_float(ev) < as_float(best[q]["evalue"]):
@@ -109,32 +142,45 @@ def record(q, label, qcov, tcov, ev, start, end, tlen, accession="", source=None
         # Uninformative hits keep their COORDINATES now, not just their label. Those
         # coordinates become dark_covered_fraction at cascade_resolve: 95% of a protein
         # covered by 'hypothetical protein' across three databases is a real, conserved,
-        # full-length unnamed protein; one 20-aa fragment hit is not. v1 discarded the
-        # spans and could not tell those apart.
+        # full-length unnamed protein; one 20-aa fragment hit is not. Discarding the spans
+        # makes those two indistinguishable.
         unnamed.setdefault(q, []).append(
             {"query": q, "label": label, "target_accession": accession,
              "coverage": round(qcov, 4) if qcov is not None else "",
              "target_coverage": round(tcov, 4) if tcov is not None else "",
              "evalue": ev, "informative": False,
              "start": start if spanned else "", "end": end if spanned else "",
-             "source": source or spec["source"], "category": category})
+             "source": source or spec["source"], "category": category,
+             "identity": identity, "align_length": align_length, "bitscore": bitscore,
+             "target_length": target_length})
 
 
-if ids:
-    # Anonymous: tier_search runs concurrently across cascade shards in the same
-    # output directory, and a shared scratch path would let two shards overwrite
-    # each other's intermediates.
-    tmp = scratch.scratch_dir(pathlib.Path(snakemake.output.hits).parent)
+if search_ids:
+    # A stable name: each tier has its own output directory, so no two jobs share it, and
+    # a killed attempt's directory (a partial res.m8 of the nr tier is ~GBs) is cleared by
+    # the rerun instead of accumulating beside the new one.
+    tmp = scratch.scratch_dir(pathlib.Path(snakemake.output.hits).parent, "search_tmp")
+    query = faa
+    if skipped:
+        query = f"{tmp}/query.faa"
+        with open(query, "w") as out:
+            emit = False
+            for line in open(faa):
+                if line[0] == ">":
+                    emit = line[1:].split()[0] not in skipped
+                if emit:
+                    out.write(line)
 
     if spec["method"] == "hmmer":
         raw = f"{tmp}/dom.tbl"
-        # FIX (-Z / --domZ). hmmsearch reports E = (sequences searched) x P(score | null),
-        # and by default the first term is the actual input size. Since each tier's input
-        # is the previous tier's residue, an unpinned -E means a different significance on
-        # every shard. Pinning it makes an E-value mean "expected false positives across
+        # -Z / --domZ pin the search space. hmmsearch reports
+        # E = (sequences searched) x P(score | null), and by default the first term is the
+        # actual input size. Since each tier's input is the previous tier's residue, an
+        # unpinned -E would mean a different significance on
+        # every tier. Pinning it makes an E-value mean "expected false positives across
         # the whole study". See docs/annotation_statistics.md section 3.
         cmd = (f"hmmsearch {spec['args']} -Z {hmmer_z} --domZ {hmmer_z} "
-               f"--noali --cpu {snakemake.threads} --domtblout {raw} {spec['db']} {faa}")
+               f"--noali --cpu {snakemake.threads} --domtblout {raw} {spec['db']} {query}")
         subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL)
 
         # --domtblout column map (0-indexed). Verified against real output in review;
@@ -145,6 +191,7 @@ if ids:
         #   5  qlen         = profile length
         #   6  full-sequence E-value
         #  12  i-Evalue     = independent E-value for THIS domain  <- the governing statistic
+        #  13  domain score (bits)
         #  15,16 hmm from,to
         #  17,18 ali from,to = coordinates on the protein
         for line in open(raw):
@@ -153,7 +200,8 @@ if ids:
             f = line.split()
             tlen, hlen = int(f[2]), int(f[5])
             a, b = int(f[17]), int(f[18])
-            # FIX (i-Evalue, not sequence E-value). f[6] describes the whole sequence;
+            # The i-Evalue is used, not the sequence E-value. f[6] describes the whole
+            # sequence;
             # f[12] is the statistic that governs an individual domain and is what HMMER's
             # own documentation directs users to trust when a sequence has several.
             # f[4] is the QUERY accession, which for hmmsearch is the Pfam accession
@@ -164,7 +212,8 @@ if ids:
             record(f[0], f[3],
                    (b - a + 1) / tlen if tlen else 0.0,
                    (int(f[16]) - int(f[15]) + 1) / hlen if hlen else 0.0,
-                   f[12], a, b, tlen, accession=f[4])
+                   f[12], a, b, tlen, accession=f[4], bitscore=f[13],
+                   target_length=hlen)
 
     elif spec["method"] == "pharokka":
         # The phage tier (spec section 18): pharokka in protein mode, used as its authors
@@ -175,7 +224,7 @@ if ids:
         outdir = f"{tmp}/pharokka"
         evalue_flag = "" if max_evalue is None else f"-e {max_evalue} "
         subprocess.run(
-            f"{exe} proteins -i {faa} -o {outdir} -d {spec['db']} -t {snakemake.threads} "
+            f"{exe} proteins -i {query} -o {outdir} -d {spec['db']} -t {snakemake.threads} "
             f"-f -p tier {evalue_flag}{spec.get('args', '')}",
             shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             env={**os.environ, "PATH": f"{exe.parent}:{os.environ.get('PATH', '')}"})
@@ -195,18 +244,18 @@ if ids:
 
     elif spec["method"] == "diamond":
         raw = f"{tmp}/res.m8"
-        # FIX (declared DIAMOND threshold). v1 declared none, so the operative cutoff was
-        # DIAMOND's undeclared default of 0.001 - a very large number of expected false
-        # positives across 3.5M queries against nr, at the deepest tier, where a spurious
-        # hit permanently removes a genuine dark protein from the pool.
+        # The DIAMOND threshold is DECLARED, never left to the tool. DIAMOND's own default
+        # is 0.001, which across 3.5M queries against nr - at the deepest tier, where a
+        # spurious hit permanently removes a genuine dark protein from the pool - is a very
+        # large number of expected false positives.
         #
-        # FIX (omit the flag rather than stringify None). A tier may declare
-        # max_evalue: null, meaning "the tool's own threshold decides" - the convention T1
-        # already uses. Interpolating that unconditionally emitted `--evalue None`, which
-        # DIAMOND does not reject: it parses to 0, returns ZERO hits and exits 0. On the nr
-        # tier that reads as "nothing in nr matched any of 3.5 million proteins", and every
-        # stage downstream accepts it. Verified: `--evalue None` gives 0 rows, exit 0,
-        # against a database containing the query itself.
+        # The flag is OMITTED rather than stringified when a tier declares max_evalue: null,
+        # meaning "the tool's own threshold decides", the convention T1 uses. Interpolating
+        # None unconditionally emits `--evalue None`, which DIAMOND does not reject: it
+        # parses to 0, returns ZERO hits and exits 0. On the nr tier that reads as "nothing
+        # in nr matched any of 3.5 million proteins", and every downstream stage accepts it.
+        # Verified: `--evalue None` gives 0 rows and exit 0 against a database containing
+        # the query itself.
         # sseqid is the subject ACCESSION and stitle is free text. Both are kept: the
         # title is the only human-readable identification at T4, and the accession is the
         # only key that joins to UniProt keywords or to RefSeq. Measured on the NCBI
@@ -214,16 +263,25 @@ if ids:
         # CcdB; ... [Escherichia coli]' - NCBI's rendering, with no gene symbol - so the
         # accession carries the whole join.
         evalue_flag = "" if max_evalue is None else f"--evalue {max_evalue} "
-        cmd = (f"diamond blastp -q {faa} -d {spec['db']} -o {raw} {spec['args']} "
+        # --tmpdir sends DIAMOND's spill space to node-local disk. Left unset, DIAMOND
+        # defaults it to the output file's directory, which is on the shared filesystem:
+        # the nr tier then writes its intermediates across the network while streaming
+        # 357 GB of database in the other direction. Measured on the 3,910-query benchmark,
+        # the shared-filesystem run came in 15% over the local-disk prediction, and the
+        # gap grows with the query count.
+        cmd = (f"diamond blastp -q {query} -d {spec['db']} -o {raw} {spec['args']} "
                f"{evalue_flag}--threads {snakemake.threads} "
+               f"--tmpdir {snakemake.resources.tmpdir} "
                f"--max-target-seqs {max_target_seqs} "
                f"--outfmt 6 qseqid sseqid stitle qcovhsp scovhsp evalue qstart qend qlen "
-               f"--quiet")
+               f"pident length bitscore slen --quiet")
         subprocess.run(cmd, shell=True, check=True)
         for line in open(raw):
-            q, sid, title, qc, tc, ev, qs, qe, ql = line.rstrip("\n").split("\t")
+            (q, sid, title, qc, tc, ev, qs, qe, ql,
+             pid, alen, bits, slen) = line.rstrip("\n").split("\t")
             record(q, title, float(qc) / 100, float(tc) / 100, ev,
-                   int(qs), int(qe), int(ql), accession=sid)
+                   int(qs), int(qe), int(ql), accession=sid, identity=float(pid) / 100,
+                   align_length=int(alen), bitscore=bits, target_length=int(slen))
 
     else:
         # Previously `else` WAS the diamond branch, so a tier declaring any unrecognised
@@ -250,7 +308,7 @@ if ids:
 # where it has one (pharokka, CARD); empty elsewhere.
 cols = ["query", "label", "target_accession", "coverage", "target_coverage", "evalue",
         "informative", "is_best", "start", "end", "tier", "source", "category",
-        "threshold", "max_evalue"]
+        "threshold", "max_evalue", "identity", "align_length", "bitscore", "target_length"]
 with open(snakemake.output.hits, "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
@@ -271,9 +329,9 @@ with open(snakemake.output.spans, "w", newline="") as out:
         w.writerow([q, qlen[q], ";".join(f"{a}-{b}" for a, b in spans.get(q, [])),
                     explained.get(q, 0.0)])
 
-# FIX (O(n^2)). v1 built `set(ids)` INSIDE the dict comprehension, so the set was
-# reconstructed once per explained id: 13.0 s at n=20,000, projecting to 1.6-4.6 days at
-# n=3.49M - after the search had already finished, with nothing to show for it.
+# The id set is built ONCE, outside the comprehension. Building it inside reconstructs it
+# per explained id, which is quadratic: measured at 13.0 s for n=20,000 and projecting to
+# 1.6-4.6 days at n=3.49M - spent after the search has already finished.
 id_set = set(ids)
 explained_here = {k: v for k, v in explained.items() if k in id_set}
 
@@ -292,7 +350,8 @@ with open(snakemake.output.unresolved, "w") as out:
         if emit:
             out.write(line)
 
-print(f"[{spec['id']}] queried={len(ids)} informative={len(best)} "
+print(f"[{spec['id']}] received={len(ids)} skipped_named_by_{'_'.join(sorted(skip_sources)) or 'none'}"
+      f"={len(skipped)} queried={len(search_ids)} informative={len(best)} "
       f"informative_hits={sum(len(v) for v in named.values())} unnamed={len(unnamed)} "
       f"rejected_insignificant={n_rejected} carried_forward={len(keep)} "
       f"(sweep_cohort={len(sweep_ids & id_set)})")
@@ -300,5 +359,5 @@ print(f"[{spec['id']}] queried={len(ids)} informative={len(best)} "
 # The scratch directory is removed only here, on the ordinary path. A script that raised
 # never reaches this line, and its intermediates - the raw domtbl or m8 the tool wrote -
 # are what a tier failure is diagnosed from. Guarded: an empty tier created no directory.
-if ids:
+if search_ids:
     scratch.release(tmp)

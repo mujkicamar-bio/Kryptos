@@ -1,0 +1,67 @@
+# Cost-measurement configuration: the 100-plasmid set, every production tier.
+#
+# Run with:
+#   sbatch workflow/bench_pipeline.sbatch
+#
+# This is NOT the smoke set. config/test/ answers "does the pipeline run"; this answers
+# "what will the production run cost", and the two questions need different tier sets.
+# The smoke set omits nr because nr would make a correctness check cost a production run
+# (config/test/README.md). A cost measurement that omits nr measures everything except
+# the stage that dominates, so here the cascade is the full production T1..T5.
+#
+# It differs from config/test/config.yaml in exactly two lines, both of which exist to
+# keep the two runs from colliding:
+#
+#   outdir          results_bench, so a cost run never overwrites a smoke run.
+#   cascade_config  config/bench/cascade.yaml, the production tiers at test scale.
+#
+# Everything else is the test configuration unchanged, including the 100-plasmid set and
+# the 100 + 100 controls. hmmer_z therefore stays 5504 and stays correct: the query set
+# and the control counts are the same, and those are what -Z counts.
+#
+# What the resulting numbers can and cannot support is in the header of
+# workflow/bench_pipeline.sbatch. In short: per-stage memory transfers to production,
+# per-stage wall time does not transfer by simple multiplication.
+input:
+  master_table: data/plasmidscope_primary/analysis_set.tsv
+  fasta: data/test_plasmids.fna
+  exclude_hab_top:
+  - Simulated-artifact
+  max_plasmid_size_bp: 20000
+  plasmidscope_proteins: data/PlasmidScope/annotation/ALL.protein_list.tsv.gz
+outdir: results_bench
+orf:
+  min_call_length_aa: 20
+  meta_mode: true
+discovery:
+  min_dark_candidate_length_aa: 20
+references:
+  pfam_dat: data/refs/pfam/Pfam-A.hmm.dat.gz
+  pfam_version: '38.2'
+  swissprot_version: '2025-03-03'
+  nr_version: '2025-03-03'
+  eggnog_version: 5.0.2
+  plasmidscope_version: "2026-09-23"
+  # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
+  # covers the phage families (PHROG v4 table), CARD and VFDB together.
+  pharokka_db_version: "1.8.0"
+  macsyfinder_models: data/refs/macsyfinder
+qc:
+  max_opposite_strand_overlap_fraction: 0.6
+  antifam:
+    db: data/refs/antifam/AntiFam.hmm
+    threshold: cut_ga
+cascade:
+  narrow_at: 0.9
+  min_explained: 0.5
+  sweep_cohort_fraction: 0.02
+controls:
+  positive:
+    raw_faa: data/refs/control/raw.faa
+    n: 100
+  negative:
+    n_shuffled: 50
+    n_reverse_complement: 50
+    min_length: 50
+seed: 20260916
+cascade_config: config/bench/cascade.yaml

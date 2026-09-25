@@ -16,9 +16,11 @@ all 600 IntegronFinder shards fail, and a missing foldseek silently emptied the 
 stratum. The registry now lives in plasmidann.tools and a test scans workflow/scripts/ for
 subprocess calls, so it cannot fall behind the code again.
 """
-import _ctx  # noqa: F401
 import os
 import shutil
+import subprocess
+
+import _ctx  # noqa: F401
 
 from plasmidann.tools import required_tools
 
@@ -78,6 +80,18 @@ for tier in tiers:
         continue
     if not os.path.exists(db):
         problems.append(f"{tier['id']}: database not found: {db}")
+    elif tier["method"] == "diamond" and tier.get("expected_sequences"):
+        # Existence is not completeness: a makedb killed part-way leaves a non-empty
+        # .dmnd, which would first fail - or silently search a fraction of the database -
+        # when the tier starts, a day or more into the run.
+        info = subprocess.run(["diamond", "dbinfo", "-d", db], capture_output=True,
+                              text=True).stdout
+        n = next((int(l.split()[-1]) for l in info.splitlines()
+                  if l.strip().startswith("Sequences")), None)
+        if n != tier["expected_sequences"]:
+            problems.append(f"{tier['id']}: {db} holds {n} sequences, expected "
+                            f"{tier['expected_sequences']} - the index is incomplete; "
+                            "rebuild it")
     elif tier["method"] == "hmmer" and not os.path.exists(db + ".h3i"):
         # An unpressed HMM library makes hmmsearch re-parse a multi-gigabyte flat file on
         # every shard. Pfam-A is 2.2 GB; the pressed index is what makes it tractable.

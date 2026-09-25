@@ -1,28 +1,28 @@
 # Validated at workflow load time. A typo in config.yaml must fail in seconds, not in hour 45.
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
-required: [input, outdir, shards, orf, discovery, qc, cascade, controls, seed,
+required: [input, outdir, orf, discovery, qc, cascade, controls, seed,
            references]
 properties:
   input:
     type: object
-    required: [master_table, shard_dir]
+    required: [master_table, fasta, plasmidscope_proteins, max_plasmid_size_bp,
+               host_provenance, working_set]
     properties:
       master_table: {type: string}
+      host_provenance: {type: string}
+      working_set: {type: string}
+      fasta: {type: string}
+      max_plasmid_size_bp: {type: integer, minimum: 1}
+      plasmidscope_proteins: {type: string}
   outdir: {type: string}
-  shards:
-    type: object
-    # plasmid is deliberately absent: those shards are discovered from input.shard_dir,
-    # not configured. Only the protein partition is a number the pipeline chooses.
-    required: [protein]
-    properties:
-      protein: {type: integer, minimum: 1}
   orf:
     type: object
-    required: [min_call_length_aa, meta_mode]
+    required: [min_call_length_aa, meta_mode, min_terminal_repeat_bp]
     properties:
       min_call_length_aa: {type: integer, minimum: 1}
       meta_mode: {type: boolean}
+      min_terminal_repeat_bp: {type: integer, minimum: 1}
   discovery:
     type: object
     required: [min_dark_candidate_length_aa]
@@ -31,7 +31,7 @@ properties:
   references:
     type: object
     required: [pfam_dat, pfam_version, swissprot_version, nr_version, eggnog_version,
-               pharokka_db_version]
+               pharokka_db_version, plasmidscope_version]
     properties:
       pfam_dat: {type: string}
       pfam_version: {type: string}
@@ -39,10 +39,8 @@ properties:
       nr_version: {type: string}
       eggnog_version: {type: string}
       pharokka_db_version: {type: string}
+      plasmidscope_version: {type: string}
       macsyfinder_models: {type: string}
-      # null is a valid value: it means no grouping is configured and every (kind, label)
-      # is its own category, which is the state until the vocabulary has been reviewed.
-      label_categories: {type: [string, "null"]}
   qc:
     type: object
     required: [max_opposite_strand_overlap_fraction, antifam]

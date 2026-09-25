@@ -1,5 +1,6 @@
 # =====================================================================================
-# S5-S9: from the annotated plasmidome to 1,000 screening candidates.
+# S5 onwards: the evidence recorded for every dark family. Nothing is ranked or selected;
+# the 1,000 proteins for follow-up are chosen by hand from the report.
 #
 # The cascade's thresholds live in config/cascade.yaml. These are the downstream ones.
 # Same rule applies (design principle P4): declared here, schema-validated, and stamped
@@ -28,9 +29,8 @@ rarity:
   rare_max_lineages: 3
   # At or above this many, WIDELY_CONSERVED.
   widely_conserved_min_lineages: 50
-  cross_min_mob: 3
-  cross_min_hosts: 5
-  cross_min_genera: 3
+  cross_min_hosts: 2
+  cross_min_genera: 2
   # Random orderings averaged for the rarefaction curve. A single ordering is one arbitrary
   # curve and the shape is the entire output, so it must not be an artefact of one shuffle.
   rarefaction_replicates: 20
@@ -43,9 +43,10 @@ rarity:
 # plasmid occurrences, 8 MOB clusters, 47 independent clusters - is the reason.
 lineage:
   # Mash distance below which two plasmids are the same lineage. 0.05 is approximately 95%
-  # ANI, the conventional species-level boundary and the usual bar for "same plasmid
-  # lineage". The cluster count is a direct function of this, so it is recorded on every
-  # row of the output.
+  # ANI (Ondov et al. 2016). That is a NEAR-IDENTICAL lineage, much finer than a plasmid
+  # taxonomic unit (PTU; Redondo-Salvo et al. 2020, Nat. Commun. 11:3602), and the text
+  # must call it a lineage, not a PTU. The cluster count is a direct function of this, so
+  # it is recorded on every row of the output.
   max_distance: 0.05
   # Mash reports a small distance from very few shared hashes, and says so with a large
   # p-value. Distance alone would link plasmids sharing almost nothing.
@@ -68,13 +69,14 @@ lineage:
 #   close         90% identity, 80% coverage. Near-identical proteins; separates true
 #                 orthologues from a diverged family.
 #   intermediate  50% / 80%. The conventional homology bar.
-#   broad         30% / 50%. FESNov's deep-homology setting (Nature 626:377), deliberately
-#                 looser than the 70/80 they used on 1.17 billion metagenomic sequences:
-#                 this collection has 3.5 million, and at 70% real families fragment into
-#                 singletons.
+#   broad         30% / 50%, cov-mode 1, cluster-mode 2: FESNov's own family clustering of
+#                 ~400 million genes (Rodriguez del Rio et al. 2024, Nature 626:377,
+#                 Methods: --min-seq-id 0.3 -c 0.5 --cov-mode 1 --cluster-mode 2).
 #
-# `primary` names the resolution the downstream stages read when they need one family per
-# protein. The others are computed and reported beside it.
+# `primary` names the resolution that IS the protein family: every stage that needs one
+# family per protein reads it (cascade selection, dark families, synteny, rarity in the
+# report). Decided 2026-09-25: intermediate (50% identity, 80% coverage; the UniRef50
+# analogue). close and broad are computed and reported beside it, never used as the family.
 clustering:
   resolutions:
     close:
@@ -86,9 +88,24 @@ clustering:
     broad:
       min_seq_id: 0.3
       coverage: 0.5
-  primary: broad
-  cov_mode: 0
-  cluster_mode: 0
+  primary: intermediate
+  # FESNov (Rodriguez del Rio et al., Nature 2024, Methods): --cov-mode 1 --cluster-mode 2,
+  # i.e. coverage of the member and greedy length-ordered clustering; -e 0.001 is the
+  # MMseqs2 default and is not overridden. Applied at every resolution.
+  cov_mode: 1
+  cluster_mode: 2
+# Stage 5b family network, built as Durairaj et al. built theirs over UniRef50 (Nature 2023,
+# 622:646, Methods): nodes are the `intermediate` 50%-identity clusters; an edge is an
+# MMseqs2 hit covering at least 50% of EITHER protein at E < 1e-4, at most four outbound
+# edges per node; a node is dark when its best-annotated member reaches no more than 5%
+# annotation coverage ("functional brightness"). node_resolution names the clustering
+# whose clusters are the nodes; `intermediate` (50% identity) is the UniRef50 analogue.
+network:
+  node_resolution: intermediate
+  min_cov: 0.5
+  max_evalue: 1.0e-4
+  max_out_edges: 4
+  dark_brightness: 0.05
 evolution:
   min_codons: 20
   min_members_for_dnds: 3
@@ -100,27 +117,6 @@ orthology:
   required: false
 defence:
   required: false
-# Stage 13 (spec sections 52-53). The reference population every context enrichment is
-# measured against.
-#
-# A flat corpus background divides by one number for the whole collection. On a 5 kb
-# cryptic plasmid a +-3 neighbourhood IS the entire molecule, so everything co-occurs with
-# everything: a flat background under-corrects for small plasmids and over-corrects for
-# large ones, and small cryptic plasmids are a stratum of interest in this project.
-# Stratifying asks "is this association unusual FOR A PLASMID LIKE THIS", which is the
-# question being put.
-background:
-  # Section 52 names the covariates that matter. Each one added makes every stratum
-  # smaller, so this is a trade between matching and estimability, not a list to maximise.
-  # plasmid_length and gene_count are banded logarithmically - plasmid size spans four
-  # orders of magnitude and a linear band would pool everything above 100 kb.
-  covariates: [plasmid_length, gene_count]
-  # Below this many plasmids a stratum is too thin to estimate a rate from, and the
-  # comparison falls back to the pooled background WITH the fallback recorded on the row
-  # rather than applied silently. 20 gives a background rate a resolution of 5%, which is
-  # the coarsest that can still distinguish a common association from a rare one.
-  min_stratum_size: 20
-
 context:
   max_operon_gap: 100
   neighbourhood_window: 3

@@ -50,12 +50,16 @@ partial_at: 0.5
 #
 # hmmsearch reports E = (sequences searched) x P(score | null), and by default the first
 # term is the actual input size. T2's input is whatever T1 could not resolve, so without
-# -Z the same cut means a different significance on every shard and moves whenever
+# -Z the same cut means a different significance on every tier and moves whenever
 # anything upstream changes. Measured: the same alignment reports 4.1e-36 / 4.1e-35 /
 # 4.1e-34 at 200 / 2,000 / 20,000 queries.
 #
 # The value is the number of sequences the cascade actually searches, so an E-value means
-# "expected false positives across the whole study".
+# "expected false positives across the whole study". Every unique protein is counted,
+# including those PlasmidScope annotates, which skip the cascade (rule
+# plasmidscope_import), and those the selection does not search (rule cascade_selection):
+# E-values then do not move with PlasmidScope's coverage or the selection, and the
+# larger -Z is the conservative choice for the dark set (workflow/scripts/sweep_cohort.py).
 #   9,317,050 ORFs -> 3,497,616 unique proteins (results/s2/unique_proteins.faa)
 #   + 500 spiked positive controls + 500 decoys = 3,498,616
 # The controls are part of the searched set by design - they have to take the identical
@@ -65,8 +69,12 @@ partial_at: 0.5
 hmmer_z: 3498616
 
 # DIAMOND reports at most this many targets per query. A sixth threshold that was
-# hardcoded in workflow/scripts/tier_search.py in v1.
-max_target_seqs: 5
+# hardcoded in workflow/scripts/tier_search.py in v1. 25 is DIAMOND's own default. It was
+# 5: on the nr benchmark (results_bench, 3,714 queries with hits) 1,627 queries (44%)
+# filled all five slots with uninformative "hypothetical protein" hits, so an informative
+# hit ranked sixth or lower was never seen. The limit also enters DIAMOND's search
+# heuristic, not only its reporting (Shah et al., Bioinformatics 2019, 35:1613).
+max_target_seqs: 25
 
 # Fraction of proteins that bypass narrowing entirely and are searched by EVERY tier.
 # This is the only way to state what the narrowing threshold cost, because for these
@@ -74,8 +82,28 @@ max_target_seqs: 5
 # the compute. Set to 0 to disable (and lose the ability to check your own threshold).
 sweep_cohort_fraction: 0.02
 
+# --- Search clustering ---------------------------------------------------------------
+# The search clustering (rule cascade_selection, S2s). The proteins the cascade annotates
+# are clustered at this identity and coverage; only the representatives are searched and
+# each member takes its representative's result (cascade_resolve, annot_source).
+#   90% identity: UniRef90 (Suzek et al. 2015, Bioinformatics 31:926), where cluster
+#     members are treated as functionally equivalent for annotation.
+#   80% coverage of BOTH sequences (cov-mode 0): the member and the representative then
+#     differ in length by at most ~20%, so the representative's hits cannot describe a
+#     domain the member lacks. Stricter than the families' cov-mode 1 on purpose: the
+#     families only group, this copies an annotation.
+#   cluster-mode 2: greedy by length, as for the families (FESNov).
+# Measured on PlasmidScope's proteins (2026-09-24): 356,959 selected proteins -> 216,546
+# representatives (cov-mode 1 would give 196,973).
+search_clustering:
+  min_seq_id: 0.9
+  coverage: 0.8
+  cov_mode: 0
+  cluster_mode: 2
+
 # --- Tiers ---------------------------------------------------------------------------
-# Tier order IS authority order: a shallower tier's label wins ties, and homology_depth is
+# Tier order IS authority order: annot_label comes from the shallowest tier that named
+# the protein (cascade.classify), and homology_depth is
 # the tier's position in this list. mmseqs2 is reserved for S6; the cascade uses native
 # tools only.
 #
@@ -153,13 +181,31 @@ tiers:
   - id: T5
     method: diamond
     source: nr
-    db: /sw/data/diamond_databases/Blast/latest/nr.dmnd
-    args: "--very-sensitive"
+    db: data/refs/clustered_nr/clustered_nr.dmnd
+    args: "--very-sensitive -b 16 -c 1"
     max_evalue: 1.0e-5
+    # Decided 2026-09-24: a protein Pfam (T1 or T2) or Swiss-Prot (T4) named keeps that
+    # curated name and is not searched against nr, whatever fraction of it they explain.
+    # nr is spent only on what the curated databases could not name. pharokka names do
+    # not skip nr. Consequence: the unexplained part of a DOMAIN_ONLY protein that Pfam
+    # named is not searched in nr.
+    skip_if_named_by: [pfam, swissprot]
+    # number-of-sequences in data/refs/clustered_nr/metadata.json. Preflight compares the
+    # built index against it, so a truncated makedb cannot pass as a finished database.
+    expected_sequences: 545597271
     note: >
-      NCBI nr, 350 GB. Reaches environmental sequence nothing else has. UniRef90 was
-      dropped from the cascade after review measured it at 3-11 days for little beyond
-      what nr already provides.
+      NCBI ClusteredNR (2026-08-30): nr clustered at 90% identity and 90% length, one
+      representative per cluster - 545.6M sequences, 173.6G residues, against 707M and
+      273G for the 2025-03-03 nr it replaces (tools/download_clustered_nr.sh). Newer, and
+      about 0.64x the residues to search. Reaches environmental sequence nothing else
+      has. UniRef90 was dropped from the cascade after review measured it at 3-11 days
+      for little beyond what nr already provides. -b 16 -c 1 as benchmarked on full nr
+      (config/bench/cascade.yaml, workflow/bench_nr.sbatch, job 6928733): 1.7 s per query
+      and ~45 min fixed per pass there; ClusteredNR is not benchmarked, and is expected
+      at about 0.64x of both. DIAMOND scales E-values by the database size, and
+      ClusteredNR is 0.64x the letters of nr: the same 1e-5 is ~0.65 bits more permissive
+      than on full nr, so E-values here are not comparable with the full-nr benchmark
+      (results_bench). The size is not pinned with --dbsize; the methods state it.
 
 # --- Artefact screen (S2b) -----------------------------------------------------------
 # AntiFam is Pfam's companion database of profiles built to match sequences that are NOT

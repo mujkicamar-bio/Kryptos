@@ -7,8 +7,7 @@ into pathways; FESNov's neighbourhood metric is defined over KEGG pathway member
 neighbouring genes. Annotating the KNOWN fraction properly is what makes the UNKNOWN
 fraction interpretable.
 """
-from plasmidann.orthology import parse_annotations, kegg_pathways, cog_category
-
+from plasmidann.orthology import cog_category, kegg_pathways, parse_annotations
 
 HEADER = ("#query\tseed_ortholog\tevalue\tscore\teggNOG_OGs\tmax_annot_lvl\t"
           "COG_category\tDescription\tPreferred_name\tGOs\tEC\tKEGG_ko\tKEGG_Pathway\n")

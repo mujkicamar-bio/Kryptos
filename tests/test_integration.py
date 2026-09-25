@@ -65,46 +65,9 @@ def test_the_observation_count_is_labelled_non_independent():
 
 def test_every_emitted_dimension_is_declared():
     record = {"artefact_flag": 0, "annot_tier": "T1", "cog_category": "L",
-              "top_hypothesis": "defence", "dnds_status": "SUCCESS",
+              "cons_annotated_neighbour": 0.5, "dnds_status": "SUCCESS",
               "independent_cluster_status": "SUCCESS", "structural_match": "x",
               "protein_length": 100}
 
     assert set(integration.dimensions_present(record)) <= set(integration.DIMENSIONS)
 
-
-def test_a_context_association_becomes_a_hypothesis_with_its_support():
-    """Section 57: each hypothesis must have traceable support."""
-    record = {"top_hypothesis": "defence", "top_conservation": 0.9,
-              "synteny_conservation": 0.85}
-
-    hypothesis, support = integration.functional_hypothesis(record)
-
-    assert hypothesis == "defence_associated"
-    assert "top_conservation=0.9" in support
-    assert "synteny_conservation=0.85" in support
-
-
-def test_a_hypothesis_is_an_association_never_an_identity():
-    """Section 2.7 and section 57: a dark ORF repeatedly next to a defence system may be
-    defence_associated; it must not be called a defence protein, and the protein remains
-    DARK unless direct sequence or domain evidence says otherwise."""
-    hypothesis, _ = integration.functional_hypothesis({"top_hypothesis": "defence"})
-
-    assert hypothesis.endswith("_associated")
-    assert hypothesis in integration.HYPOTHESES
-    assert "protein" not in hypothesis
-
-
-def test_an_unrecognised_association_stays_unknown_with_its_context_recorded():
-    """Forcing it into the nearest hypothesis would send someone to the bench to test the
-    wrong thing. The context is kept so the association is not lost."""
-    hypothesis, support = integration.functional_hypothesis(
-        {"top_hypothesis": "pfam_family:DUF1234"})
-
-    assert hypothesis == "unknown"
-    assert "DUF1234" in support
-
-
-def test_no_context_gives_the_unknown_hypothesis():
-    """The most common case, and the one the project is built around."""
-    assert integration.functional_hypothesis({}) == ("unknown", "")

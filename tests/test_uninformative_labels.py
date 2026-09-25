@@ -6,6 +6,7 @@ RelB was present; TrfA, RepC, TrwC, Rop filed as novel), which moved a published
 percentage by more than 7 points.
 """
 import pytest
+
 from plasmidann.cascade import UNINFORMATIVE
 
 UNINFORMATIVE_LABELS = [

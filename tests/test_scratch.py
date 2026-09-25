@@ -6,7 +6,7 @@ mmseqs_tmp_broad, foldseek_tmp and two anonymous mkdtemp directories behind; at 
 scale the same directories hold the intermediate databases of a 3.5M-protein clustering,
 so the leak is measured in hundreds of gigabytes rather than in tidiness.
 """
-from plasmidann.scratch import scratch_dir, release
+from plasmidann.scratch import release, scratch_dir
 
 
 def test_a_named_directory_is_stable_and_readable(tmp_path):

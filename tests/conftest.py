@@ -15,6 +15,7 @@ import os
 import pathlib
 import shutil
 import sys
+import tempfile
 from types import SimpleNamespace
 
 import pytest
@@ -81,7 +82,7 @@ class FakeSnakemake:
     """The object Snakemake injects into a script's global namespace."""
 
     def __init__(self, input=None, output=None, params=None, log=None,
-                 threads=1, wildcards=None):
+                 threads=1, wildcards=None, resources=None):
         # Rules declare inputs and outputs either positionally or by name, and scripts
         # access them the same way, so the harness has to accept both forms.
         self.input = _as_namedlist(input)
@@ -90,6 +91,12 @@ class FakeSnakemake:
         self.log = NamedList(*(log or []))
         self.threads = threads
         self.wildcards = SimpleNamespace(**(wildcards or {}))
+        # Snakemake always injects `resources`, and always defines resources.tmpdir even
+        # when a rule declares no resources of its own. A harness that omitted it let a
+        # script reach the cluster with an attribute error the tests could not see.
+        res = dict(resources or {})
+        res.setdefault("tmpdir", tempfile.gettempdir())
+        self.resources = SimpleNamespace(**res)
 
 
 def run_script(name, snake):

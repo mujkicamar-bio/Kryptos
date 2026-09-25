@@ -9,8 +9,9 @@ out of annotation entirely, and looks exactly like a novel dark protein. Synthes
 a protein guarantees a dead well. S1 recovers the ones it can; whatever remains partial is
 reported and set aside.
 """
-import _ctx  # noqa: F401
 import csv
+
+import _ctx  # noqa: F401
 
 eligible = set()
 with open(snakemake.input.flags, newline="") as fh:

@@ -9,10 +9,15 @@ no external process, so it runs over hundreds of thousands of small families and
 testable in-process.
 """
 import pytest
-from plasmidann.evolution import (synonymous_sites, codon_differences, dnds, dnds_detail,
-                                  consensus,
-                                  back_translate)
 
+from plasmidann.evolution import (
+    back_translate,
+    codon_differences,
+    consensus,
+    dnds,
+    dnds_detail,
+    synonymous_sites,
+)
 
 # --- site counting -------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ can recover it. That is the worst error this project can make, so significance i
 before a hit is allowed to contribute a span, a label or a row.
 """
 import pytest
+
 from plasmidann.cascade import passes_significance
 
 

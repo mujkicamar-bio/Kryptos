@@ -10,7 +10,7 @@ catch. It could only see a protein sliding from FUNCTIONAL to DOMAIN_ONLY.
 These proteins come from Swiss-Prot - manually reviewed, of known function, and entirely
 independent of anything this pipeline computed. They are added to the query set with a
 CTRL_ prefix and travel through every tier exactly as a real protein does, which means the
-control tests the real code path including narrowing, sharding and thresholds.
+control tests the real code path including narrowing and thresholds.
 
 WHAT A FAILURE MEANS
 
@@ -26,12 +26,15 @@ THE NEGATIVE CONTROLS ARE SPIKED HERE TOO
 S2d builds the decoys; this stage is where both control sets enter the query. They have to
 be spiked at the same point and into the same file, because the property that makes a
 control a control is that it traverses the identical code path - the same narrowing, the
-same shards, the same thresholds - as a real protein.
+same thresholds - as a real protein.
 """
-import _ctx  # noqa: F401
+import csv
 import random
 
+import _ctx  # noqa: F401
+
 from plasmidann.cascade import is_informative
+from plasmidann.fasta import iter_fasta
 
 CONTROL_PREFIX = "CTRL_"
 
@@ -83,13 +86,20 @@ with open(snakemake.output.control, "w") as out:
         acc = header.split("|")[1] if "|" in header else f"u{i}"
         out.write(f">{CONTROL_PREFIX}{i:05d}_{acc}\n{seq}\n")
 
-# The spiked file is what the cascade actually searches: the unique proteins, the positive
-# controls, and the negative controls from S2d.
-n_real = n_decoys = 0
+# The spiked file is what the cascade actually searches: the unique proteins PlasmidScope
+# does not annotate (S2p), the positive controls, and the negative controls from S2d.
+with open(snakemake.input.ps, newline="") as fh:
+    ps_annotated = {r["seq_id"] for r in csv.DictReader(fh, delimiter="\t")
+                    if r["ps_class"] == "ANNOTATED"}
+
+n_real = n_decoys = n_skipped = 0
 with open(snakemake.output.spiked, "w") as out:
-    for line in open(snakemake.input.faa):
-        out.write(line)
-        n_real += line[0] == ">"
+    for sid, seq in iter_fasta([snakemake.input.faa]):
+        if sid in ps_annotated:
+            n_skipped += 1
+            continue
+        out.write(f">{sid}\n{seq}\n")
+        n_real += 1
     for i, (header, seq) in enumerate(records, start=1):
         acc = header.split("|")[1] if "|" in header else f"u{i}"
         out.write(f">{CONTROL_PREFIX}{i:05d}_{acc}\n{seq}\n")
@@ -98,7 +108,8 @@ with open(snakemake.output.spiked, "w") as out:
         n_decoys += line[0] == ">"
 
 print(f"controls={len(records)} decoys={n_decoys} spiked into {n_real} proteins "
-      f"(total {n_real + len(records) + n_decoys})")
+      f"(total {n_real + len(records) + n_decoys}); "
+      f"{n_skipped} PlasmidScope-annotated proteins left out")
 # Enough controls to measure recall at the resolution the gate demands: at
 # min_control_recall = 0.99, fewer than 100 makes a single failure a 1% swing.
 # From config/targets.yaml, not a literal here: this governs a run-halting gate.

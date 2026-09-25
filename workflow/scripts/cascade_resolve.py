@@ -20,14 +20,34 @@ Two columns describe coverage, over disjoint evidence, and they are not redundan
                        the dark set: 95% covered by 'hypothetical protein' across three
                        databases is a real, conserved, full-length unnamed protein; a
                        single 20-aa fragment hit is not.
+
+EVERY UNIQUE PROTEIN GETS A ROW, and annot_source says where it came from:
+
+  self            searched by the cascade (a search representative, or a control)
+  representative  a member of a 90% search cluster (S2s); the row is its representative's,
+                  named in annot_representative. Coverage fields describe the
+                  representative, which is within ~20% of the member's length (cov-mode 0)
+  plasmidscope    Tier 0
+  not_searched    outside every family with an unexplained small-plasmid protein;
+                  functional_class NOT_SEARCHED, which is neither dark nor annotated
 """
-import _ctx  # noqa: F401
 import collections
 import csv
 
-from plasmidann.cascade import (classify, completeness, dark_evidence, is_informative,
-                                explained_fraction, uninformative_spans, n_dark_databases,
-                                check_thresholds)
+import _ctx  # noqa: F401
+
+from plasmidann.cascade import (
+    check_thresholds,
+    classify,
+    completeness,
+    dark_evidence,
+    explained_fraction,
+    is_informative,
+    n_dark_databases,
+    uninformative_spans,
+)
+from plasmidann.plasmidscope import TIER as PS_TIER
+from plasmidann.plasmidscope import annot_label
 
 cfg = snakemake.params.thresholds
 # Fail loudly and early on an incoherent threshold block rather than producing a table
@@ -57,34 +77,41 @@ for f in snakemake.input.hits:
                 named[r["query"]].append(r)
 
 # The informative explained fraction is taken from the final tier's cumulative spans,
-# which were merged as the cascade descended. qlen comes with it.
-#
-# One file per cascade shard. Each tier writes forward everything it inherited, so the last
-# tier's spans hold every protein the cascade ever saw, and a protein appears in exactly one
-# shard - it never crosses. Reading only the first file would zero the explained fraction of
-# every protein in every other shard, and a zero explained fraction reads as "nothing named
-# it", which would push the entire plasmid backbone into the screening pool.
+# which were merged as the cascade descended. qlen comes with it. Each tier writes forward
+# everything it inherited, so the last tier's spans hold every protein the cascade ever
+# saw.
 explained, qlen = {}, {}
-span_files = snakemake.input.spans
-for path in ([span_files] if isinstance(span_files, str) else list(span_files)):
-    with open(path, newline="") as fh:
-        for r in csv.DictReader(fh, delimiter="\t"):
-            explained[r["seq_id"]] = float(r["explained_fraction"])
-            qlen[r["seq_id"]] = int(r["qlen"])
+with open(snakemake.input.spans, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        explained[r["seq_id"]] = float(r["explained_fraction"])
+        qlen[r["seq_id"]] = int(r["qlen"])
 
 seq_ids = [l[1:].split()[0] for l in open(snakemake.input.faa) if l[0] == ">"]
 
+with open(snakemake.input.selection, newline="") as fh:
+    selection = list(csv.DictReader(fh, delimiter="\t"))
+# Only representatives with members need their row kept for copying.
+copied_from = {r["search_representative"] for r in selection if r["role"] == "member"}
+
 cols = [
     "seq_id",
+    # where the result comes from; see the module docstring
+    "annot_source", "annot_representative",
     # what it is
     "annot_tier", "annot_label", "functional_class", "homology_depth",
     "annot_qcov", "annot_tcov", "annot_evalue", "n_informative_hits",
+    # annot_label comes from the most authoritative tier that named the protein; the
+    # label with the best E-value across tiers is kept beside it (cascade.classify).
+    "best_evalue_label", "best_evalue_tier",
+    # 1 when every informative name is domain-level ("X domain-containing protein"), which
+    # makes the protein DOMAIN_ONLY however much of it those names cover.
+    "named_by_domain_only",
     # EVERY informative label, not just the winning one. The backbone stop-list matches
-    # Pfam family names, and only the Pfam tiers emit those; ranking labels by E-value
-    # means an nr hit with free text routinely takes annot_label away from a curated Pfam
-    # assignment on the same protein. A complete replication initiator carrying RepA_N at
-    # T1 then reached the screening pool with the guard that exists to stop it never
-    # firing, because the only column S5 could read no longer held a Pfam name.
+    # Pfam family names, and only the Pfam tiers emit those; when labels were ranked by
+    # E-value alone an nr hit with free text routinely took annot_label away from a curated
+    # Pfam assignment on the same protein. A complete replication initiator carrying
+    # RepA_N at T1 then reached the screening pool with the guard that exists to stop it
+    # never firing, because the only column S5 could read no longer held a Pfam name.
     "informative_labels", "informative_tiers",
     # how much of it is accounted for
     "explained_fraction", "annot_completeness", "meets_min_explained",
@@ -98,6 +125,7 @@ cols = [
 with open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
+    kept = {}
     for sid in seq_ids:
         ef = explained.get(sid, 0.0)
         length = qlen.get(sid, 0)
@@ -113,8 +141,9 @@ with open(snakemake.output[0], "w", newline="") as out:
                               min_coverage=cfg["min_coverage"], tier_order=tier_order)
         span_measured = classified.pop("span_measured")
 
-        w.writerow({
+        row = {
             "seq_id": sid,
+            "annot_source": "self",
             **classified,
             "explained_fraction": ef,
             # NOT_MEASURED when the class rests on a family-level assignment alone: the
@@ -143,6 +172,52 @@ with open(snakemake.output[0], "w", newline="") as out:
             "thr_narrow_at": cfg["narrow_at"],
             "thr_full_at": cfg["full_at"],
             "thr_partial_at": cfg["partial_at"],
-        })
+        }
+        w.writerow(row)
+        if sid in copied_from:
+            kept[sid] = row
 
-print(f"resolved {len(seq_ids)} proteins across tiers {tier_order}")
+    # Proteins PlasmidScope annotates never entered the cascade (prepare_control); they
+    # are FUNCTIONAL on its eggNOG result. eggNOG reports no alignment span, so nothing
+    # measured how much of the protein is explained: the span fields stay empty and
+    # completeness is NOT_MEASURED, as for any family-level assignment.
+    n_ps = 0
+    with open(snakemake.input.ps, newline="") as fh:
+        for r in csv.DictReader(fh, delimiter="\t"):
+            if r["ps_class"] != "ANNOTATED":
+                continue
+            n_ps += 1
+            w.writerow({
+                "seq_id": r["seq_id"],
+                "annot_source": "plasmidscope",
+                "annot_tier": PS_TIER,
+                "annot_label": annot_label(r),
+                "functional_class": "FUNCTIONAL",
+                "n_informative_hits": 1,
+                "informative_labels": annot_label(r),
+                "informative_tiers": PS_TIER,
+                "annot_completeness": "NOT_MEASURED",
+                "thr_min_coverage": cfg["min_coverage"],
+                "thr_min_explained": cfg["min_explained"],
+                "thr_narrow_at": cfg["narrow_at"],
+                "thr_full_at": cfg["full_at"],
+                "thr_partial_at": cfg["partial_at"],
+            })
+
+    # Members of a search cluster take their representative's row; the rest of the
+    # unique proteins were never searched, and say so.
+    n_member = n_not_searched = 0
+    for r in selection:
+        if r["role"] == "member":
+            n_member += 1
+            w.writerow({**kept[r["search_representative"]], "seq_id": r["seq_id"],
+                        "annot_source": "representative",
+                        "annot_representative": r["search_representative"]})
+        elif r["role"] == "not_selected":
+            n_not_searched += 1
+            w.writerow({"seq_id": r["seq_id"], "annot_source": "not_searched",
+                        "functional_class": "NOT_SEARCHED"})
+
+print(f"resolved {len(seq_ids)} proteins across tiers {tier_order}; "
+      f"{n_member} members took their representative's result; "
+      f"{n_ps} more resolved by PlasmidScope; {n_not_searched} not searched")

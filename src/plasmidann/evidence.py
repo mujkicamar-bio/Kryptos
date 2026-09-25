@@ -26,50 +26,8 @@ WHAT REMAINS, AND WHY IT IS DESCRIPTION RATHER THAN SELECTION
                     whose fold is not are different situations, and averaging them into a
                     number would discard the distinction that matters most.
 
-  binds_nucleic_acid  reads a structural match's DESCRIPTION, never its accession. Testing
-                    for "nucle" in a PDB accession such as 12as-assembly1_A asks whether an
-                    identifier contains a word, which none does.
-
 Both statements are made ABOUT a family and recorded beside it. Neither ranks anything.
 """
-
-
-import re
-
-# Words in a structural match's DESCRIPTION that indicate the fold binds nucleic acid.
-#
-# The nucleic_acid_binding stratum previously tested for the substring "nucle" in the
-# Foldseek TARGET, which is a PDB accession such as `200l-assembly1_A`. No accession
-# contains the word, so that stratum - 75 of the 1,000 constructs - could never be filled
-# by any candidate. Foldseek's `theader` field supplies the actual description, and the
-# installed PDB database carries real text there ("... T4 LYSOZYME", "... MYOGLOBIN").
-#
-# This is a LABEL, deciding which plate a protein goes on, and never a filter: no candidate
-# is excluded for matching or for not matching. Terms are matched on word boundaries, so
-# "DNA" does not fire inside "DNAJ".
-NUCLEIC_ACID_TERMS = re.compile(
-    r"""\b(
-          DNA | RNA | NUCLEIC\ ACID | NUCLEOID   # the direct statements
-        | \w*NUCLEASE                            # endo-, exo-, ribo-
-        | POLYMERASE | HELICASE | TOPOISOMERASE   # act on the strand itself
-        | RECOMBINASE | INTEGRASE | TRANSPOSASE   # site-specific strand exchange
-        | RIBOSOM\w*                             # ribosomal proteins bind rRNA
-        | TRANSCRIPTION\w*
-      )\b""",
-    re.I | re.X,
-)
-
-
-def binds_nucleic_acid(description):
-    """Whether a structural match's description says the fold binds nucleic acid.
-
-    Reads the DESCRIPTION, never the accession. Returns False for an empty or missing
-    description rather than raising: no structural match is a normal, common state, and it
-    simply means this stratum does not apply.
-    """
-    if not description:
-        return False
-    return bool(NUCLEIC_ACID_TERMS.search(description))
 
 
 # The four independent lines of evidence that a dark ORF is a real protein. Each is a
@@ -94,9 +52,12 @@ REALITY_TESTS = [
     },
     {
         "name": "multi_lineage",
-        # Present on two or more unrelated plasmid backbones, so not a single-lineage
-        # accident. Counted over MOB clusters, so one clone sequenced forty times is one.
-        "test": lambda f, thr: _int(f.get("n_mob_clusters")) >= thr["min_mob_clusters"],
+        # Present on two or more Stage 6 lineages (plasmid_lineage, Mash), so not a
+        # single-lineage accident: one clone sequenced forty times is one lineage. Not MOB-suite
+        # clusters, which assign the nearest reference however distant and so put unrelated
+        # novel plasmids into one cluster.
+        "test": lambda f, thr: (_int(f.get("independent_plasmid_cluster_count"))
+                                >= thr["min_lineages"]),
     },
     {
         "name": "is_family",
@@ -141,16 +102,11 @@ IMPLIED_BY = {
     "is_family": ("purifying_selection",),
 }
 
-# The member count the is_family test applies. It must equal evolution.min_members_for_dnds
-# for IMPLIED_BY above to be true; check_reality_config enforces that, so this constant is a
-# cross-check against config rather than a threshold escaping it.
-REALITY_MIN_MEMBERS = 3
-
 
 def reality_lines(family, thresholds):
     """Independent lines of evidence that this is a real protein.
 
-    `thresholds` carries dnds_purifying_max, min_mob_clusters and min_members, all from
+    `thresholds` carries dnds_purifying_max, min_lineages and min_members, all from
     config/targets.yaml. Nothing here reads a module constant.
 
     Returns (n_independent, fired_independent, fired_implied).
@@ -189,17 +145,15 @@ def darkness_state(family):
 
 
 
-def reality_thresholds(evolution, min_mob_clusters=2):
+def reality_thresholds(evolution, min_lineages=2):
     """Assemble the reality-test thresholds.
 
     min_members comes from evolution.min_members_for_dnds rather than being restated, so
     the nesting IMPLIED_BY relies on cannot drift apart.
 
-    min_mob_clusters used to come from a `prioritisation` config block. That block is gone
-    with Layer C (spec section 76), and the value is a DESCRIPTIVE threshold - how many
-    independent MOB clusters make recurrence independent rather than clonal (spec section
-    2.6) - so it is a plain argument with the same default the config carried.
+    min_lineages is how many Stage 6 lineages make recurrence independent rather than
+    clonal (spec section 2.6): two, the smallest count that is more than one.
     """
     return {"dnds_purifying_max": evolution["dnds_purifying_max"],
             "min_members": evolution["min_members_for_dnds"],
-            "min_mob_clusters": min_mob_clusters}
+            "min_lineages": min_lineages}

@@ -5,12 +5,13 @@ class and what single linkage costs.
 
 Mash sketches every plasmid, compares all pairs, and the connected components below the
 configured distance are the lineage clusters. `mash dist` on a sketch database is all
-against all in one pass, so this is one job rather than a per-shard fan-out.
+against all in one pass.
 """
-import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
+
+import _ctx  # noqa: F401
 
 from plasmidann.lineage import lineage_clusters, parse_mash_dist
 
@@ -20,14 +21,13 @@ work = out.parent / "mash"
 work.mkdir(parents=True, exist_ok=True)
 
 # ------------------------------------------------------------------------------------
-# Sketch. -i sketches each SEQUENCE separately rather than each file, which is what makes
-# one shard of many plasmids into many sketches.
+# Sketch. -i sketches each SEQUENCE separately rather than the file, which is what makes
+# one file of many plasmids into many sketches.
 # ------------------------------------------------------------------------------------
 sketch = work / "plasmids"
-shards = " ".join(str(p) for p in snakemake.input.shards)
 subprocess.run(
     f"mash sketch -i -k {cfg['kmer']} -s {cfg['sketch_size']} "
-    f"-p {snakemake.threads} -o {sketch} {shards}",
+    f"-p {snakemake.threads} -o {sketch} {snakemake.input.fasta}",
     shell=True, check=True)
 
 # ------------------------------------------------------------------------------------
@@ -42,10 +42,9 @@ with open(dist_out, "w") as fh:
         shell=True, check=True, stdout=fh)
 
 names = []
-for shard in snakemake.input.shards:
-    for line in open(shard):
-        if line[0] == ">":
-            names.append(line[1:].split()[0])
+for line in open(snakemake.input.fasta):
+    if line[0] == ">":
+        names.append(line[1:].split()[0])
 
 edges = parse_mash_dist(open(dist_out).read(), max_distance=cfg["max_distance"],
                         max_pvalue=cfg["max_pvalue"])
@@ -70,5 +69,5 @@ print(f"lineage: {len(names)} plasmids -> {n_clusters} independent lineage clust
 print(f"         plasmid records {len(names)}, independent lineages {n_clusters}")
 
 if not names:
-    raise SystemExit("plasmid_lineage: no sequences found in the shards - every downstream "
+    raise SystemExit("plasmid_lineage: no sequences found in the input - every downstream "
                      "independence count would be empty.")

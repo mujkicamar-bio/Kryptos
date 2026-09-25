@@ -2,8 +2,7 @@
 
 dN/dS needs codons, and the pipeline stores protein only - but orf_index.tsv carries
 plasmid_id, start, end, strand and spans_origin, which is enough to recover the CDS from
-the shards. The shards rather than the corpus FASTA: they are what the run was given, and
-every other stage that needs sequence reads them.
+the analysis-set FASTA written at S0, which is what every stage that needs sequence reads.
 
 Two details that are easy to get wrong and silently corrupt every downstream estimate:
 
@@ -16,10 +15,11 @@ Two details that are easy to get wrong and silently corrupt every downstream est
                 Forgetting this yields a sequence that translates to nonsense, which
                 dN/dS would happily report a number for.
 """
-import _ctx  # noqa: F401
 import csv
 
-from plasmidann.shards import iter_fasta
+import _ctx  # noqa: F401
+
+from plasmidann.fasta import iter_fasta
 
 COMPLEMENT = str.maketrans("ACGTNacgtn", "TGCANtgcan")
 
@@ -55,7 +55,6 @@ with open(snakemake.output[0], "w") as out:
         global n_written, n_origin
         if pid not in needed:
             return
-        L = len(seq)
         for sid, r in needed[pid]:
             start, end = int(r["start"]), int(r["end"])
             if r.get("spans_origin") == "1":
@@ -71,7 +70,7 @@ with open(snakemake.output[0], "w") as out:
             out.write(f">{sid}\n{nt}\n")
             n_written += 1
 
-    for pid, seq in iter_fasta(snakemake.input.shards):
+    for pid, seq in iter_fasta([snakemake.input.fasta]):
         emit(pid, seq)
 
 print(f"CDS written={n_written} of {len(wanted)} dark proteins "

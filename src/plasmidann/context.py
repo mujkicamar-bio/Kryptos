@@ -19,15 +19,12 @@ a toxin-antitoxin pair is a candidate antitoxin; one inside an integron cassette
 a real gene by construction, because it carries an attC site and has been physically
 mobilised and retained under selection.
 
-THE STATISTICAL TRAP THIS MODULE EXISTS TO AVOID
+THE SMALL-PLASMID CAVEAT
 
-On a 5 kb cryptic plasmid carrying six genes, a +/-3 neighbourhood IS the entire plasmid.
-Everything co-occurs with everything, and a raw co-occurrence frequency would rank the
-smallest plasmids as the most informative when they are the least - which would be
-catastrophic here, since small cryptic plasmids are a stratum of interest.
-
-So co-occurrence is always reported as ENRICHMENT over a corpus-wide background, and the
-family-level statistic is CONSERVATION across members rather than a single instance.
+On a 5 kb cryptic plasmid carrying six genes, a +/-3 neighbourhood IS the entire plasmid,
+so everything co-occurs with everything. The pipeline reports context as descriptive rates
+with no background correction (the enrichment test was removed on 2026-09-25), so a high
+neighbour rate on small plasmids is expected and is not in itself a signal.
 """
 
 # Maximum intergenic distance, in nucleotides, for two consecutive same-strand genes to be
@@ -36,11 +33,12 @@ family-level statistic is CONSERVATION across members rather than a single insta
 DEFAULT_MAX_GAP = 100
 
 
-def directons(genes, max_gap=DEFAULT_MAX_GAP):
+def directons(genes, max_gap=DEFAULT_MAX_GAP, circular=False, length=None):
     """Group genes into putative transcriptional units.
 
-    A directon is a maximal run of consecutive genes on the same strand separated by less
-    than `max_gap` nucleotides. Returns a list of lists of orf_id, in coordinate order.
+    A directon is a maximal run of consecutive genes on the same strand separated by at
+    most `max_gap` nucleotides (<= 100 nt by default). Returns a list of lists of orf_id,
+    in coordinate order.
 
     Membership of a directon is a much stronger contextual claim than mere adjacency: the
     genes are predicted to be co-transcribed, and therefore functionally coupled. A dark
@@ -53,7 +51,16 @@ def directons(genes, max_gap=DEFAULT_MAX_GAP):
 
     Genes are sorted by start here rather than assumed sorted, because callers assemble
     them from a table that may be grouped by plasmid but not ordered within it.
+
+    On a circular molecule (`circular`, decided by the caller who knows the topology) the
+    record's last run and first run are one unit when they share a strand and the gap
+    across the origin is at most `max_gap`; the merged unit is listed first, in molecule
+    order. `length` is the length of the sequence the genes were called on, which the gap
+    across the origin needs. Without this, an operon that the linearisation of the deposit
+    happened to cut was reported as two.
     """
+    if circular and length is None:
+        raise ValueError("a circular directon needs the molecule length")
     ordered = sorted(genes, key=lambda g: (g["start"], g["end"]))
     units, current = [], []
     for gene in ordered:
@@ -69,26 +76,46 @@ def directons(genes, max_gap=DEFAULT_MAX_GAP):
             current = [gene]
     if current:
         units.append(current)
+    if circular and len(units) > 1:
+        last, first = units[-1][-1], units[0][0]
+        if last["start"] > last["end"]:
+            # The last gene already crosses the origin (start > end, see _segments).
+            gap = first["start"] - last["end"] - 1
+        else:
+            gap = (length - last["end"]) + (first["start"] - 1)
+        if last["strand"] == first["strand"] and gap <= max_gap:
+            units = [units[-1] + units[0]] + units[1:-1]
     return [[g["orf_id"] for g in unit] for unit in units]
 
 
-def neighbourhood(genes, orf_id, window=3):
-    """The orf_ids of the `window` genes on either side of `orf_id`.
+def flanks(genes, orf_id, window=3, circular=False):
+    """(left, right): the orf_ids of up to `window` genes on each side, nearest first.
 
-    Truncated at the ends of the record rather than wrapped. Wrapping would be correct for
-    a circular molecule, but it must be an explicit decision made by the caller who knows
-    the topology, not an accident of negative list indexing - which is how it would happen
-    silently in Python.
+    Truncated at the ends of a linear record. On a circular one (`circular`, decided by the
+    caller who knows the topology) the window wraps across the origin, so a gene near the
+    record's start has neighbours where the molecule has them rather than where the deposit
+    happened to be linearised: on the test set 66% of small-plasmid ORFs had a window cut
+    short at a record end. A gene is never its own neighbour, so on a circle of n genes
+    each side holds at most n - 1, and on a small circle the two sides can share genes -
+    as they do on the molecule.
     """
     ordered = sorted(genes, key=lambda g: (g["start"], g["end"]))
     ids = [g["orf_id"] for g in ordered]
     try:
         i = ids.index(orf_id)
     except ValueError:
-        return []
-    left = ids[max(0, i - window):i]
-    right = ids[i + 1:i + 1 + window]
-    return left + right
+        return [], []
+    if circular:
+        k = min(window, len(ids) - 1)
+        return ([ids[(i - d) % len(ids)] for d in range(1, k + 1)],
+                [ids[(i + d) % len(ids)] for d in range(1, k + 1)])
+    return ids[max(0, i - window):i][::-1], ids[i + 1:i + 1 + window]
+
+
+def neighbourhood(genes, orf_id, window=3, circular=False):
+    """The orf_ids of the `window` genes on either side of `orf_id` (see flanks)."""
+    left, right = flanks(genes, orf_id, window, circular)
+    return left[::-1] + right
 
 
 def _segments(feature):
@@ -119,7 +146,7 @@ def overlapping_islands(gene, islands):
     ALL of them, not the first. A predecessor returned the first match and stopped, and
     since defence intervals are appended after integron intervals, a dark ORF inside a
     defence system that also sat in a cassette array could only ever be labelled 'integron'.
-    The defence_island stratum - 175 of the 1,000 constructs - was unreachable behind it.
+    A dark ORF in a defence system could never be reported as such behind it.
 
     Origin-spanning genes and origin-spanning islands are both handled, because either can
     be written start > end.
@@ -157,30 +184,3 @@ def context_conservation(members, feature):
     n = sum(1 for m in members if feature in m.get("context", ()))
     return round(n / len(members), 4)
 
-
-def background_rate(all_orfs, feature):
-    """How often `feature` appears in the context of ANY protein in the corpus.
-
-    The denominator for enrichment. Without it, a feature that is simply common - as
-    transposases are on plasmids - looks like a discovery every time.
-    """
-    if not all_orfs:
-        return 0.0
-    n = sum(1 for o in all_orfs if feature in o.get("context", ()))
-    return round(n / len(all_orfs), 6)
-
-
-def enrichment(observed, background):
-    """Observed co-occurrence relative to the corpus background.
-
-    1.0 means the association is exactly what chance predicts. This is the number that
-    protects against the small-plasmid trap: on a six-gene plasmid the observed rate is
-    high for everything, and so is the background, so the ratio stays near 1.
-
-    A zero background with a non-zero observation is infinitely enriched, which is the
-    honest answer - the caller decides how to rank it. Zero over zero is 1.0: no signal,
-    no surprise.
-    """
-    if background == 0:
-        return 1.0 if observed == 0 else float("inf")
-    return observed / background

@@ -22,11 +22,13 @@ The search uses Pfam's curated gathering thresholds, the same authority as T1. A
 is a synthetic sequence, so a global E-value would be even less meaningful for it than for
 a real protein.
 """
-import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
 
+import _ctx  # noqa: F401
+
+from darkorf import status
 from plasmidann import scratch
 
 db = snakemake.params.db
@@ -54,14 +56,24 @@ if ids:
         if family not in hits or float(ievalue) < float(hits[family][1]):
             hits[family] = (label, ievalue)
 
-cols = ["family_id", "consensus_hit", "consensus_label", "consensus_ievalue",
-        "collectively_novel"]
-with open(snakemake.output[0], "w", newline="") as out:
+# A row for EVERY dark family. One with too few members to align has no consensus and was
+# not re-checked: consensus_status NOT_RUN and collectively_novel left empty, which a
+# reader could otherwise not tell apart from a family missing from the table.
+tested = set(ids)
+cols = ["family_id", "consensus_status", "consensus_hit", "consensus_label",
+        "consensus_ievalue", "collectively_novel"]
+with open(snakemake.input.families, newline="") as fh, \
+        open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
-    for fid in ids:
+    for fam in csv.DictReader(fh, delimiter="\t"):
+        fid = fam["family_id"]
+        if fid not in tested:
+            w.writerow({"family_id": fid, "consensus_status": status.NOT_RUN})
+            continue
         label, ievalue = hits.get(fid, ("", ""))
-        w.writerow({"family_id": fid, "consensus_hit": int(bool(label)),
+        w.writerow({"family_id": fid, "consensus_status": status.SUCCESS,
+                    "consensus_hit": int(bool(label)),
                     "consensus_label": label, "consensus_ievalue": ievalue,
                     "collectively_novel": int(not label)})
 

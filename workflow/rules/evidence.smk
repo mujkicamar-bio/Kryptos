@@ -1,14 +1,15 @@
 # =====================================================================================
-# S5-S9: from the annotated plasmidome to 1,000 screening candidates.
+# S5-S8 and the report: the evidence recorded for every dark family. Nothing here ranks or
+# selects proteins; the 1,000 for experimental follow-up are chosen by hand from these
+# tables (spec sections 13.3 and 76).
 #
-# S5  quality gate        positive control (run-halting) + backbone stop-list
-# S6  dark set, families  MMseqs2 deep-homology clustering
-# S7  evolutionary        CDS recovery, codon alignments, dN/dS
-# S8  context, structure  DefenseFinder, IntegronFinder, directons, Foldseek
-# S9  prioritisation      composite score, weight sweep, stratified portfolio
-# S9b library design      codon-optimised synthesis order
+# S5  quality gate        positive control (run-halting), decoys (reported)
+# S6  dark set, families  MMseqs2 deep-homology clustering, family network, lineages
+# S7  evolutionary        recurrence, CDS recovery, codon alignments, dN/dS, RNAcode
+# S8  context, structure  DefenseFinder, IntegronFinder, ISEScan, directons, Foldseek
+# S9+ synteny, rarity, report
 #
-# Rationale: plans/2026-09-10-pipeline-v2-design.md
+# Specification: PLASMID_ANALYSIS.md
 # =====================================================================================
 
 rule clonal_registry:
@@ -20,11 +21,16 @@ rule clonal_registry:
     input:
         master=config["input"]["master_table"],
         ids=f"{OUT}/01_analysis_set/analysis_set.txt",
+        # Host names beyond PLSDB's (plasmidann.hosts).
+        ps_hosts=config["input"]["host_provenance"],
+        working_set=config["input"]["working_set"],
     output:
         f"{OUT}/01_analysis_set/clonal_registry.tsv",
     resources:
         mem_mb=4000,
         runtime=60,
+    benchmark:
+        f"{OUT}/benchmarks/clonal_registry.tsv"
     log:
         f"{OUT}/logs/01_analysis_set/clonal_registry.log",
     conda:
@@ -43,9 +49,13 @@ rule quality_gate:
         report=f"{OUT}/09_quality_gate/quality_gate.txt",
     params:
         gate=targets["quality_gate"],
+        tier_sources={t["id"]: t["source"] for t in TIERS},
     resources:
-        mem_mb=8000,
+        # ~1.4 KB per protein row measured, ~4.9 GB at 3.5 M proteins.
+        mem_mb=16000,
         runtime=60,
+    benchmark:
+        f"{OUT}/benchmarks/quality_gate.tsv"
     log:
         f"{OUT}/logs/09_quality_gate/quality_gate.log",
     conda:
@@ -67,6 +77,8 @@ rule dark_set:
     resources:
         mem_mb=16000,
         runtime=120,
+    benchmark:
+        f"{OUT}/benchmarks/dark_set.tsv"
     log:
         f"{OUT}/logs/10_clustering/dark_set.log",
     conda:
@@ -83,7 +95,7 @@ rule plasmid_lineage:
     sequenced twice.
     """
     input:
-        shards=[SHARD_PATHS[s] for s in SHARDS],
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
     output:
         tsv=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     params:
@@ -92,6 +104,8 @@ rule plasmid_lineage:
     resources:
         mem_mb=32000,
         runtime=720,
+    benchmark:
+        f"{OUT}/benchmarks/plasmid_lineage.tsv"
     log:
         f"{OUT}/logs/10_clustering/plasmid_lineage.log",
     conda:
@@ -101,9 +115,10 @@ rule plasmid_lineage:
 
 
 rule protein_families:
-    """Stage 5: cluster EVERY unique protein into families (spec section 31).
+    """Stage 5: the family table for EVERY unique protein (spec section 31).
 
-    Not only the dark set. Section 31.2 requires dark_member_count,
+    The clusters are made before the cascade (S2f); this adds the annotation, the
+    distribution and the small/large scope. Not only the dark set. Section 31.2 requires dark_member_count,
     annotated_member_count and percentage_dark_in_family, and section 32 derives a
     dark-only family as 100% dark - all four need the annotated members present.
 
@@ -111,7 +126,11 @@ rule protein_families:
     dark-family subset at the primary resolution that the dark stages read.
     """
     input:
-        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        # Made before the cascade (S2f, protein_clustering); annotation is added here.
+        clusters=expand(f"{OUT}/10_clustering/families_{{res}}_cluster.tsv",
+                        res=targets["clustering"]["resolutions"]),
+        prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
+        small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
         dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
@@ -121,16 +140,53 @@ rule protein_families:
         dark_families=f"{OUT}/10_clustering/dark_families.tsv",
     params:
         clustering=targets["clustering"],
-    threads: 16
     resources:
         mem_mb=64000,
         runtime=1440,
+    benchmark:
+        f"{OUT}/benchmarks/protein_families.tsv"
     log:
         f"{OUT}/logs/10_clustering/protein_families.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
         "../scripts/protein_families.py"
+
+
+rule family_network:
+    """Stage 5b: 50%-identity clusters linked by sequence similarity (Durairaj et al.
+    2023), with communities and an annotation state per node - a map of where the dark
+    plasmidome sits relative to the known. Reads the intermediate clustering Stage 5
+    already made; changes no family and no dark call.
+    """
+    input:
+        families=f"{OUT}/10_clustering/protein_families.tsv",
+        reps=f"{OUT}/10_clustering/families_{targets['network']['node_resolution']}_rep_seq.fasta",
+        clusters=f"{OUT}/10_clustering/families_{targets['network']['node_resolution']}_cluster.tsv",
+        prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
+        dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+    output:
+        nodes=f"{OUT}/10_clustering/network_nodes.tsv",
+        edges=f"{OUT}/10_clustering/network_edges.tsv",
+        summary=f"{OUT}/10_clustering/network_summary.tsv",
+    params:
+        network=targets["network"],
+        primary=targets["clustering"]["primary"],
+        node_resolution=targets["network"]["node_resolution"],
+        seed=config["seed"],
+    threads: workflow.cores
+    resources:
+        mem_mb=64000,
+        runtime=1440,
+    benchmark:
+        f"{OUT}/benchmarks/family_network.tsv"
+    log:
+        f"{OUT}/logs/10_clustering/family_network.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/family_network.py"
 
 
 rule rarity:
@@ -144,6 +200,8 @@ rule rarity:
         recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
         dark_families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
+        # The rarefaction axis: every small plasmid, with a dark family or without.
+        small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
     output:
         rarity=f"{OUT}/14_rarity/family_rarity.tsv",
         rarefaction=f"{OUT}/15_report/dark_family_rarefaction.tsv",
@@ -153,6 +211,8 @@ rule rarity:
     resources:
         mem_mb=16000,
         runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/rarity.tsv"
     log:
         f"{OUT}/logs/14_rarity/rarity.log",
     conda:
@@ -172,13 +232,23 @@ rule synteny:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
         families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
+        # Neighbours are compared by family (S2f, primary), on small and large plasmids.
+        clusters=f"{OUT}/10_clustering/families_{targets['clustering']['primary']}_cluster.tsv",
+        small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
+        # Topology: the neighbour window wraps across the origin of a circular plasmid.
+        registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
+        # Directons merge across the origin of a circular plasmid, which needs its length.
+        lengths=f"{OUT}/01_analysis_set/plasmid_lengths.tsv",
     output:
         tsv=f"{OUT}/13_synteny/synteny.tsv",
     params:
         context=targets["context"],
+        primary=targets["clustering"]["primary"],
     resources:
         mem_mb=32000,
         runtime=480,
+    benchmark:
+        f"{OUT}/benchmarks/synteny.tsv"
     log:
         f"{OUT}/logs/13_synteny/synteny.log",
     conda:
@@ -204,6 +274,8 @@ rule recurrence:
     resources:
         mem_mb=16000,
         runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/recurrence.tsv"
     log:
         f"{OUT}/logs/11_distribution_and_evolution/recurrence.log",
     conda:
@@ -218,12 +290,14 @@ rule extract_cds:
         ids=f"{OUT}/10_clustering/dark_ids.txt",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         index=f"{OUT}/02_orf_calling/orf_index.tsv",
-        shards=[SHARD_PATHS[s] for s in SHARDS],
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
     output:
         f"{OUT}/11_distribution_and_evolution/dark_cds.fna",
     resources:
         mem_mb=16000,
         runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/extract_cds.tsv"
     log:
         f"{OUT}/logs/11_distribution_and_evolution/extract_cds.log",
     conda:
@@ -250,6 +324,8 @@ rule family_evolution:
     resources:
         mem_mb=16000,
         runtime=2880,
+    benchmark:
+        f"{OUT}/benchmarks/family_evolution.tsv"
     log:
         f"{OUT}/logs/11_distribution_and_evolution/family_evolution.log",
     conda:
@@ -266,6 +342,8 @@ rule consensus_recheck:
     """
     input:
         consensus=f"{OUT}/11_distribution_and_evolution/family_consensus.faa",
+        # Every dark family gets a row; those without a consensus say NOT_RUN.
+        families=f"{OUT}/10_clustering/dark_families.tsv",
     output:
         f"{OUT}/11_distribution_and_evolution/consensus_recheck.tsv",
     params:
@@ -276,6 +354,8 @@ rule consensus_recheck:
     resources:
         mem_mb=16000,
         runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/consensus_recheck.tsv"
     log:
         f"{OUT}/logs/11_distribution_and_evolution/consensus_recheck.log",
     conda:
@@ -305,6 +385,8 @@ rule defence_search:
     resources:
         mem_mb=16000,
         runtime=720,
+    benchmark:
+        f"{OUT}/benchmarks/defence_search.tsv"
     log:
         f"{OUT}/logs/12_context_and_structure/defence_search.log",
     conda:
@@ -318,7 +400,8 @@ rule defence_gembase:
 
     A component hit on a unique protein applies to every ORF sharing that sequence, so one
     search covers all copies. Plasmids carrying no component are pruned - they cannot meet
-    any model's quorum - which is roughly a 4-5x reduction in what phase 2 must read.
+    any model's quorum. Measured on the test run this kept 41 of 100 plasmids but 83% of
+    their ORFs, so phase 2 reads ~1.2x less, not the 4-5x once estimated.
     """
     input:
         components=f"{OUT}/12_context_and_structure/defence_components.tsv",
@@ -330,6 +413,8 @@ rule defence_gembase:
     resources:
         mem_mb=24000,
         runtime=180,
+    benchmark:
+        f"{OUT}/benchmarks/defence_gembase.tsv"
     log:
         f"{OUT}/logs/12_context_and_structure/defence_gembase.log",
     conda:
@@ -353,10 +438,14 @@ rule defence_systems:
     params:
         models_dir=config["references"]["macsyfinder_models"],
         required=targets["defence"]["required"],
-    threads: 16
+    # One single-worker MacSyFinder process per core over chunks of whole replicons
+    # (defence_systems.py); ~0.13 GB each on the test run.
+    threads: workflow.cores
     resources:
-        mem_mb=16000,
+        mem_mb=48000,
         runtime=1440,
+    benchmark:
+        f"{OUT}/benchmarks/defence_systems.tsv"
     log:
         f"{OUT}/logs/12_context_and_structure/defence_systems.log",
     conda:
@@ -366,21 +455,55 @@ rule defence_systems:
 
 
 rule integrons:
-    """S8b: integron cassette arrays - the strongest plasmid-specific signal available."""
+    """S8b: integron cassette arrays - the strongest plasmid-specific signal available.
+
+    IntegronFinder walks the replicons one at a time and threads only its HMM searches,
+    so the analysis set is split into one chunk per core, each run on one thread.
+    """
     input:
-        fasta=lambda wc: SHARD_PATHS[wc.shard],
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
     output:
-        f"{OUT}/12_context_and_structure/integrons/{{shard}}.tsv",
-    threads: 4
+        f"{OUT}/12_context_and_structure/integrons.tsv",
+    threads: workflow.cores
     resources:
-        mem_mb=8000,
-        runtime=240,
+        # ~0.3 GB per IntegronFinder process (test run), one per core.
+        mem_mb=48000,
+        runtime=4320,
+    benchmark:
+        f"{OUT}/benchmarks/integrons.tsv"
     log:
-        f"{OUT}/logs/12_context_and_structure/integrons/{{shard}}.log",
+        f"{OUT}/logs/12_context_and_structure/integrons.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
         "../scripts/integrons.py"
+
+
+rule is_elements:
+    """S8e: insertion sequence elements - boundaries, IS family, complete or partial.
+
+    ISEScan on the whole analysis set in one job, split into one chunk per core with each
+    chunk on one thread: its own threading kept 3.8 of 16 cores busy on the test run
+    (1,693 CPU-s in 441 s, 5.4 Mbp). The analysis set is 8.7 Gbp, 1,607x that, so ~760
+    core-hours, ~8 h on 96 cores if the chunks balance.
+    """
+    input:
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
+    output:
+        f"{OUT}/12_context_and_structure/is_elements.tsv",
+    threads: workflow.cores
+    resources:
+        # ~0.8 GB per ISEScan process (test run), one per core.
+        mem_mb=96000,
+        runtime=4320,
+    benchmark:
+        f"{OUT}/benchmarks/is_elements.tsv"
+    log:
+        f"{OUT}/logs/12_context_and_structure/is_elements.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/is_elements.py"
 
 
 rule structure_search:
@@ -405,6 +528,8 @@ rule structure_search:
     resources:
         mem_mb=32000,
         runtime=1440,
+    benchmark:
+        f"{OUT}/benchmarks/structure_search.tsv"
     log:
         f"{OUT}/logs/12_context_and_structure/structure.log",
     conda:
@@ -414,32 +539,28 @@ rule structure_search:
 
 
 rule context_features:
-    """S8c: genomic context per ORF, aggregated to families against a STRATIFIED
-    background (spec sections 52-53)."""
+    """S8c: genomic context per ORF, as one row of descriptive rates per family (defence,
+    integron and IS element membership, annotated neighbours, operons). No enrichment test."""
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
         families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         defence=f"{OUT}/12_context_and_structure/defence_systems.tsv",
-        integrons=expand(f"{OUT}/12_context_and_structure/integrons/{{shard}}.tsv", shard=SHARDS),
-        labels=f"{OUT}/08_protein_labels/protein_labels.tsv",
+        integrons=f"{OUT}/12_context_and_structure/integrons.tsv",
+        is_elements=f"{OUT}/12_context_and_structure/is_elements.tsv",
         master=config["input"]["master_table"],
+        # Directons merge across the origin of a circular plasmid, which needs its length.
+        lengths=f"{OUT}/01_analysis_set/plasmid_lengths.tsv",
     output:
         families=f"{OUT}/12_context_and_structure/family_context.tsv",
-        background=f"{OUT}/12_context_and_structure/context_background.tsv",
     params:
         context=targets["context"],
-        # Stage 13: the reference population. A flat corpus background under-corrects for
-        # small plasmids, where a +-3 window is the whole molecule, and over-corrects for
-        # large ones - so it is weakest exactly where the artefact is strongest.
-        background=targets["background"],
-        # null means no grouping: every (kind, label) is its own category. The biological
-        # grouping is derived from results/08_protein_labels/protein_labels.tsv after a full annotation
-        # run and enabled by pointing this at config/label_categories.yaml.
-        categories=config["references"]["label_categories"],
     resources:
-        mem_mb=32000,
+        # ~2.3 KB per ORF measured, ~20 GB at 8.3 M ORFs.
+        mem_mb=48000,
         runtime=480,
+    benchmark:
+        f"{OUT}/benchmarks/context_features.tsv"
     log:
         f"{OUT}/logs/12_context_and_structure/context.log",
     conda:
@@ -470,6 +591,8 @@ rule annotation_report:
         recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
         synteny=f"{OUT}/13_synteny/synteny.tsv",
         rarity=f"{OUT}/14_rarity/family_rarity.tsv",
+        is_elements=f"{OUT}/12_context_and_structure/is_elements.tsv",
+        registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
     output:
         annotation=f"{OUT}/15_report/annotation_complete.csv",
         families=f"{OUT}/15_report/dark_families_complete.csv",
@@ -478,6 +601,8 @@ rule annotation_report:
     resources:
         mem_mb=32000,
         runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/annotation_report.tsv"
     log:
         f"{OUT}/logs/15_report/annotation_report.log",
     conda:

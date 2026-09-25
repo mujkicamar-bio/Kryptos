@@ -64,6 +64,16 @@ UNINFORMATIVE = re.compile(
 )
 
 
+# An informative name that describes a DOMAIN rather than the protein. NCBI's PGAP names a
+# protein "X domain-containing protein" or "X family protein" when the evidence is a
+# domain-level or family-level HMM, not a full-length functional assignment (Li W. et al.
+# 2021, Nucleic Acids Res. 49:D1020). Such a name still says something, so it is
+# informative and explains its span; but on its own it makes a protein DOMAIN_ONLY, never
+# FUNCTIONAL. Measured on the nr benchmark: 286 of 1,887 FUNCTIONAL calls at T5 (15.2%)
+# rested on "domain-containing" alone and 262 more on "family protein".
+DOMAIN_NAMED = re.compile(r"domain[- ]containing\ protein|\bfamily\ protein\b", re.I | re.X)
+
+
 def is_informative(label):
     """True when a label names a function, rather than recording that someone saw it.
 
@@ -145,10 +155,19 @@ def classify(hits, explained, min_coverage, tier_order):
     for the backbone-contamination defect described in the module docstring: coverage is
     merged across informative hits before any decision is taken.
 
-    The label comes from the most significant hit, not the widest one, because a longer
-    alignment is not a better identification. Measured: 15.4% of labels change, and the
-    example that settled it was ABC_membrane at E=1e-23 being chosen over Peptidase_C39
-    at E=6.5e-40 purely because it aligned further.
+    The label comes from the most AUTHORITATIVE tier that named the protein - tier order,
+    which config/cascade.yaml declares to be authority order - and within that tier from
+    the most significant hit, not the widest one. Spec section 20: automated transfer must
+    not outrank curated evidence. Ranking on E-value alone across tiers let an nr free-text
+    title take the label from an informative Swiss-Prot hit on 39% of the proteins that had
+    one in the nr benchmark. Within a tier, E-value: a longer alignment is not a better
+    identification (ABC_membrane at E=1e-23 was once chosen over Peptidase_C39 at
+    E=6.5e-40 purely because it aligned further). The label with the best E-value across
+    all tiers is still reported, as best_evalue_label and best_evalue_tier.
+
+    A protein whose only informative names are domain-level (DOMAIN_NAMED) is DOMAIN_ONLY
+    whatever their coverage; named_by_domain_only records it, so the FUNCTIONAL count can
+    be reported with and without the rule.
 
     functional_class is deliberately not a boolean. UNCHARACTERIZED_HOMOLOG - a protein
     whose only homologs are themselves unnamed - is the class worth screening: certainly
@@ -160,7 +179,9 @@ def classify(hits, explained, min_coverage, tier_order):
     if not hits:
         return {"annot_tier": None, "annot_label": None, "functional_class": "NONE",
                 "homology_depth": None, "annot_qcov": None, "annot_tcov": None,
-                "annot_evalue": None, "n_informative_hits": 0, "span_measured": 1}
+                "annot_evalue": None, "n_informative_hits": 0,
+                "best_evalue_label": None, "best_evalue_tier": None,
+                "named_by_domain_only": 0, "span_measured": 1}
 
     informative = [h for h in hits if is_informative(h.get("label"))]
     # A hit with no coordinates is a FAMILY-LEVEL assignment from a tool that reports no
@@ -170,17 +191,22 @@ def classify(hits, explained, min_coverage, tier_order):
     # matched", the opposite of what was reported. So such a hit is FUNCTIONAL on its own,
     # and the row records that its completeness was NOT measured rather than measured as 0.
     family_level = [h for h in informative if not _has_span(h)]
+    domain_only = bool(informative) and all(DOMAIN_NAMED.search(h["label"])
+                                            for h in informative)
     if informative:
-        # Strongest evidence wins; cascade order breaks ties, since it is authority order.
-        best = min(informative, key=lambda h: (_evalue_of(h), tier_order.index(h["tier"])))
-        if explained >= min_coverage or family_level:
+        # The most authoritative tier wins; within it, the strongest hit.
+        best = min(informative, key=lambda h: (tier_order.index(h["tier"]), _evalue_of(h)))
+        strongest = min(informative,
+                        key=lambda h: (_evalue_of(h), tier_order.index(h["tier"])))
+        if (explained >= min_coverage or family_level) and not domain_only:
             cls = "FUNCTIONAL"
         else:
             cls = "DOMAIN_ONLY"
         depth_from = informative
     else:
         # Nothing named it anywhere. Show the most authoritative record of having seen it.
-        best = min(hits, key=lambda h: (tier_order.index(h["tier"]), _evalue_of(h)))
+        best = strongest = min(hits, key=lambda h: (tier_order.index(h["tier"]),
+                                                    _evalue_of(h)))
         cls = "UNCHARACTERIZED_HOMOLOG"
         depth_from = hits
 
@@ -206,6 +232,9 @@ def classify(hits, explained, min_coverage, tier_order):
         # 0.9 explained by one domain and 0.9 explained by six fragments are different
         # claims. Reported so the reader of the table can tell them apart.
         "n_informative_hits": len(informative),
+        "best_evalue_label": strongest["label"],
+        "best_evalue_tier": strongest["tier"],
+        "named_by_domain_only": int(domain_only),
         # 0 when the class rests on a family-level assignment alone: explained_fraction
         # is then 0 because nothing MEASURED it, not because nothing matched, and
         # cascade_resolve reports completeness as NOT_MEASURED on that signal.
@@ -364,13 +393,11 @@ def n_dark_databases(hits):
 _EVIDENCE_RUNGS = [
     # A curator built and named a family for it. Strongest evidence of reality.
     ("CURATED_FAMILY", re.compile(r"\bDUF\d*\b|\bUPF\d+", re.I)),
-    # The identical sequence occurs in more than one species.
-    #
-    # NOT anchored with ^. DIAMOND emits `stitle`, which looks like
-    #   WP_000123.1 MULTISPECIES: hypothetical protein [Enterobacteriaceae]
-    # so the accession comes first and an anchored pattern never fires on real output.
-    # In v1 this rung was unreachable for the entire run.
-    ("MULTISPECIES", re.compile(r"\bMULTISPECIES\s*:", re.I)),
+    # There used to be a MULTISPECIES rung here, read from NCBI's "MULTISPECIES:" title
+    # prefix. It is removed: ClusteredNR titles are one representative's, and carry the
+    # prefix in 1.8% of titles against 19.0% in full nr, so the rung would have measured
+    # the database rather than the protein. Occurrence across hosts is measured by the
+    # pipeline itself, from the plasmids a family occurs on (recurrence, rarity).
     # Homologs exist; no function.
     ("CONSERVED", re.compile(r"\bconserved\b", re.I)),
     # One algorithm's output and nothing more.
@@ -431,7 +458,7 @@ def check_thresholds(cfg):
 
 
 # Tolerance on the declared -Z relative to the actual analysis-set size. -Z exists to fix
-# the reference so an E-value means the same thing on every shard; it does not have to
+# the reference so an E-value means the same thing on every tier; it does not have to
 # equal the input to the last sequence. 2% is well inside the noise of an E-value while
 # being far tighter than any change a re-run of S1 would produce.
 HMMER_Z_TOLERANCE = 0.02
@@ -440,7 +467,7 @@ HMMER_Z_TOLERANCE = 0.02
 def check_hmmer_z(declared, actual, tolerance=HMMER_Z_TOLERANCE):
     """Refuse a declared -Z that no longer describes the data it was computed from.
 
-    hmmer_z is pinned in config so that E-values are comparable across shards and across
+    hmmer_z is pinned in config so that E-values are comparable across tiers and across
     runs. But it is DERIVED from the analysis set: it is the number of unique protein
     sequences. Anything that changes the ORF set changes it - and S1 circular-origin repair
     changes the ORF set substantially, by reconstructing ~160,000 genes that the

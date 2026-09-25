@@ -4,6 +4,7 @@ The schema checks each threshold is a number in [0, 1]. It cannot check that the
 make sense together, which is where the interesting failures live.
 """
 import pytest
+
 from plasmidann.cascade import check_thresholds, completeness
 
 OK = {"narrow_at": 0.9, "min_explained": 0.5, "min_coverage": 0.5,

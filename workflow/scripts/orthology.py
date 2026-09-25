@@ -9,10 +9,11 @@ pathway is a term you can count.
 Nothing is filtered. Every unique protein gets a row; the ones eggNOG could not place get
 an empty one, which is the honest record of an absent term rather than a missing row.
 """
-import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
+
+import _ctx  # noqa: F401
 
 from plasmidann.orthology import parse_annotations
 
@@ -30,13 +31,22 @@ with open(snakemake.input.prot, newline="") as fh:
         if r.get("functional_class") in ("FUNCTIONAL", "DOMAIN_ONLY"):
             named.add(r["seq_id"])
 
+# Proteins PlasmidScope annotated already carry eggNOG-mapper's result (S2p), from the
+# same tool; only the proteins our cascade named are sent to eggNOG-mapper here.
+from_ps = {}
+with open(snakemake.input.ps, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        if r["ps_class"] == "ANNOTATED" and r["seq_id"] in named:
+            from_ps[r["seq_id"]] = r
+
 query = outdir / "named.faa"
 n_query = 0
 with open(query, "w") as out:
     emit = False
     for line in open(snakemake.input.faa):
         if line[0] == ">":
-            emit = line[1:].split()[0] in named
+            sid = line[1:].split()[0]
+            emit = sid in named and sid not in from_ps
             n_query += emit
         if emit:
             out.write(line)
@@ -73,11 +83,21 @@ elif n_query:
     records = parse_annotations(annotations.read_text())
 
 cols = ["seq_id", "cog_category", "kegg_pathways", "preferred_name", "eggnog_description",
-        "eggnog_ogs", "pfams", "gos", "ec", "kegg_ko"]
+        "eggnog_ogs", "pfams", "gos", "ec", "kegg_ko", "orthology_source"]
 with open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
     for sid in sorted(named):
+        if sid in from_ps:
+            # PlasmidScope publishes no preferred name or description, so those stay
+            # empty; its COG/OG identifier stands in for eggnog_ogs.
+            p = from_ps[sid]
+            w.writerow({"seq_id": sid, "cog_category": p["cog_category"],
+                        "kegg_pathways": p["kegg_pathways"], "preferred_name": "",
+                        "eggnog_description": "", "eggnog_ogs": p["cog_id"],
+                        "pfams": p["pfams"], "gos": p["gos"], "ec": p["ec"],
+                        "kegg_ko": p["kegg_ko"], "orthology_source": "plasmidscope"})
+            continue
         r = records.get(sid, {})
         w.writerow({"seq_id": sid,
                     "cog_category": r.get("cog_category", ""),
@@ -88,9 +108,10 @@ with open(snakemake.output[0], "w", newline="") as out:
                     "pfams": ",".join(r.get("pfams", [])),
                     "gos": ",".join(r.get("gos", [])),
                     "ec": ",".join(r.get("ec", [])),
-                    "kegg_ko": ",".join(r.get("kegg_ko", []))})
+                    "kegg_ko": ",".join(r.get("kegg_ko", [])),
+                    "orthology_source": "emapper" if r else ""})
 
 n_kegg = sum(1 for r in records.values() if r["kegg_pathways"])
 n_symbol = sum(1 for r in records.values() if r["preferred_name"])
-print(f"orthology: queried={n_query} annotated={len(records)} with_kegg={n_kegg} "
-      f"with_gene_symbol={n_symbol}")
+print(f"orthology: from_plasmidscope={len(from_ps)} queried={n_query} "
+      f"annotated={len(records)} with_kegg={n_kegg} with_gene_symbol={n_symbol}")

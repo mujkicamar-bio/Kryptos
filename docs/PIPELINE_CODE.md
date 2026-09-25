@@ -29,8 +29,8 @@ snakemake -s workflow/Snakefile -j 96         # run
 On the cluster, submit `workflow/run_pipeline.sbatch`. It puts `envs/plasmidann/bin` on
 PATH and runs `preflight` on its own first, so a missing tool or database fails in seconds
 rather than after 96 cores have been spent on gene calling. Re-submitting the same script
-resumes: every stage is sharded and `--rerun-incomplete` discards partial output from the
-killed job.
+resumes: every stage is one job, `--rerun-incomplete` discards the partial output of the
+job that was killed, and everything finished before it is kept.
 
 **One environment, not one per rule.** `workflow/envs/plasmidann.yaml` declares everything.
 Per-rule environments were tried and removed for a specific reason: pre-flight cannot check
@@ -52,7 +52,7 @@ script runs anything the registry does not name, so the list cannot fall behind 
 
 ```
 config/
-  config.yaml              paths, both shard counts, ORF length floor, random seed
+  config.yaml              paths, ORF length floor, random seed
   cascade.yaml             EVERY search threshold, and the tier list
   schemas/                 JSON schemas both configs are validated against
 
@@ -65,8 +65,6 @@ src/plasmidann/            pure logic - no I/O, no Snakemake, fully unit-tested
   features.py              GFF3 and GenBank conventions, origin-spanning genes included
   orthology.py             eggNOG-mapper output, and its "-" placeholder trap
   labels.py                the tool-derived label vocabulary, and its kinds
-  categories.py            grouping labels into functional categories
-  enrich.py                Fisher exact and Benjamini-Hochberg
   normalise.py             collapsing free-text product names
   pfam_meta.py             Pfam description, type and clan from the release
   controls.py              the positive control (SC2)
@@ -78,7 +76,7 @@ src/plasmidann/            pure logic - no I/O, no Snakemake, fully unit-tested
 workflow/
   Snakefile                S0-S2b rules
   rules/
-    common.smk             tier chaining helpers, per shard
+    common.smk             tier chaining helpers
     annotation_cascade.smk         S3-S4 rules
     evidence.smk      S5-S9b rules
   scripts/                 thin I/O wrappers around src/plasmidann
@@ -102,19 +100,16 @@ script contains a judgement, that judgement has escaped its test coverage.
 ## 3. Data flow and file contracts
 
 ```
-config: master_table, working_set_fasta
+config: master_table, fasta (one file, may be the whole working set)
    |
-   |  S0  analysis_set.py      exclude simulated and lab artifacts
+   |  S0  analysis_set.py      exclude simulated and lab artifacts, ids AND sequence
    v
 results/01_analysis_set/analysis_set.txt                        143,503 plasmid ids
+results/01_analysis_set/analysis_set.fna                        the in-scope sequences
    |
-   |  S0  shard_fasta.py       split into 600 independently callable units
+   |  S1  orf_call.py          pyrodigal + circular-origin repair, over a process pool
    v
-results/02_orf_calling/shards/NNNN.fna
-   |
-   |  S1  orf_call.py          pyrodigal + circular-origin repair
-   v
-results/02_orf_calling/orfs/NNNN.tsv       plasmid_id start end strand partial spans_origin seq
+results/02_orf_calling/orfs.tsv            plasmid_id start end strand partial spans_origin seq
    |
    |  S1  orf_index.py         assign orf_id once, over the complete set
    v
@@ -125,6 +120,7 @@ results/02_orf_calling/orf_index.tsv       + orf_id                    9,317,050
 results/03_dereplication/unique_proteins.faa                     3,497,616 sequences
 results/03_dereplication/protein_map.tsv     seq_id -> orf_id,orf_id,...
    |
+   +---> S2z check_hmmer_z.py    -Z confirmed before anything searches with it
    +---> S2b artefact_screen.py  AntiFam + tantan
    |     results/04_orf_qc/artefact_flags.tsv
    |
@@ -256,13 +252,15 @@ cannot express:
   unreachable.
 
 `check_hmmer_z(declared, actual)` guards a subtler drift. `hmmer_z` is pinned in config so
-that E-values are comparable across shards and runs, but it is *derived* from the analysis
+that E-values are comparable across tiers and runs, but it is *derived* from the analysis
 set - it is the number of unique protein sequences. Anything that changes the ORF set
 changes it, and S1 origin repair changes the ORF set substantially by reconstructing
 ~160,000 genes the linearisation had split. A stale value would silently rescale every
 E-value in the run, which is exactly the failure `-Z` exists to prevent. The check runs in
-`sweep_cohort.py`, the first rule to see the finished protein set and a dependency of every
-tier, and it raises with the correct number in the message.
+`check_hmmer_z.py`, directly after dereplication; the artefact screen and every tier depend
+on it, so nothing searches with an unconfirmed -Z, and it raises with the correct number in
+the message. (It used to run in `sweep_cohort.py`, hours later and after the artefact
+screen had already searched.)
 
 ---
 
@@ -333,7 +331,7 @@ Two v1 defects addressed:
   This changes the ORF count by ~0.14%; it is corrected because a declared threshold that
   does not mean what it says cannot be reasoned about.
 
-An assertion fails the rule if no genes were called - an empty shard output is always a bug.
+An assertion fails the rule if no genes were called - an empty output is always a bug.
 
 ### `artefact_screen.py` (S2b)
 
@@ -355,6 +353,28 @@ GC-skewed, saturated with mobile elements.
 
 Nothing is deleted (P5). A flagged protein stays in every table and count; the exclusion
 happens at target selection and stays reversible.
+
+### `protein_clustering.py` (S2f)
+
+Every unique protein into families at the three resolutions, **before** the cascade. A
+family is a sequence cluster and needs nothing else, so it can come first, and the
+selection below is made on it. Every protein is clustered - small and large plasmids,
+annotated or not - so no member is lost to an earlier filter. Stage 5 later reads the same
+`families_<resolution>_cluster.tsv` files and adds the annotation.
+
+### `cascade_selection.py` (S2s)
+
+What the cascade annotates, and what it actually searches (spec section 13.3). The rule is
+`plasmidann.selection.select`: proteins Tier 0 does not annotate, in families (the primary,
+intermediate clustering) holding
+a small-plasmid protein Tier 0 does not annotate. Those are clustered again at 90% identity
+over 80% of BOTH lengths, and only the representatives go into `cascade_input.faa`.
+`selection.tsv` gives every unique protein its role: `plasmidscope`, `representative`,
+`member` or `not_selected`.
+
+Coverage of both, not of the member only as in the families: the representative's result is
+copied to the member, and a member that is a fragment of a longer representative would
+receive a domain it does not have.
 
 ### `preflight.py` (S3)
 
@@ -389,7 +409,7 @@ Runs one tier and hands on the residue. Four fixes, marked `FIX` in place:
    had finished, with nothing to show for it. The set is now hoisted.
 2. **The significance gate.** Nothing enters until it clears the tier's `max_evalue`.
 3. **`-Z` and `--domZ`.** Pinned to 3,497,616. Without this, an E-value means something
-   different on every shard, because each tier's input size depends on what the previous
+   different on every tier, because each tier's input size depends on what the previous
    tier left. See `docs/annotation_statistics.md` §3.
 4. **Best hit by significance, not width**, and the recorded statistic is the **i-Evalue**
    (field 13), not the full-sequence E-value (field 7) - the i-Evalue is what governs an
@@ -409,6 +429,11 @@ an incoherent config fails before a table nobody can interpret is produced.
 `min_explained` is applied **here**, post hoc, as a reported flag rather than a filter -
 which is what makes it sweepable, because the search narrowed on the permissive
 `narrow_at` and every protein in the interesting band was seen by every tier.
+
+Every unique protein gets a row, and `annot_source` says where it came from: `self`
+(searched), `representative` (a 90% member; the row is its representative's, named in
+`annot_representative`), `plasmidscope` (Tier 0) or `not_searched` (functional class
+`NOT_SEARCHED`, neither dark nor annotated).
 
 ### `annotate_plasmids.py` (S4)
 
@@ -431,7 +456,7 @@ the measurement that motivated it.
 | `test_thresholds.py` | coherence invariants, configurable completeness bands |
 | `test_circular.py` | origin repair and the SC6 rotation invariant |
 | `test_uninformative_labels.py` | 25 labelled cases; recall regression guard |
-| `test_dark_evidence.py` | the evidence ladder, including the MULTISPECIES anchor fix |
+| `test_dark_evidence.py` | the evidence ladder; the MULTISPECIES rung is removed (ClusteredNR titles rarely carry it) |
 | `test_explained.py`, `test_narrow.py` | coverage merging, tier narrowing |
 | `test_dereplicate.py`, `test_orf_index.py` | losslessness, stable ids |
 
@@ -471,40 +496,6 @@ Organism names and uninformative titles are not admitted as functional labels. B
 simply be the most frequent, and therefore most apparently enriched, feature in the
 collection.
 
-### `categories.py` (S8c) - the grouping seam
-
-Groups `(kind, label)` pairs into functional categories from `config/label_categories.yaml`.
-That file **ships empty**: the categories are derived from the vocabulary observed in
-`results/08_protein_labels/protein_labels.tsv` after a full annotation run, which is the only way they can
-cover the scope. With no rules, every `(kind, label)` is its own category, so the enrichment
-machinery runs from the first run and applying the grouping later is a configuration change.
-
-Every assignment is a `(category, subcategory)` pair. The **category** is the flat axis the
-significance test runs on, because every category tested is another hypothesis and the FDR
-correction weakens as their number grows. The **subcategory** is carried beside it and never
-tested, so a finer grouping can be re-cut from the table without re-running anything.
-
-A label matching no rule falls back to being its own category and is never dropped. A
-vocabulary that shrank silently as rules were added is how the previous list's nine dead
-entries survived.
-
-`workflow/scripts/build_categories.py` produces the draft that fills this file: it mines the
-observed labels with the patterns in `config/category_mining.yaml` and writes every candidate
-with the number of proteins carrying it. The patterns never run in the pipeline - they supply
-the scope, and the review removes what they cannot judge. `/toxin/` matches 317 Pfam
-descriptions, of which `ABC_toxin_N` is an insect toxin and `ADPRTs_Tse2` a T6SS effector.
-
-### `enrich.py` (S8c) - significance
-
-Fisher's exact test, one-sided, on the two-by-two table of (family plasmids, rest of corpus)
-against (category present, absent), with Benjamini-Hochberg FDR control across the
-categories tested per family.
-
-The unit is the **plasmid**, not the family member. Members of a family are homologs on
-plasmids that are frequently near-identical, so counting members makes sequencing effort look
-like evidence. Clonal redundancy between distinct plasmids is **not** corrected;
-`workflow/scripts/clonal_registry.py` holds the registry and the correction is outstanding.
-
 ### `controls.py` (S5) - the positive control
 
 `control_recall()` raises on an empty control set rather than returning 1.0. An empty
@@ -516,8 +507,11 @@ MISSED - something a self-drawn control set can never do.
 
 ### `context.py` (S8)
 
-`directons()` groups consecutive same-strand genes separated by less than 100 nt into
-putative transcriptional units. Membership is a far stronger claim than adjacency: the
+`directons()` groups consecutive same-strand genes separated by at most 100 nt into
+putative transcriptional units. On a circular plasmid the record's last and first units
+merge when the strand matches and the gap across the origin is within the same limit; the
+length it needs comes from S0's `01_analysis_set/plasmid_lengths.tsv` (after terminal-repeat
+removal, which `size_bp` does not reflect). Membership is a far stronger claim than adjacency: the
 genes are predicted to be co-transcribed, so a dark ORF inside an otherwise annotated
 operon inherits that operon's hypothesis.
 
@@ -525,12 +519,11 @@ operon inherits that operon's hypothesis.
 correct for a circular molecule but must be the caller's explicit decision, not an accident
 of negative list indexing - which is how it would happen silently in Python.
 
-`enrichment()` exists because of a specific trap. **On a 5 kb cryptic plasmid carrying six
-genes, a ±3 neighbourhood IS the whole plasmid.** Everything co-occurs with everything, and
-raw frequency would rank the smallest plasmids as the most informative when they are the
-least - catastrophic here, since small cryptic plasmids are a stratum of interest. Every
-association is therefore reported against a corpus-wide background, and the family-level
-statistic is *conservation across members*, not a single instance.
+**On a 5 kb cryptic plasmid carrying six genes, a ±3 neighbourhood IS the whole plasmid.**
+S8c reports context as descriptive per-family rates (`cons_*`) with no background
+correction - the enrichment test, its stratified background and the label-category layer
+were removed on 2026-09-25 - so a high neighbour rate on small plasmids is expected by
+construction.
 
 ### `evolution.py` (S7)
 
@@ -607,7 +600,7 @@ level costs.
 | `family_evolution.py` | S7b | mafft → codon projection → dN/dS per family |
 | `defence_systems.py` | S8a | DefenseFinder |
 | `integrons.py` | S8b | IntegronFinder, `--local-max` for CALIN elements |
-| `context_features.py` | S8c | directons, islands, neighbours; enrichment over background |
+| `context_features.py` | S8c | directons, islands, neighbours; one row of `cons_*` rates per family |
 | `structure_search.py` | S8d | Foldseek with ProstT5 |
 | `prioritise.py` | S9 | evidence counted and named, eligibility, lexicographic rank, portfolio |
 | `library_design.py` | S9b | codon optimisation, barcodes, tag terminus, order file |
@@ -645,31 +638,34 @@ quality gate at S5 may legitimately halt a run that produced a perfectly good an
 
 ---
 
-## 11. Two shard sets, and why
+## 11. One job per stage, and why
 
-There are two independent partitions and they are not interchangeable.
+There are no shards. Every stage is a single job over one file, and a stage that can use
+more than one core - the cascade tiers, gene calling, IntegronFinder - is given every core
+the run has (`threads: workflow.cores`).
 
-| wildcard | unit | count | set by |
-|---|---|---|---|
-| `{shard}` | plasmid FASTA records | 600 | `config.n_shards` |
-| `{cshard}` | unique protein sequences | 64 | `config.n_cascade_shards` |
+The pipeline was sharded twice over until 2026-09-22: 600 plasmid shards for gene calling
+and IntegronFinder, and 64 protein shards for the cascade. The protein shards were removed
+because of one measurement. A search against a streamed database has a fixed cost per
+invocation - DIAMOND reads and indexes the whole of nr each time it runs - and
+`workflow/bench_nr.sbatch` found that 2,000 queries at 16 threads did not finish in 12
+hours. Sixty-four shards were sixty-four such passes; one job amortises the pass over every
+query at once. The measured hmmer side never needed sharding: T1 is 65.8 s fixed + 0.0365
+s/protein at 4 threads, and hmmsearch takes `--cpu`.
 
-`{shard}` parallelises gene calling and IntegronFinder, which work on nucleotide records.
-`{cshard}` parallelises the cascade, which works on the dereplicated protein set — a
-different population entirely, produced two stages later.
+The plasmid shards went with them so that the pipeline takes ONE input file. The analysis
+scope is then no longer "whatever files were handed in": S0 filters the configured FASTA
+by the master table's locked exclusion and writes `analysis_set.fna`, and every stage that
+needs sequence reads that. The configured FASTA may therefore be the whole working set,
+simulated plasmids included.
 
-**A protein never crosses cascade shards.** `tier_query` and `tier_spans` in `common.smk`
-both resolve to the previous tier's output *for the same shard*, so explained spans
-accumulate tier by tier inside one shard and no tier ever decides whether to keep searching
-a protein against a span set assembled somewhere else. `cascade_resolve` then reads all
-4 x 64 hit files and all 64 final-tier span files.
+What was given up is resumability granularity. A failure loses the stage, not one shard of
+it; `--rerun-incomplete` still keeps every stage that finished. The stage that pays most is
+IntegronFinder, which walks replicons one at a time and threads only its HMM searches.
 
-The shard count is a trade-off with one measured term and one unmeasured one. Finer shards
-reduce what a failure costs and widen parallelism; they also multiply the fixed cost of
-reading the search database, because DIAMOND streams the whole of nr per invocation. The
-measured side: T1 is 65.8 s fixed + 0.0365 s/protein at 4 threads, so at 64 shards each
-holds ~54,600 proteins and takes about 34 minutes. The unmeasured side is the nr fixed cost
-itself; `workflow/bench_nr.sbatch` exists to measure it.
+`tier_query` and `tier_spans` in `common.smk` resolve to the previous tier's output, so
+explained spans accumulate tier by tier and `cascade_resolve` reads every tier's hit file
+and the last tier's span file.
 
 ---
 
@@ -696,7 +692,7 @@ Each was named in the design, declared in config, and implemented by nothing.
 |---|---|---|
 | **S4** feature files | `feature_files` | GFF3 and GenBank beside the TSV. The work is the 160,375 origin-spanning ORFs: GFF3 forbids `start > end` and needs a discontinuous feature sharing one ID, GenBank wants `complement(join(a,b))` with the complement outside the join. `plasmidann.features` owns both. |
 | **S4b** orthology | `orthology` | COG and KEGG terms for the proteins the cascade NAMED. Not a dark-hunting tier: S8 asks what a dark ORF's neighbours do, free text cannot be aggregated into pathways, and FESNov's neighbourhood metric is defined over KEGG membership. |
-| **S7b** coding potential | inside `family_evolution` | RNAcode over the codon alignment the rule already built. Both strands: for a shadow ORF the ANTISENSE signal should be the stronger one, and that is the artefact class nothing else here catches. |
+| **S7b** coding potential | inside `family_evolution` (parallel since 2026-09-24; the per-family work is `plasmidann.evolution_worker`, and every measurement is also reported over the small-plasmid members, prefix `small_`) | RNAcode over the codon alignment the rule already built. Both strands: for a shadow ORF the ANTISENSE signal should be the stronger one, and that is the artefact class nothing else here catches. |
 | **S7c** consensus re-check | `consensus_recheck` | The family consensus searched back against Pfam at curated GA. A family can be collectively recognisable while every member individually misses the cut; Pavlopoulos removed 6.5% of clusters this way. |
 | ~~**S7d** codon model~~ | ~~`busted_confirm`~~ | **Removed 2026-09-14.** HyPhy BUSTED fitted to a per-family FastTree tree. See below. |
 
@@ -710,8 +706,7 @@ distribution that is 204-681 wall-hours against a declared `runtime` of 48 hours
 Two levers were weighed. Lowering `max_members_aligned` from 50 to 10 saves about half,
 because the cost sits in the many families of 4-19 members rather than the few large ones,
 and still leaves roughly eight days. Parallelising - the rule already declared 16 threads
-and used one, and the cascade's `{cshard}` pattern was available to shard families across
-jobs - would have brought a corrected stage to roughly 13-43 wall-hours. Removal was chosen
+and used one - would have brought a corrected stage to roughly 13-43 wall-hours. Removal was chosen
 with both on the table. Two defects would have had to be fixed under either lever: the rule
 fed FastTree *unaligned* CDS, which exits 1 with `Wrong number of characters`, and the
 extracted CDS carry their terminal stop codon, which HyPhy refuses outright.
@@ -765,7 +760,7 @@ are still tested. They are opt-in: `snakemake portfolio`.
 | gap | consequence | fix |
 |---|---|---|
 | **ColabFold/ESMFold** not installed | no pLDDT, so `structure.min_plddt` is declared and unused | only needed to confirm shortlisted novel folds; Foldseek + ProstT5 does the screening pass without it |
-| **nr tier not benchmarked** | the walltime of T4 is unknown and it dominates the run; it is also the term that decides whether `n_cascade_shards: 64` is the right number | `workflow/bench_nr.sbatch`, needs a project allocation |
+| **nr tier not benchmarked** | the walltime of the nr tier is unknown and it dominates the run. The one measurement so far: 2,000 queries at 16 threads with default `-b 2 -c 4` did not finish in 12 hours, which is the fixed cost of one pass over the database | `workflow/bench_nr.sbatch`, with a 48 h limit, `-c 1` and a large `-b`, on the 96-core node |
 | **no independent check on dN/dS** | Nei-Gojobori counting is the only selection estimate; the codon model that could contradict it was removed on 2026-09-14 (section 13). `purifying_selection` is one of four reality lines and the cheapest to fire | a confirmatory codon model on a chosen shortlist, outside the DAG, if one is ever wanted; the two input defects recorded in section 13 must be fixed first |
 | **21 unreferenced parameters** | researcher degrees of freedom, listed in `docs/PARAMETER_PROVENANCE.md` | each needs a citation or an explicit methods defence with measured sensitivity |
 

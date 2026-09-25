@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+title: "rebus: complete annotation of the plasmid protein universe and its dark subset"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Mujkic
+    given-names: Amar
+    email: mujkicamar321@gmail.com
+repository-code: "https://github.com/mujkicamar-bio/Rebus"
+license: MIT
+version: 2.0.0

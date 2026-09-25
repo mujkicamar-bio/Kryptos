@@ -161,6 +161,9 @@ Current approximate scale:
 
 The final analysis-set denominator must be generated from the actual configured input set and recorded in the run manifest.
 
+The study's focus is the plasmids below 20 kb (82,261 of the 143,503; section 13.3). All
+plasmids are processed; the small ones decide what the cascade annotates.
+
 Do not hard-code the total plasmid count in downstream code.
 
 3.2 Metadata
@@ -361,7 +364,6 @@ database_versions
 database_paths
 software_versions
 SLURM configuration
-shard counts
 thread counts
 date
 
@@ -431,6 +433,20 @@ CDS_nucleotide_sequence
 partial
 start_type
 
+8.3b OPEN ISSUE (2026-09-24) — translation table
+
+Meta mode chooses a gene model per plasmid, and some models use translation table 4
+(TGA read as Trp), which is correct only for Mycoplasma/Spiroplasma. On 2,000 random
+analysis-set plasmids, 22 (1.1%) were called with table 4, four of them at 41-46% GC; on
+the test plasmid GenBank_CP124069.1, 9 of 64 genes contain an internal TGA read as Trp.
+Such genes can read through a real stop, match nothing, and enter the dark set.
+
+Until this is decided, the table is recorded on every ORF (translation_table: 11 or 4,
+carried to plasmid_annotation.tsv and annotation_complete.csv) and orf_call reports the
+count of table-4 genes. Options under consideration: force table 11; allow table 4 only
+for Mollicute hosts; keep and flag. Downstream stages (extract_cds, dN/dS, RNAcode)
+assume table 11.
+
 8.4 Circular plasmids
 
 Origin-spanning ORFs must be explicitly supported.
@@ -442,6 +458,15 @@ Do not assume:
 end > start
 
 for every ORF.
+
+DECIDED 2026-09-24: terminal repeats. A circular record whose first and last >= 20 bp are
+identical (orf.min_terminal_repeat_bp; CheckV's direct-terminal-repeat criterion, Nayfach
+et al. 2021) still carries the assembler's overlap: 400 of 400 sampled 'direct terminal
+repeat' records do, and in 76% the repeat is not a multiple of 3 long, so joining the ends
+through both copies shifts the frame of every gene across the junction. S0 writes such a
+record with the last copy removed and lists it in 01_analysis_set/terminal_repeats.tsv
+(record_bp, repeat_bp, molecule_bp). Every later stage, gene calling included, reads the
+molecule once; coordinates of origin-spanning genes wrap at molecule_bp, not size_bp.
 
 9. Stage 2 — ORF QC and Artifact Screening
 
@@ -584,6 +609,59 @@ plasmid_id
 
 Every occurrence must remain recoverable.
 
+13.3 ADDED 2026-09-24. Small-plasmid focus: families first, then what the cascade searches
+
+The study is about small plasmids: size_bp below input.max_plasmid_size_bp (20,000 bp, the
+antimode of this collection's size distribution; docs/PARAMETER_PROVENANCE.md). Every
+plasmid is still processed - gene calling, Tier 0, families, lineages, defence, integrons,
+IS elements - because the large plasmids are where a small-plasmid family's relatives live.
+S0 writes 01_analysis_set/small_plasmids.txt; "on a small plasmid" means on at least one of
+those, everywhere downstream.
+
+Three steps decide what the cascade (Stage 4) spends its time on:
+
+S2f  protein_clustering   every unique protein, three resolutions (close 90/80,
+                          intermediate 50/80, broad 30/50; cov-mode 1, cluster-mode 2).
+                          A family is a sequence cluster, so it is made before any
+                          annotation and no member is lost to an earlier filter.
+S2s  cascade_selection    SELECT the proteins Tier 0 does not annotate, in families
+                          holding a small-plasmid protein Tier 0 does not annotate. Then
+                          SEARCH only the representatives of a 90% clustering of those
+                          (90% identity, 80% coverage of both; UniRef90).
+S4r  cascade_resolve      each 90% member takes its representative's result
+                          (annot_source = representative, annot_representative); a protein
+                          outside every selected family is NOT_SEARCHED, which is neither
+                          dark nor annotated.
+
+The family level only chooses; no annotation is copied between proteins below 90% identity.
+Because every unexplained member of a selected family is annotated by the same
+cascade, "known" and "unknown" mean the same on the small and the large side of every such
+family.
+
+Measured on PlasmidScope's own proteins (2026-09-24): 1,239,766 unique proteins without a
+Tier 0 annotation, 148,284 of them on small plasmids; 356,959 selected; 216,546 searched.
+nr, the dominant cost, is then about 93 hours on one 96-core node.
+
+DECIDED 2026-09-25: a protein family is the INTERMEDIATE clustering (50% identity, 80%
+coverage; clustering.primary). Selection, dark families, synteny and the report's rarity
+labels all use it; close and broad are computed and reported, never used as the family.
+The counts above were measured with broad families; intermediate families are smaller, so
+fewer proteins are selected and the nr estimate is an upper bound until re-measured.
+
+Family table (Stage 5) additions: n_small_members, n_large_members, n_not_searched,
+family_small_plasmid_count, scope (small_only_known | small_only_unknown | mixed_known |
+mixed_unknown) and known_from (small | large | both). A family is written only when it holds
+a small-plasmid protein; a dark family is one with a dark small-plasmid member, and carries
+all its dark members (members) and the small-plasmid ones (small_members).
+
+Synteny (Stage 9) and evolution (S7b) report every measurement twice: over all occurrences
+or members, and with the prefix small_ over those on small plasmids. Synteny compares
+neighbours by family, not by label: every gene has a family, dark genes included, and
+it means the same on small and large plasmids.
+
+The 1,000 proteins for experimental follow-up are chosen by hand from these tables; the
+pipeline does not select them.
+
 14. Stage 4 — Annotation Cascade
 
 The annotation architecture is a cost-aware cascade.
@@ -592,6 +670,8 @@ It is not a full all-against-all annotation hub.
 
 The production cascade is:
 
+PlasmidScope eggNOG (precomputed, identical sequence only)
+    ↓
 Pfam GA
     ↓
 Pfam relaxed
@@ -607,6 +687,41 @@ nr / broad database
 The exact ordering may be adjusted after benchmarking, but every change must be documented.
 
 No HMM-HMM or InterPro stage is included in the production pipeline.
+
+ADDED 2026-09-23. Tier 0 — PlasmidScope eggNOG.
+
+PlasmidScope (Li et al., Nucleic Acids Res. 2025, 53:D179) published eggNOG-mapper
+2.1.12 results for every protein of its ALL set. A protein whose sequence is identical to a
+PlasmidScope protein (same seq_id) takes that result; the ORFs remain our own Stage 1 calls.
+
+A protein is resolved at Tier 0 when PlasmidScope gives it a KEGG KO, an EC number, or a
+Pfam family whose name passes the cascade's own is_informative test. A DUF or UPF family
+alone, or a COG/OG with only a category letter, names no function and does not resolve a
+protein. It is then:
+
+FUNCTIONAL, annot_tier PS, annot_completeness NOT_MEASURED
+
+and it is not searched by any later tier. Every other protein - PlasmidScope-dark, or
+absent from PlasmidScope - is annotated by the full cascade below, nr included, when its
+family holds an unexplained small-plasmid protein (13.3).
+
+Tier 0 does not change the HMMER search space: hmmer_z (-Z) counts every unique protein
+plus the controls, searched or not. E-values therefore mean what they would if the whole
+collection had been searched, do not depend on PlasmidScope's coverage, and stay on the
+conservative side; a -Z counting only the searched proteins halved every E-value on the
+test set and let weak hits remove proteins from the dark set.
+
+The PlasmidScope product name is not used: its ORFs are Prodigal calls for some source
+databases and deposited PGAP/submitter CDS for others, so only the eggNOG fields mean the
+same thing on every row.
+
+Known cost: eggNOG reports no alignment span, so a Tier 0 protein has no explained
+fraction. A protein that the cascade alone would have left target-eligible (NONE or
+UNCHARACTERIZED_HOMOLOG) but that PlasmidScope annotates leaves the dark set; on the
+100-plasmid test set, with the rule above, the dark set fell from 2,142 to 1,947 proteins,
+193 of them for this reason, measured before nr (docs/plasmidscope_enrichment.md). The
+other two gained a pharokka label: pharokka searches its profiles against the proteins it
+is given, so its E-values depend on the T3 input size, which -Z does not control.
 
 15. Cascade Control
 
@@ -755,6 +870,13 @@ Automated orthology transfer must not automatically outrank direct experimentall
 
 Use the configured broad protein database, e.g. nr.
 
+DECIDED 2026-09-24: the broad database is NCBI ClusteredNR (release 2026-08-30; nr clustered
+at 90% identity and 90% length, 545.6M representatives, 173.6G residues), replacing the
+2025-03-03 nr (707M sequences, 273G residues). It is newer, so fewer proteins are called
+dark only because their relatives were deposited after the snapshot, and it is about 0.64x
+the residues to search. A hit is to a cluster representative and carries its title. Built
+by tools/download_clustered_nr.sh; version in references.nr_version.
+
 Purpose:
 
 BROAD_HOMOLOGY_DISCOVERY
@@ -771,6 +893,14 @@ diamond_nr_subject_coverage
 diamond_nr_alignment_length
 
 Broad-database descriptions remain provenance information.
+
+DECIDED 2026-09-24: a protein that Pfam (Tiers 1-2) or Swiss-Prot (Tier 4) named - any
+informative hit - is not searched against the broad database (skip_if_named_by in
+config/cascade.yaml). The broad database is spent only on what the curated databases could
+not name, and cannot replace a curated label with free text. The unexplained part of a
+DOMAIN_ONLY protein that Pfam named is therefore not searched there. Every DIAMOND hit
+records identity, alignment length, bit score and target length (hits.tsv), as required
+above and in section 19.
 
 Do not automatically turn:
 
@@ -927,6 +1057,11 @@ min_explained = 0.5
 
 after the configured annotation cascade has completed.
 
+This includes proteins whose only homologues are themselves unnamed
+(UNCHARACTERIZED_HOMOLOG). FESNov (Rodriguez del Rio et al. 2024) calls a family unknown
+only when it has no homologue at all; the quality gate reports both counts
+(target_eligible and dark_no_homologue).
+
 The exact informative-coverage calculation must be defined in the adjudication module and covered by regression tests.
 
 29. Primary Annotation
@@ -954,6 +1089,14 @@ weaker sequence evidence
 unknown/uncharacterized
 
 This is an authority hierarchy, not a numerical score.
+
+IMPLEMENTED 2026-09-24: annot_label comes from the most authoritative tier that named the
+protein, in cascade order (Pfam GA, Pfam relaxed, pharokka, Swiss-Prot, broad database),
+and within a tier from the hit with the best E-value. The label with the best E-value
+across all tiers is kept beside it (best_evalue_label, best_evalue_tier). A protein whose
+only informative names are domain-level - "X domain-containing protein", "X family
+protein", which NCBI PGAP assigns from domain or family models (Li W. et al. 2021) - is
+DOMAIN_ONLY whatever their coverage (named_by_domain_only = 1).
 
 30. Annotation Transfer Safeguards
 
@@ -1018,6 +1161,28 @@ broad
 
 Thresholds must be explicit.
 
+31b. Stage 5b — Family Network (ADDED 2026-09-24)
+
+A map of the protein families, built as Durairaj et al. (Nature 2023, 622:646) built
+theirs over UniRef50, so the numbers can be compared with theirs.
+
+Nodes: the intermediate clusters (50% identity, 80% coverage), the UniRef50 analogue.
+Edges: MMseqs2 all-against-all over the cluster representatives; an alignment covering
+at least 50% of either protein at E < 1e-4; at most four outbound edges per node; edge
+weight from the E-value. MMseqs2 search sensitivity is left at its default, which Durairaj
+et al. do not state.
+
+Node attributes: members, ORFs, plasmids, brightness (the annotation coverage the
+best-annotated member reaches; a FUNCTIONAL protein with an unmeasured span counts as 1),
+dark (brightness <= 0.05), dark fraction, family, most frequent informative label,
+community (asynchronous label propagation, seeded), degree.
+
+Summary: dark nodes connected, dark nodes connected to a bright node, and broad-resolution
+dark singletons with an edge - the measurement that decides whether the family thresholds
+leave related proteins apart.
+
+The network is description: it changes no family and no dark call.
+
 32. Dark Families
 
 A dark-only family is defined as:
@@ -1069,6 +1234,20 @@ species_count
 genus_count
 MOB_count
 habitat_count
+
+The host of each plasmid comes from three sources in order of preference: PLSDB species,
+PlasmidScope's per-record host (which carries IMG/PR's), and the GenBank/RefSeq source
+organism (plasmidann.hosts). Together they name a host for 61.1% of the analysis set (98.6%
+of isolate plasmids, 24.0% of metagenomic ones) against 31.9% for PLSDB alone. Every
+family also reports n_plasmids_with_host, and host_count_status is NOT_MEASURED rather
+than a count of 0 when none of its plasmids has a recorded host.
+
+DECIDED 2026-09-25: MOB-suite's predicted host range (mob_host_range) is reported beside the
+host, as a separate measurement over every plasmid, hosted or not
+(n_plasmids_with_predicted_range, predicted_host_range_count, predicted_host_ranges; per ORF
+predicted_host_range, beside host_species and host_genus). It is a prediction at any rank - genus
+to several phyla - and never enters host_count, genus_count or the CROSS_HOST and
+CROSS_TAXON labels. It adds a range for 18,170 of the 55,785 plasmids without a host.
 
 34.1 Database recurrence
 
@@ -1141,6 +1320,7 @@ PARTITION
 TOXIN_ANTITOXIN
 DEFENSE
 INTEGRON
+TRANSPOSITION
 CONJUGATION
 PLASMID_BACKBONE
 TRANSCRIPTIONAL_REGULATION
@@ -1190,6 +1370,34 @@ integron_associated
 
 as a contextual label.
 
+39b. ISEScan (ADDED 2026-09-24)
+
+Run ISEScan (Xie & Tang, Bioinformatics 2017, 33:3340) on the analysis set with its
+published defaults, so partial elements are reported as well as complete ones.
+
+Record:
+
+is_id
+is_family
+is_cluster
+is_coordinates
+is_complete
+tir
+
+ISEScan calls its own genes; elements are joined to our ORFs by coordinates, as integron
+arrays are.
+
+Generate:
+
+is_associated
+
+as a contextual label (the IS element is an island in Stage 8 context), and, per ORF, the
+IS families of the elements it lies inside.
+
+A dark ORF inside an IS element is often a degenerate transposase fragment or an IS-borne
+accessory gene; one beside it may be a passenger. Neither is assigned as the ORF's
+function, and neither removes it from the dark set: flag, never discard.
+
 40. Other Context Labels
 
 Possible labels:
@@ -1233,6 +1441,11 @@ synteny_conservation
 context_recurrence
 
 These measurements remain separate from annotation.
+
+Left and right are upstream and downstream on the dark gene's own strand, so one
+arrangement written in the two orientations counts once. On a circular plasmid the
+neighbour window wraps across the origin. operon_like means sharing a directon with a
+FUNCTIONAL partner, the definition Stage 8 uses.
 
 43. Stage 10 — Evolutionary Analysis
 
@@ -1448,6 +1661,10 @@ background_definition
 
 No normalized prevalence field is valid without its normalization definition.
 
+DECIDED 2026-09-25: the pipeline produces no normalized values. The stratified background
+(banded plasmid_length and gene_count) was built for the context enrichment of section 53
+and was removed with it.
+
 53. Context Enrichment
 
 For example:
@@ -1466,6 +1683,14 @@ plasmid-level normalization
 
 The exact statistical model must be configured and documented.
 
+DECIDED 2026-09-25: no context enrichment is computed. The Fisher test, its stratified
+background and the label-category layer were removed. S8c (context_features) reports only
+descriptive per-family rates - the fraction of a family's plasmids on which a member lies
+in a defence system, an integron or an IS element, has an annotated neighbour, shares a
+directon with an annotated gene, or is in a two-gene directon (cons_* columns). They are
+not corrected for plasmid size. Neighbour identity per family is described by synteny
+(Stage 9).
+
 54. Stage 14 — Rarity and Conservation
 
 Rarity and conservation remain separate descriptors.
@@ -1474,9 +1699,10 @@ Potential labels:
 
 RARE
 LINEAGE_SPECIFIC
-PLASMID_FAMILY_SPECIFIC
 WIDELY_CONSERVED
+SINGLE_MOB
 CROSS_MOB
+SINGLE_HOST
 CROSS_HOST
 CROSS_TAXON
 
@@ -1484,11 +1710,25 @@ Thresholds must be explicit.
 
 These labels are not experimental rankings.
 
+DECIDED 2026-09-25: lineage breadth - the rarity labels and the multi_lineage reality test
+(section 56) - is counted in Stage 6 Mash lineages only. MOB-suite assigns every plasmid the
+cluster of its nearest reference however distant (53% of plasmids lie beyond its 0.06
+threshold; cluster AA379 holds 21,817 unrelated small plasmids of the analysis set), so it
+is reported only as SINGLE_MOB (one cluster) or CROSS_MOB (two or more);
+PLASMID_FAMILY_SPECIFIC was removed. Host labels use observed hosts only: CROSS_HOST at two
+or more species, CROSS_TAXON at two or more genera, SINGLE_HOST only when every plasmid of
+the family is named to one species. MOB-suite's predicted host range is a separate
+measurement, reported over all of a family's plasmids and per ORF, and never counted as a
+host.
+
 55. Rarefaction
 
 Approximately 1,000 candidates is an experimental-budget objective, not a biological assumption.
 
 The annotation pipeline must calculate a rarefaction curve of dark-family discovery versus plasmids sampled.
+
+The plasmids sampled are all small plasmids, those with no dark family included; a family
+is discovered on a plasmid through its dark small-plasmid members.
 
 Deliver:
 
@@ -1572,6 +1812,10 @@ The protein remains:
 DARK
 
 unless direct sequence/domain evidence supports a specific function.
+
+DECIDED 2026-09-25: no functional_hypothesis is produced. It was derived from the top
+enriched context category (section 53), which no longer exists. GENOMIC_CONTEXT remains an
+evidence dimension (section 56.1), present when the S8c rates or synteny were measured.
 
 58. Negative Controls
 
@@ -2099,26 +2343,20 @@ peak_RAM
 I/O
 output_size
 
-The nr benchmark is mandatory before finalizing shard and scheduling configuration.
+The nr benchmark is mandatory before finalizing the scheduling configuration.
 
-72. Sharding
+72. One job per stage
 
-All shardable stages use deterministic partitions.
+No stage is sharded. The pipeline takes one input FASTA; S0 applies the analysis-set
+exclusion to it once, and every later stage is a single job over one file, given every core
+the run has.
 
-Potential shardable stages:
-
-annotation
-eggNOG
-nr
-structure
-evolution
-context interpretation
-
-MMseqs2 may remain a large dedicated job where required.
-
-A shard manifest must be an explicit dependency.
-
-Changing shard count must either invalidate the previous stage or produce a hard compatibility error.
+Decided 2026-09-22. A search against a streamed database has a fixed cost per invocation -
+DIAMOND reads and indexes the whole of nr each time it is run - and the measurement in
+workflow/bench_nr.sbatch (2,000 queries, 16 threads, more than 12 hours) showed that cost
+dominates the run. Sharding the query set multiplies it by the shard count. Resumability is
+per stage: --rerun-incomplete keeps every stage that finished and rebuilds the one that did
+not.
 
 73. Resume Semantics
 

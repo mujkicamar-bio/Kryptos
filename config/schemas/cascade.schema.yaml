@@ -49,7 +49,7 @@ properties:
     minimum: 1
     description: >
       Fixed database size passed to every hmmer tier as -Z and --domZ, so an E-value means
-      the same thing on every shard and does not move when an upstream stage changes.
+      the same thing on every tier and does not move when an upstream stage changes.
 
   max_target_seqs:
     type: integer
@@ -62,6 +62,18 @@ properties:
     description: >
       Fraction of proteins that bypass narrowing and are searched by every tier, so the
       cost of the narrowing threshold can be measured rather than assumed.
+
+  search_clustering:
+    type: object
+    required: [min_seq_id, coverage, cov_mode, cluster_mode]
+    properties:
+      min_seq_id: {type: number, exclusiveMinimum: 0, maximum: 1}
+      coverage: {type: number, minimum: 0, maximum: 1}
+      cov_mode: {type: integer, enum: [0, 1, 2]}
+      cluster_mode: {type: integer, enum: [0, 1, 2]}
+    description: >
+      Identity and coverage of the clustering whose representatives the cascade searches;
+      members take their representative's result.
 
   tiers:
     type: array
@@ -95,6 +107,16 @@ properties:
           # thresholds, which are per-family and can be looser than any global cut.
           type: [number, "null"]
           exclusiveMinimum: 0
+        # Proteins an earlier tier named (an informative hit) from one of these sources
+        # are not searched by this tier.
+        skip_if_named_by:
+          type: array
+          items: {type: string, enum: [pfam, pharokka, swissprot, nr]}
+        # DIAMOND tiers: the sequence count the built index must hold (checked at
+        # preflight with diamond dbinfo).
+        expected_sequences:
+          type: integer
+          minimum: 1
         note:
           type: string
       required: [id, method, source, db, args, max_evalue]
@@ -112,6 +134,7 @@ properties:
                max_low_complexity_fraction]
 
 required:
+  - search_clustering
   - narrow_at
   - min_explained
   - min_coverage

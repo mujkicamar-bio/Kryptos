@@ -24,7 +24,7 @@
 # Code walkthrough:     docs/PIPELINE_CODE.md
 #
 # Run:  snakemake -j <cores> --use-conda
-# Plan: snakemake -n
+# Plan: snakemake -n -c <cores>   (a core count is required: tier threads are workflow.cores)
 # =====================================================================================
 import sys
 import yaml
@@ -47,7 +47,6 @@ validate(targets, "../config/schemas/targets.schema.yaml")
 # instance - so validate those here, at load time, before any job is scheduled.
 sys.path.insert(0, "src")
 from plasmidann.cascade import check_thresholds  # noqa: E402
-from plasmidann.shards import discover_shards  # noqa: E402
 check_thresholds(cascade)
 # clustering.primary must name a resolution that exists, or every downstream stage reads a
 # family set that was never built - and it would present as an empty join rather than as a
@@ -58,20 +57,11 @@ if _clu["primary"] not in _clu["resolutions"]:
         f"clustering.primary is {_clu['primary']!r} but the configured resolutions are "
         f"{sorted(_clu['resolutions'])}. The primary resolution is the one every later "
         "stage reads, so naming one that is not built empties them all.")
+if targets["network"]["node_resolution"] not in _clu["resolutions"]:
+    raise ValueError(
+        f"network.node_resolution is {targets['network']['node_resolution']!r} but the "
+        f"configured resolutions are {sorted(_clu['resolutions'])}.")
 OUT = config["outdir"]
-
-# The plasmid shards are PREPARED OUTSIDE THE PIPELINE and discovered here. See
-# src/plasmidann/shards.py: the pipeline used to deal the whole collection round-robin into
-# a configured number of files, which meant the count was load-bearing and a new batch of
-# plasmids required re-partitioning everything. Discovery makes adding a batch one more
-# file: the per-shard stages run for it alone, and only the aggregating stages re-run.
-SHARD_PATHS = discover_shards(config["input"]["shard_dir"])
-SHARDS = list(SHARD_PATHS)
-
-# A SEPARATE partition, over unique proteins rather than plasmids, and one the pipeline
-# must still create itself: the dereplicated protein set does not exist until S2 has run,
-# so there is nothing on disk to discover at workflow load time.
-CASCADE_SHARDS = [f"{i:03d}" for i in range(config["shards"]["protein"])]
 
 
 rule all:
@@ -91,7 +81,9 @@ rule all:
     input:
         f"{OUT}/15_report/annotation_complete.csv",     # every ORF, every annotation
         f"{OUT}/15_report/dark_families_complete.csv",  # every dark family, every evidence
+        f"{OUT}/08_protein_labels/protein_labels.tsv",         # every tool label, per protein
         f"{OUT}/10_clustering/protein_families.tsv",           # Stage 5: every protein family
+        f"{OUT}/10_clustering/network_summary.tsv",            # Stage 5b: family network
         f"{OUT}/10_clustering/plasmid_lineage.tsv",            # Stage 6: independent lineages
         f"{OUT}/11_distribution_and_evolution/recurrence.tsv",                 # Stage 7: distribution counts
         f"{OUT}/13_synteny/synteny.tsv",                    # Stage 9: context conservation
@@ -115,16 +107,34 @@ include: "rules/evidence.smk"
 
 
 rule analysis_set:
-    """S0: plasmids that survive the locked artifact exclusion."""
+    """S0: plasmids that survive the locked artifact exclusion, as ids and as sequence.
+
+    The FASTA written here is what every sequence-reading stage takes. The configured
+    input may hold more than the analysis set - the working set carries the simulated
+    plasmids the exclusion removes - so scope is applied once, here, and never again.
+    """
     input:
-        config["input"]["master_table"],
+        master=config["input"]["master_table"],
+        fasta=config["input"]["fasta"],
     output:
-        f"{OUT}/01_analysis_set/analysis_set.txt",
+        ids=f"{OUT}/01_analysis_set/analysis_set.txt",
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
+        # The plasmids below the size cut-off: what "small plasmid" means downstream.
+        small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
+        # Circular records whose ends repeated, and how many bases were removed.
+        repeats=f"{OUT}/01_analysis_set/terminal_repeats.tsv",
+        # The length of every written record, after that removal: gene coordinates refer
+        # to it, and size_bp in the master table does not.
+        lengths=f"{OUT}/01_analysis_set/plasmid_lengths.tsv",
     params:
         exclude=config["input"]["exclude_hab_top"],
+        max_size_bp=config["input"]["max_plasmid_size_bp"],
+        min_terminal_repeat_bp=config["orf"]["min_terminal_repeat_bp"],
     resources:
         mem_mb=4000,
-        runtime=30,
+        runtime=60,
+    benchmark:
+        f"{OUT}/benchmarks/analysis_set.tsv"
     log:
         f"{OUT}/logs/analysis_set.log",
     conda:
@@ -142,19 +152,24 @@ rule orf_call:
     travels in the seq column of the TSV.
     """
     input:
-        fasta=lambda wc: SHARD_PATHS[wc.shard],
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
         master=config["input"]["master_table"],
     output:
-        tsv=f"{OUT}/02_orf_calling/orfs/{{shard}}.tsv",
+        tsv=f"{OUT}/02_orf_calling/orfs.tsv",
     params:
         min_orf_aa=config["orf"]["min_call_length_aa"],
+    # Pyrodigal is single-threaded and calls each plasmid alone (meta mode), so the script
+    # spreads the records over a process pool of this size.
+    threads: workflow.cores
     conda:
         "envs/plasmidann.yaml"
     resources:
-        mem_mb=4000,
-        runtime=120,
+        mem_mb=32000,
+        runtime=720,
+    benchmark:
+        f"{OUT}/benchmarks/orf_call.tsv"
     log:
-        f"{OUT}/logs/orf_call/{{shard}}.log",
+        f"{OUT}/logs/orf_call.log",
     script:
         "scripts/orf_call.py"
 
@@ -162,12 +177,14 @@ rule orf_call:
 rule orf_index:
     """S1: assign orf_id once, over the complete ORF set. Never recomputed downstream."""
     input:
-        expand(f"{OUT}/02_orf_calling/orfs/{{shard}}.tsv", shard=SHARDS),
+        f"{OUT}/02_orf_calling/orfs.tsv",
     output:
         f"{OUT}/02_orf_calling/orf_index.tsv",
     resources:
         mem_mb=24000,
         runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/orf_index.tsv"
     log:
         f"{OUT}/logs/orf_index.log",
     conda:
@@ -186,12 +203,101 @@ rule dereplicate:
     resources:
         mem_mb=24000,
         runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/dereplicate.tsv"
     log:
         f"{OUT}/logs/dereplicate.log",
     conda:
         "envs/plasmidann.yaml"
     script:
         "scripts/dereplicate.py"
+
+
+rule plasmidscope_import:
+    """S2p: PlasmidScope's published eggNOG result for every protein of ours it contains.
+
+    Proteins it annotates skip the cascade (prepare_control) and enter
+    protein_annotation.tsv as tier PS (cascade_resolve); their orthology terms come from
+    here too (orthology). Joined on identical sequence only. See plasmidann.plasmidscope.
+    """
+    input:
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        ps=config["input"]["plasmidscope_proteins"],
+    output:
+        f"{OUT}/03_dereplication/plasmidscope_proteins.tsv",
+    resources:
+        mem_mb=16000,
+        runtime=120,
+    benchmark:
+        f"{OUT}/benchmarks/plasmidscope_import.tsv"
+    log:
+        f"{OUT}/logs/03_dereplication/plasmidscope_import.log",
+    conda:
+        "envs/plasmidann.yaml"
+    script:
+        "scripts/plasmidscope_import.py"
+
+
+rule protein_clustering:
+    """S2f: every unique protein into families at three resolutions, before annotation.
+
+    A family is a sequence cluster, so it needs only sequence and is made first: the
+    selection (S2s) reads the primary resolution, Stage 5 reads all three after the
+    cascade. Every protein is clustered, so no member is lost to an earlier filter.
+    """
+    input:
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+    output:
+        reps=expand(f"{OUT}/10_clustering/families_{{res}}_rep_seq.fasta",
+                    res=targets["clustering"]["resolutions"]),
+        clusters=expand(f"{OUT}/10_clustering/families_{{res}}_cluster.tsv",
+                        res=targets["clustering"]["resolutions"]),
+    params:
+        clustering=targets["clustering"],
+    threads: 32
+    resources:
+        mem_mb=128000,
+        runtime=720,
+    benchmark:
+        f"{OUT}/benchmarks/protein_clustering.tsv"
+    log:
+        f"{OUT}/logs/10_clustering/protein_clustering.log",
+    conda:
+        "envs/plasmidann.yaml"
+    script:
+        "scripts/protein_clustering.py"
+
+
+rule cascade_selection:
+    """S2s: which proteins the cascade annotates, and which of those it searches.
+
+    Selected: not annotated by Tier 0, in a family (primary) holding a small-plasmid protein
+    not annotated by Tier 0. Searched: the representatives of a 90% clustering of the
+    selected proteins; the members take their representative's result at cascade_resolve.
+    """
+    input:
+        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
+        ps=f"{OUT}/03_dereplication/plasmidscope_proteins.tsv",
+        families=f"{OUT}/10_clustering/families_{targets['clustering']['primary']}_cluster.tsv",
+    output:
+        tsv=f"{OUT}/03_dereplication/selection.tsv",
+        faa=f"{OUT}/03_dereplication/search_representatives.faa",
+    params:
+        search=cascade["search_clustering"],
+    threads: 32
+    resources:
+        mem_mb=64000,
+        runtime=240,
+    benchmark:
+        f"{OUT}/benchmarks/cascade_selection.tsv"
+    log:
+        f"{OUT}/logs/03_dereplication/cascade_selection.log",
+    conda:
+        "envs/plasmidann.yaml"
+    script:
+        "scripts/cascade_selection.py"
 
 
 rule prepare_decoys:
@@ -206,7 +312,7 @@ rule prepare_decoys:
     """
     input:
         index=f"{OUT}/02_orf_calling/orf_index.tsv",
-        shards=[SHARD_PATHS[s] for s in SHARDS],
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
     output:
         faa=f"{OUT}/03_dereplication/negative_control.faa",
     params:
@@ -217,6 +323,8 @@ rule prepare_decoys:
     resources:
         mem_mb=8000,
         runtime=60,
+    benchmark:
+        f"{OUT}/benchmarks/prepare_decoys.tsv"
     log:
         f"{OUT}/logs/03_dereplication/prepare_decoys.log",
     conda:
@@ -230,10 +338,13 @@ rule prepare_control:
 
     Controls are reviewed Swiss-Prot proteins of known function, independent of anything
     this pipeline computed. They travel through every tier exactly as a real protein does,
-    so the gate at S5 tests the real code path - narrowing, sharding, thresholds and all.
+    so the gate at S5 tests the real code path - narrowing, thresholds and all.
     """
     input:
-        faa=f"{OUT}/03_dereplication/unique_proteins.faa",
+        # The search representatives (S2s), not every unique protein.
+        faa=f"{OUT}/03_dereplication/search_representatives.faa",
+        # Proteins PlasmidScope annotates are left out of the query set.
+        ps=f"{OUT}/03_dereplication/plasmidscope_proteins.tsv",
         raw=targets["quality_gate"]["control_fasta"].replace(
             "positive_control.faa", "raw.faa"),
         # Both control sets enter the query at the same point and in the same file: what
@@ -249,6 +360,8 @@ rule prepare_control:
     resources:
         mem_mb=8000,
         runtime=30,
+    benchmark:
+        f"{OUT}/benchmarks/prepare_control.tsv"
     log:
         f"{OUT}/logs/03_dereplication/prepare_control.log",
     conda:
@@ -273,6 +386,8 @@ rule artefact_screen:
     input:
         faa=f"{OUT}/03_dereplication/unique_proteins.faa",
         preflight=f"{OUT}/05_annotation_cascade/preflight.tsv",
+        # The screen searches with -Z, so it waits for -Z to be confirmed.
+        hmmer_z=f"{OUT}/03_dereplication/hmmer_z_checked.tsv",
     output:
         f"{OUT}/04_orf_qc/artefact_flags.tsv",
     params:
@@ -284,6 +399,8 @@ rule artefact_screen:
     resources:
         mem_mb=16000,
         runtime=480,
+    benchmark:
+        f"{OUT}/benchmarks/artefact_screen.tsv"
     log:
         f"{OUT}/logs/04_orf_qc/artefact_screen.log",
     script:

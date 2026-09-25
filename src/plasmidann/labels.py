@@ -42,6 +42,7 @@ WHAT IS DELIBERATELY NOT A LABEL
   * The empty string in any field. Absence is absence, and a label of '' would group every
     protein missing that field into one enormous false category.
 """
+import re
 
 # Every kind of label this module can emit. A kind not listed here is a statement nothing
 # downstream knows how to group, so emitting one is a bug rather than a new feature.
@@ -87,10 +88,12 @@ KINDS = frozenset({
 # labelled as an nr product with nothing failing. The row now says what it is.
 SOURCES = frozenset({"pfam", "pharokka", "card", "vfdb", "swissprot", "nr"})
 
-# NCBI marks a title shared by several organisms with this prefix. 'MULTISPECIES: relaxase'
-# and 'relaxase' are the same product, so keeping the prefix would split every widespread
-# protein into two labels - exactly the proteins a grouping most needs to see as one.
-_MULTISPECIES = "MULTISPECIES:"
+# NCBI title prefixes that qualify the RECORD, not the product: MULTISPECIES (a title
+# shared by several organisms), MAG (from a metagenome-assembled genome) and TPA,
+# TPA_asm, TPA_inf ... (third-party annotation). 'MAG: relaxase' and 'relaxase' are the
+# same product, so keeping a prefix would split one product into two labels. MAG: is on
+# 3.2% of ClusteredNR titles against 0.3% of full-nr hit titles.
+_RECORD_PREFIX = re.compile(r"^(?:(?:MULTISPECIES|MAG|TPA(?:_\w+)?)\s*:\s*)+")
 
 
 def _informative(row):
@@ -133,16 +136,17 @@ def parse_ncbi_title(title):
     if rest and "." in first:
         accession, product = first, rest.strip()
 
-    if product.startswith(_MULTISPECIES):
-        product = product[len(_MULTISPECIES):].strip()
+    product = _RECORD_PREFIX.sub("", product)
 
-    if product.startswith("RecName:"):
+    if "RecName:" in product:
         # 'RecName: Full=Toxin CcdB; AltName: Full=Protein LetD' - the recommended name is
         # the first Full=, and the AltName synonyms are dropped: they are the same protein
         # under other names, so admitting them would multiply one statement into several.
-        body = product[len("RecName:"):].strip()
-        head = body.split(";", 1)[0].strip()
-        product = head[len("Full="):].strip() if head.startswith("Full=") else head
+        # A qualifier before RecName ('PUTATIVE PSEUDOGENE: RecName: ...', seen in the
+        # installed swissprot) is a statement about the gene and is kept in front.
+        prefix, _, body = product.partition("RecName:")
+        head = body.strip().split(";", 1)[0].strip()
+        product = prefix + (head[len("Full="):].strip() if head.startswith("Full=") else head)
 
     return {"accession": accession, "product": product, "organism": organism}
 

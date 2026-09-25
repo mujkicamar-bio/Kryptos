@@ -6,6 +6,7 @@ origin-spanning ORFs (1.72% of the collection) that a naive linear caller either
 or misses entirely.
 """
 import random
+
 from darkorf import circular
 
 
@@ -111,3 +112,35 @@ def test_an_unknown_topology_is_treated_as_linear():
     invent it."""
     for unknown in ("", "NA", "unknown", None):
         assert not circular.is_circular(unknown)
+
+
+def test_a_terminal_repeat_is_found_and_a_short_match_is_not():
+    """The overlap an assembler leaves on a circular record: the first k bases equal the
+    last k. Found at >= 20 bp (CheckV's criterion), never below it, and 0 when the ends
+    are unrelated."""
+    rng = random.Random(3)
+    core = "".join(rng.choice("ACGT") for _ in range(3_000))
+    assert circular.terminal_repeat_length(core[:500] + core + core[:500], 20) == 500
+    assert circular.terminal_repeat_length(core[:19] + core + core[:19], 20) == 0
+    assert circular.terminal_repeat_length(core, 20) == 0
+
+
+def test_a_trimmed_terminal_repeat_record_calls_the_same_proteins_as_its_circle():
+    """Calling genes on a record that still carries its terminal repeat joins the ends
+    through both copies; removing one copy must give exactly the proteins of the molecule
+    itself, in any rotation."""
+    from darkorf import genecall
+    genecall.configure(90)
+    # Seed 2 puts a gene across the junction, so the untrimmed record really does call a
+    # different protein set: the test fails if S0 stops removing the repeat.
+    rng = random.Random(2)
+    molecule = "".join(rng.choice("ACGT") for _ in range(6_000))
+    repeat = 101                                   # not a multiple of 3
+    record = molecule + molecule[:repeat]
+    k = circular.terminal_repeat_length(record, 20)
+    assert k == repeat
+    proteins = lambda seq, topology: sorted(g["seq"] for g in
+                                            genecall.call_genes("p", seq, topology)[1])
+    truth = proteins(circular.rotate(molecule, 2_345), "circular")
+    assert proteins(record[:-k], "direct terminal repeat") == truth
+    assert proteins(record, "direct terminal repeat") != truth

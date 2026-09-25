@@ -34,12 +34,13 @@ Like the positive controls, they are spiked into the query set and searched by e
 under the identical thresholds. A control that took a different code path would be testing
 a different pipeline from the one that produced the results.
 """
-import _ctx  # noqa: F401
 import csv
 import random
 
+import _ctx  # noqa: F401
+
 from plasmidann import decoys
-from plasmidann.shards import iter_fasta
+from plasmidann.fasta import iter_fasta
 
 rng = random.Random(snakemake.params.seed)
 min_length = int(snakemake.params.min_length)
@@ -53,7 +54,7 @@ with open(snakemake.input.index, newline="") as fh:
         wanted.setdefault(r["plasmid_id"], []).append(r)
 
 cds_records = []
-for pid, sequence in iter_fasta(snakemake.input.shards):
+for pid, sequence in iter_fasta([snakemake.input.fasta]):
     for r in wanted.get(pid, ()):
         nt = sequence[int(r["start"]) - 1:int(r["end"])]
         if r["strand"] in ("-1", "-"):

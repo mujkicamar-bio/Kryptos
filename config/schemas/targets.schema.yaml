@@ -24,6 +24,15 @@ properties:
     - control_fasta
     - require_control_set
     - min_controls
+  network:
+    type: object
+    required: [node_resolution, min_cov, max_evalue, max_out_edges, dark_brightness]
+    properties:
+      node_resolution: {type: string}
+      min_cov: {type: number, minimum: 0, maximum: 1}
+      max_evalue: {type: number, exclusiveMinimum: 0}
+      max_out_edges: {type: integer, minimum: 1}
+      dark_brightness: {type: number, minimum: 0, maximum: 1}
   clustering:
     type: object
     required:
@@ -86,17 +95,6 @@ properties:
     properties:
       required:
         type: boolean
-  background:
-    type: object
-    required: [covariates, min_stratum_size]
-    properties:
-      covariates:
-        type: array
-        minItems: 1
-        items: {type: string}
-      min_stratum_size:
-        type: integer
-        minimum: 2
   context:
     type: object
     properties:
@@ -163,7 +161,6 @@ properties:
     required:
     - rare_max_lineages
     - widely_conserved_min_lineages
-    - cross_min_mob
     - cross_min_hosts
     - cross_min_genera
     - rarefaction_replicates
@@ -172,9 +169,6 @@ properties:
         type: integer
         minimum: 1
       widely_conserved_min_lineages:
-        type: integer
-        minimum: 1
-      cross_min_mob:
         type: integer
         minimum: 1
       cross_min_hosts:
@@ -189,6 +183,7 @@ properties:
 required:
 - quality_gate
 - clustering
+- network
 - evolution
 - orthology
 - context

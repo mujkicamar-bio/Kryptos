@@ -1,0 +1,272 @@
+# Rebus
+
+A Snakemake pipeline that takes a collection of complete bacterial plasmids and produces a
+complete, evidence-rich annotation of every plasmid ORF and of its dark subset — the
+proteins that no database names.
+
+The reference collection is 143,503 complete plasmids (PlasmidScope and IMG/PR, with
+simulated and lab-artifact ecosystems excluded), giving 9,317,050 called ORFs and 3,497,616
+unique protein sequences.
+
+---
+
+## What this produces, and what it deliberately does not
+
+The deliverable is **complete annotation**. One row per ORF and one row per dark family,
+with every piece of evidence side by side.
+
+The pipeline produces no ranking: no `top_1000`, no `candidate_score`, no `novelty_score`
+and no `experimental_rank`. Choosing which unknown proteins are worth testing is a separate
+downstream decision, made *on* these tables rather than baked into them. The separation is
+deliberate — a scoring function embedded in an annotation pipeline is a scientific claim
+disguised as an implementation detail, and it cannot be examined by anyone reading the
+output.
+
+## The problem the design addresses
+
+Selecting "dark" proteins is easy and nearly worthless on its own, because **absence of
+annotation is also what a gene-calling artefact produces**. A shadow ORF on the
+reverse-complement strand of a real gene is unannotated by construction — no database
+contains it, because it is not a protein — and it is *conserved*, because the real gene
+beneath it is conserved. It therefore survives every absence-based filter and looks like an
+ideal candidate all the way to the bench.
+
+So the pipeline is built to report something positive rather than something absent. Each
+dark ORF accumulates independent, named lines of evidence that it is a real protein:
+purifying selection, breadth across independent plasmid lineages, family membership,
+genomic context, and a recognisable fold.
+
+Plasmids suit this unusually well. They are small, gene-dense and modular, and one signal
+available here is available almost nowhere else: **a dark ORF inside an integron cassette
+array is a real gene by construction.** It carries an *attC* recombination site, and it has
+been excised, mobilised, re-integrated and then retained under selection — direct evidence
+of both existence and function, obtained with no homology at all.
+
+---
+
+## Stages
+
+Output lands in fifteen numbered directories under `outdir`, one per stage.
+
+| stage | directory | what it does |
+|---|---|---|
+| S0 | `01_analysis_set` | plasmids in scope, as ids and sequence; clonal registry over MOB clusters |
+| S1 | `02_orf_calling` | Pyrodigal gene calling, with circular-origin repair |
+| S2 | `03_dereplication` | exact-identity dereplication, asserted lossless |
+| S2b | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards |
+| S3 | `05_annotation_cascade` | the annotation cascade, T1…T5, self-narrowing |
+| S4 | `06_annotation_tables` | the annotated plasmidome, plus GFF3 and GenBank |
+| S4b | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
+| S4c | `08_protein_labels` | every label from every source, normalised into one table |
+| S5 | `09_quality_gate` | positive and negative controls; halts the run on failure |
+| S6 | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
+| S7 | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
+| S8 | `12_context_and_structure` | DefenseFinder, IntegronFinder, directons, Foldseek + ProstT5 |
+| S9a | `13_synteny` | context conservation across lineages |
+| S9b | `14_rarity` | family rarity labels and the saturation curve |
+| final | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family |
+
+`snakemake -n --forceall` plans **38 jobs**.
+
+### The cascade
+
+Five tiers, each handed only what the previous one could not explain. A protein stops
+being searched once `narrow_at` (0.9) of its length is covered; whether it is *reported* as
+explained is decided separately, by `min_explained` (0.5), applied afterwards on a table
+where every protein in the interesting band has been seen by every tier.
+
+| tier | method | database | role |
+|---|---|---|---|
+| T1 | hmmsearch | Pfam-A at `--cut_ga` | Pfam's own assertion of family membership; high precision |
+| T2 | hmmsearch | Pfam-A at `-E 1e-5 --domE 1e-5` | divergent homologues below the curatorial bar, kept as a lower-authority claim |
+| T3 | pharokka | PHROG, CARD, VFDB | the phage tier |
+| T4 | diamond | Swiss-Prot | highest label quality available, and nearly free |
+| T5 | diamond | NCBI nr | reaches environmental sequence nothing else does |
+
+---
+
+## Quick start
+
+Every command in this section was run against a fresh clone before being written here.
+
+```bash
+git clone git@github.com:mujkicamar-bio/Rebus.git
+cd Rebus
+```
+
+### 1. What works immediately, with no data and no databases
+
+The workflow engine and the Python libraries install from `pyproject.toml` alone:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+
+.venv/bin/snakemake -s workflow/Snakefile --configfile config/test/config.yaml --lint
+.venv/bin/python -m pytest -q -m "not slow"
+```
+
+The linter reports the workflow is in good condition, and 364 tests pass. This verifies
+the checkout is complete and internally consistent, which is as far as anyone can get
+without the reference data.
+
+A dry run at this point is also informative, and is *meant* to fail:
+
+```bash
+.venv/bin/snakemake -s workflow/Snakefile --configfile config/test/config.yaml -n -c 2
+```
+
+It builds the DAG, validates every schema, and then stops with `MissingInputException`
+naming the input files you have not supplied. That is the pipeline telling you precisely
+what step 2 has to provide.
+
+### 2. The environment that can actually run the pipeline
+
+The twenty external executables — DIAMOND, HMMER, MMseqs2, Foldseek, MAFFT and the rest —
+are not Python packages, so a working run needs the conda environment rather than the pip
+install above:
+
+```bash
+conda env create -p envs/plasmidann -f workflow/envs/plasmidann.yaml
+export PATH="$PWD/envs/plasmidann/bin:$PATH"
+```
+
+One environment for the whole workflow, deliberately: the pre-flight rule cannot check an
+environment it is not running in, so per-rule environments would make pre-flight
+meaningless.
+
+**The environment that holds the tools also runs Snakemake**, which is why
+`workflow/envs/plasmidann.yaml` declares Snakemake itself. Snakemake executes a `script:`
+directive with the interpreter running Snakemake, not with the first `python` on `PATH`.
+Running Snakemake from somewhere else splits the workflow in two — shell tools resolve one
+way, Python scripts another — and the split stays silent until a script imports something
+only one of them has.
+
+### 3. What you must supply
+
+Neither the sequence data nor the reference databases are in this repository; together
+they are several hundred gigabytes.
+
+| what | where it is configured | approximate size |
+|---|---|---|
+| plasmid FASTA and master table | `config/config.yaml` → `input` | depends on your collection |
+| Pfam-A (with `.dat`) | `config/cascade.yaml` → T1, T2 | 2.1 GB |
+| AntiFam | `config/cascade.yaml` → `artefact_screen` | 50 MB |
+| pharokka database bundle | `config/cascade.yaml` → T3 | 1.5 GB |
+| Swiss-Prot (DIAMOND) | `config/cascade.yaml` → T4 | 264 MB |
+| NCBI nr (DIAMOND) | `config/cascade.yaml` → T5 | 357 GB |
+| eggNOG data | `config/targets.yaml` → `orthology` | 50 GB |
+| Foldseek target DB and ProstT5 | `config/config.yaml` → `foldseek_db`, `prostt5_model` | 20 GB |
+| MacSyFinder models | `config/config.yaml` → `macsyfinder_models` | 100 MB |
+
+`hmmer_z` in `config/cascade.yaml` **must** equal the number of sequences actually
+searched — the unique-protein count of your analysis set plus your controls and decoys.
+hmmsearch reports `E = (sequences searched) × P(score | null)`, so a stale `-Z` rescales
+every E-value in the run. `plasmidann.cascade.check_hmmer_z` refuses a mismatch at load
+time and names the value to set.
+
+### 4. Running it
+
+```bash
+snakemake -s workflow/Snakefile -n -c 8      # plan
+snakemake -s workflow/Snakefile -c 96        # run
+sbatch workflow/run_pipeline.sbatch          # on SLURM
+```
+
+A core count is **required**: the cascade tiers take their thread count from
+`workflow.cores`, so `-c`/`-j` is not optional.
+
+`preflight` runs first and confirms every executable and every configured database is
+present, in about a second, before any compute is spent. The submission scripts derive the
+repository root from their own location, so they run from wherever you checked the
+repository out.
+
+### The structural stage needs a GPU
+
+S8d predicts a 3Di structural alphabet with ProstT5, a transformer. On CPU it dominates the
+whole run; on a GPU it is a small fraction of it. Nothing else here uses a GPU, so it has
+its own submission:
+
+```bash
+sbatch workflow/run_pipeline.sbatch        # everything up to S8d
+sbatch workflow/structure_gpu.sbatch       # S8d
+sbatch workflow/run_pipeline.sbatch        # the rest, resuming
+```
+
+A run that asked for a GPU and did not get one fails loudly rather than silently taking ten
+times longer.
+
+### The SLURM account
+
+`workflow/run_pipeline.sbatch` and `workflow/structure_gpu.sbatch` carry an `#SBATCH -A`
+account and a partition that are specific to the cluster this was developed on. Change
+both before submitting anywhere else.
+
+A test-scale configuration is provided in `config/test/`, differing from production only in
+what a smaller set forces: the tier list, `hmmer_z`, the control counts and `outdir`.
+
+---
+
+## Measured performance
+
+From a full run on a 100-plasmid set (5,504 cascade queries) on one 96-core node.
+
+| stage | wall | peak RSS |
+|---|---|---|
+| T5 nr | 2.91 h | 180.1 GB |
+| orthology (eggNOG) | 39.7 min | 7.2 GB |
+| T1 Pfam `--cut_ga` | 6.6 min | 0.35 GB |
+| T2 Pfam sub-GA | 6.5 min | 0.32 GB |
+| T3 pharokka | 2.4 min | 8.2 GB |
+| T4 Swiss-Prot | 6.3 s | 2.4 GB |
+| all 27 remaining rules | 8.6 min combined | ≤ 6.8 GB |
+
+Two properties matter when sizing a larger run.
+
+**Memory carries; wall time does not.** A search tier's peak memory is set by the database,
+not the query count. Two independent measurements of the nr tier at query counts differing
+by 25× agreed within 2%, at 177–180 GB. So `mem_mb` measured on a small set is a real
+number for a large one.
+
+**The nr tier is mostly fixed cost.** Across three measurements — 152, 3,808 and 3,910
+queries — the pass costs about `2,400 s + 1.9 s per query`. At small query counts nearly
+all of that is the single pass over the 357 GB database; at large ones the slope dominates.
+This is why the cascade runs one job per tier and is not sharded: sharding into *N* pieces
+would pay the fixed cost *N* times.
+
+---
+
+## Tests
+
+```bash
+python -m pytest -q -m "not slow"    # unit and script-harness tests
+python -m pytest -q                  # adds the tool integration tests
+```
+
+`tests/conftest.py` supplies the `snakemake` global that Snakemake injects, so a workflow
+script can run against a small fixture in milliseconds. That harness exists because
+repeated review found that essentially every serious defect lived in the one layer no test
+touched — including stages that wrote well-formed empty tables and reported success.
+
+---
+
+## Documentation
+
+| file | covers |
+|---|---|
+| [`docs/PIPELINE_CODE.md`](docs/PIPELINE_CODE.md) | code layout, file contracts, invariants |
+| [`docs/annotation_statistics.md`](docs/annotation_statistics.md) | `-Z`, `--cut_ga`, the two Pfam tiers, `--domE` |
+| [`docs/PARAMETER_PROVENANCE.md`](docs/PARAMETER_PROVENANCE.md) | every parameter: cited, measured, or a recorded weakness |
+
+## Sources
+
+- Rodríguez del Río Á. *et al.* Functional and evolutionary significance of unknown genes from uncultivated taxa. *Nature* **626**, 377–384 (2024)
+- Pavlopoulos G.A. *et al.* Unraveling the functional dark matter through global metagenomics. *Nature* **622**, 594–602 (2023)
+- Mistry J. *et al.* Pfam: the protein families database in 2021. *Nucleic Acids Res.* **49**, D412–D419 (2021)
+- Eberhardt R.Y. *et al.* AntiFam: a tool to help identify spurious ORFs. *Database* **2012**, bas003
+- Tesson F. *et al.* Systematic and quantitative view of the antiviral arsenal of prokaryotes. *Nat. Commun.* **13**, 2561 (2022)
+- Eddy S.R. Accelerated profile HMM searches. *PLoS Comput. Biol.* **7**, e1002195 (2011)
+- Buchfink B., Reuter K. & Drost H.-G. Sensitive protein alignments at tree-of-life scale using DIAMOND. *Nat. Methods* **18**, 366–368 (2021)
+
+## Licence
+
+MIT. See [`LICENSE`](LICENSE).

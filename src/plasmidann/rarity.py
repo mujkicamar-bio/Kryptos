@@ -43,14 +43,15 @@ objective, not a biological assumption", so nothing here treats the curve as a t
 import random
 
 # Bumped when a label's definition changes, so two runs' labels cannot be silently compared.
-RARITY_VERSION = "1"
+RARITY_VERSION = "2"
 
 LABELS = (
     "RARE",
     "LINEAGE_SPECIFIC",
-    "PLASMID_FAMILY_SPECIFIC",
     "WIDELY_CONSERVED",
+    "SINGLE_MOB",
     "CROSS_MOB",
+    "SINGLE_HOST",
     "CROSS_HOST",
     "CROSS_TAXON",
 )
@@ -60,7 +61,7 @@ def rarity_labels(family, thresholds):
     """Every label that applies to one family. A family may carry several.
 
     `family` needs the Stage 7 distribution counts: independent_plasmid_cluster_count,
-    MOB_count, host_count, genus_count, unique_plasmid_count.
+    MOB_count, host_count, genus_count, n_plasmids_with_species, unique_plasmid_count.
 
     Several labels rather than one, because they describe different axes and a family can
     be genuinely CROSS_MOB and CROSS_HOST at once. Forcing one label would make the answer
@@ -84,13 +85,19 @@ def rarity_labels(family, thresholds):
     if lineages >= thresholds["widely_conserved_min_lineages"]:
         labels.append("WIDELY_CONSERVED")
 
-    # Confined to one MOB cluster while occurring on several lineages: the family travels
-    # with a plasmid type rather than with a host or an environment.
-    if count("MOB_count") == 1 and lineages > 1:
-        labels.append("PLASMID_FAMILY_SPECIFIC")
-
-    if count("MOB_count") >= thresholds["cross_min_mob"]:
+    # MOB-suite clusters are reported as a label only, never as a lineage count: MOB-suite
+    # assigns the nearest reference's cluster however distant, so it is no measure of
+    # independence. A family with no MOB-suite cluster carries neither label.
+    if count("MOB_count") == 1:
+        labels.append("SINGLE_MOB")
+    if count("MOB_count") >= 2:
         labels.append("CROSS_MOB")
+    # Observed hosts only (plasmidann.hosts); MOB-suite's predicted range is never a host.
+    # One species is SINGLE_HOST only when EVERY plasmid is named to the species: one E.
+    # coli plasmid beside four unhosted ones says nothing about the other four.
+    if (count("host_count") == 1
+            and count("n_plasmids_with_species") == count("unique_plasmid_count")):
+        labels.append("SINGLE_HOST")
     if count("host_count") >= thresholds["cross_min_hosts"]:
         labels.append("CROSS_HOST")
     if count("genus_count") >= thresholds["cross_min_genera"]:

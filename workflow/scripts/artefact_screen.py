@@ -40,10 +40,11 @@ DESIGN PRINCIPLE P5: FLAG, NEVER DISCARD
 Nothing is deleted. A flagged protein stays in every table and every count; it is excluded
 from target eligibility at S5 and the exclusion is reversible and countable.
 """
-import _ctx  # noqa: F401
 import csv
 import pathlib
 import subprocess
+
+import _ctx  # noqa: F401
 
 from plasmidann import scratch
 from plasmidann.cascade import passes_significance
