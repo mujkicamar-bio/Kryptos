@@ -1,26 +1,23 @@
-"""S0b: the clonal registry - which plasmids are independent observations.
+"""S0b: the clonal registry, one row per analysis-set plasmid.
 
-Every later count of "independent occurrences" is computed over MOB clusters, not raw
-plasmids. Without this, a family found on forty plasmids may be one clone sequenced forty
-times, and the multi-lineage evidence at S7 and S9 means nothing.
+Records per plasmid its MOB-suite cluster (a plasmid without one is its own singleton
+cluster), the observed host and the source that named it, lifestyle (isolate or
+metagenome, so a count can be restricted to either), MOB-suite's predicted host range,
+topology, size and habitat. Independence is not counted here: the downstream counts use the
+Mash lineages of plasmid_lineage.tsv, and the MOB cluster gives only the MOB_count and the
+SINGLE_MOB and CROSS_MOB labels.
 
-The plasmid lineage, not the host, is the unit of independence here: a protein family
-found on two unrelated plasmid backbones is stronger evidence of a mobile functional unit
-than one found in two host species that happen to share the same plasmid.
+The host comes from three sources in order of preference (plasmidann.hosts): PLSDB species,
+PlasmidScope's per-record host (which carries IMG/PR's) and the GenBank/RefSeq source
+organism. Together they name a host for 61.0% of the analysis set (98.4% of isolate
+plasmids, 23.9% of metagenomic ones), against 31.8% for PLSDB alone.
 
-The host is recorded beside it, from three sources in order of preference - PLSDB species,
-PlasmidScope's per-record host (which carries IMG/PR's), and the GenBank/RefSeq source
-organism - which together name a host for 61.1% of the analysis set (98.6% of isolate
-plasmids, 24.0% of metagenomic ones) against 31.9% for PLSDB alone (plasmidann.hosts). host_source says which source named it, and lifestyle whether
-the plasmid came from an isolate or a metagenome, so a count can be restricted to either.
-
-predicted_host_range is MOB-suite's predicted host range (master table mob_host_range):
-the taxa in which plasmids with the same replicon and relaxase types have been seen, at
-whatever rank fits - a genus, a family, an order, one or several phyla. It is a
-prediction and a range, not an observed host, so it is kept in its own column and never
-enters species, genus or the host counts (decided 2026-09-25). It is reported as a separate
-measurement for every plasmid, hosted or not (recurrence, annotation_report). For the 55,785
-plasmids with no observed host it adds a range for 18,170, almost all metagenomic.
+predicted_host_range is MOB-suite's predicted host range (master table mob_host_range): the
+taxa in which plasmids with the same replicon and relaxase types have been seen, at
+whatever rank fits (a genus, a family, an order, one or several phyla). It is a prediction
+and a range, not an observed host, so it has its own column and never enters species,
+genus or the host counts. For the 55,936 plasmids with no observed host it gives a range
+for 18,244, almost all metagenomic.
 """
 import csv
 
