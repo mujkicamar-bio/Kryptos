@@ -130,6 +130,33 @@ def test_clonal_registry_takes_the_host_from_three_sources(fixture_dir):
     assert rows["b"]["lifestyle"] == "metagenomic"
 
 
+@requires("mash")
+def test_plasmid_lineage_links_near_identical_plasmids(fixture_dir):
+    """Two plasmids differing at 1% of positions are one lineage, two identical small ones
+    another; the thresholds that produced the lineages are on every row."""
+    import random
+    rng = random.Random(5)
+    big = "".join(rng.choice("ACGT") for _ in range(5000))
+    near = "".join(rng.choice("ACGT") if i % 100 == 0 else c for i, c in enumerate(big))
+    small = "".join(rng.choice("ACGT") for _ in range(3000))
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, [("pA", big), ("pB", near), ("pS", small), ("pS2", small)])
+    out = fixture_dir / "lineage" / "plasmid_lineage.tsv"
+
+    run_script("plasmid_lineage.py", FakeSnakemake(
+        input={"fasta": str(fasta)}, output={"tsv": str(out)},
+        params={"lineage": {"max_distance": 0.05, "max_pvalue": 1e-10, "kmer": 21,
+                            "sketch_size": 1000}},
+        threads=1))
+
+    rows = read_tsv(out)
+    assert list(rows[0]) == ["plasmid_id", "plasmid_lineage_cluster", "lineage_max_distance",
+                             "lineage_kmer", "lineage_sketch_size"]
+    assert {r["plasmid_id"]: r["plasmid_lineage_cluster"] for r in rows} == {
+        "pA": "pA", "pB": "pA", "pS": "pS", "pS2": "pS"}
+    assert {(r["lineage_max_distance"], r["lineage_kmer"]) for r in rows} == {("0.05", "21")}
+
+
 def test_unmeasured_independence_is_not_reported_as_zero(fixture_dir):
     """A family whose plasmids are absent from the lineage table has not been measured.
     Reporting 0 would read as 'no independent lineages', a much stronger claim than 'not

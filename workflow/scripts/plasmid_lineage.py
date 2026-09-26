@@ -1,11 +1,9 @@
-"""Stage 6: cluster plasmids by sequence similarity into lineages (spec section 33).
+"""Stage 6: cluster plasmids by sequence similarity into lineages.
 
-Independence, not typing. See src/plasmidann/lineage.py for why this is separate from MOB
-class and what single linkage costs.
-
-Mash sketches every plasmid, compares all pairs, and the connected components below the
-configured distance are the lineage clusters. `mash dist` on a sketch database is all
-against all in one pass.
+Input: the analysis-set FASTA. Mash sketches every plasmid, `mash dist` compares the sketch
+database against itself, and the connected components of the linked pairs are the
+lineages (plasmidann.lineage). Output plasmid_lineage.tsv: one row per plasmid with its
+lineage id and the Mash distance, k-mer size and sketch size that produced it.
 """
 import csv
 import pathlib
@@ -20,20 +18,22 @@ out = pathlib.Path(snakemake.output.tsv)
 work = out.parent / "mash"
 work.mkdir(parents=True, exist_ok=True)
 
-# ------------------------------------------------------------------------------------
-# Sketch. -i sketches each SEQUENCE separately rather than the file, which is what makes
-# one file of many plasmids into many sketches.
-# ------------------------------------------------------------------------------------
+names = []
+for line in open(snakemake.input.fasta):
+    if line[0] == ">":
+        names.append(line[1:].split()[0])
+if not names:
+    raise SystemExit("plasmid_lineage: no sequences found in the input - every downstream "
+                     "independence count would be empty.")
+
+# -i sketches each sequence rather than the whole file.
 sketch = work / "plasmids"
 subprocess.run(
     f"mash sketch -i -k {cfg['kmer']} -s {cfg['sketch_size']} "
     f"-p {snakemake.threads} -o {sketch} {snakemake.input.fasta}",
     shell=True, check=True)
 
-# ------------------------------------------------------------------------------------
-# All-against-all. -d filters at the tool, so the distance threshold is applied once here
-# and the same number is recorded on every row below.
-# ------------------------------------------------------------------------------------
+# -d applies the distance threshold at the tool, so only candidate pairs are written.
 dist_out = work / "dist.tsv"
 with open(dist_out, "w") as fh:
     subprocess.run(
@@ -41,33 +41,18 @@ with open(dist_out, "w") as fh:
         f"{sketch}.msh {sketch}.msh",
         shell=True, check=True, stdout=fh)
 
-names = []
-for line in open(snakemake.input.fasta):
-    if line[0] == ">":
-        names.append(line[1:].split()[0])
-
-edges = parse_mash_dist(open(dist_out).read(), max_distance=cfg["max_distance"],
-                        max_pvalue=cfg["max_pvalue"])
-clusters = lineage_clusters(names, edges)
+# Streamed: with large clonal groups the all-against-all output can reach tens of GB.
+with open(dist_out) as fh:
+    clusters = lineage_clusters(names, parse_mash_dist(
+        fh, max_distance=cfg["max_distance"], max_pvalue=cfg["max_pvalue"]))
 
 with open(out, "w", newline="") as fh:
     writer = csv.writer(fh, delimiter="\t")
-    # The threshold travels on every row: the cluster count is a direct function of it, so
-    # any statement about independence that cites this table can be traced to the number
-    # that produced it (design principle P4).
     writer.writerow(["plasmid_id", "plasmid_lineage_cluster", "lineage_max_distance",
                      "lineage_kmer", "lineage_sketch_size"])
     for plasmid_id in sorted(clusters):
         writer.writerow([plasmid_id, clusters[plasmid_id], cfg["max_distance"],
                          cfg["kmer"], cfg["sketch_size"]])
 
-n_clusters = len(set(clusters.values()))
-print(f"lineage: {len(names)} plasmids -> {n_clusters} independent lineage clusters "
+print(f"lineage: {len(names)} plasmid records -> {len(set(clusters.values()))} lineages "
       f"at mash distance <= {cfg['max_distance']}")
-# Spec section 33.2: these are different biological properties, so both are reported and
-# neither is presented as the other.
-print(f"         plasmid records {len(names)}, independent lineages {n_clusters}")
-
-if not names:
-    raise SystemExit("plasmid_lineage: no sequences found in the input - every downstream "
-                     "independence count would be empty.")
