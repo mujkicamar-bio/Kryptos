@@ -1,0 +1,18 @@
+# CONJScan, in its own environment.
+#
+# Conjugative and mobilisable systems (T4SS, MOB) are detected with the CONJScan 2.1.0
+# models (Coluzzi et al. 2022, Mol Biol Evol 39:msac115). CONJScan 2.0.2 and later use the
+# model grammar 2.1, which needs MacSyFinder >= 2.1.6 with MacSyLib >= 1.0.4 (CONJScan
+# README and changelog). The main environment cannot be upgraded instead:
+# mdmparis-defense-finder 3.0.0 declares macsyfinder==2.1.4 and imports the `macsypy`
+# package, which MacSyFinder 2.1.6 no longer ships, so DefenseFinder would break.
+#
+# `envs/conjscan` in the project root is a materialised copy of this specification, built
+# by tools/install_tool_envs.py, which also installs the models into data/refs/conjscan.
+name: conjscan
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.12
+  - macsyfinder=2.1.6      # bioconda noarch build; requires macsylib >=1.0.4,<1.5
+  - macsylib=1.0.4
+  - hmmer=3.4              # macsyfinder 2.1.6 accepts hmmer >=3.1b2,<=3.4

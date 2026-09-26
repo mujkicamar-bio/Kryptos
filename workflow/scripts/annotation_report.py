@@ -18,14 +18,16 @@ Two files, because there are two natural units:
   dark_families_complete.csv  one row per dark family. The selection surface: every piece
                               of evidence the run produced, side by side - annotation,
                               evolution, context, structure, distribution (Stage 7),
-                              synteny (Stage 9), rarity (Stage 14) and the Stage 15
-                              evidence dimensions.
+                              synteny (Stage 9), the dark families it travels with
+                              (S8g), rarity (Stage 14) and the Stage 15 evidence
+                              dimensions.
 
 WHAT CONTEXT HOLDS is not a column here: 12_context_and_structure/family_context_terms.tsv
 is the long table of context terms per family (amr:, metal:, defence:, conj: ...), counted
 over lineages. It carries no top term and no confidence, because the thresholds that would
 make a term a prediction are calibrated after the run (tools/calibrate_context.py); the
-family table carries the descriptive rates (cons_*) only.
+family table carries the descriptive rates (cons_*) only, beside the S8g co-occurrence
+partners, which are pairs of dark families rather than context terms.
 
 CSV, not TSV, because these are the files that get opened in a spreadsheet. Every field is
 quoted by csv.writer where it needs to be, which matters: a DIAMOND stitle is free text and
@@ -54,15 +56,18 @@ import csv
 
 import _ctx  # noqa: F401
 
+from darkorf import status
 from darkorf.ids import family_id as cluster_family_id
 from plasmidann import integration, labeldb
 from plasmidann.context import overlapping_islands
+from plasmidann.cooccurrence import family_partners
 from plasmidann.evidence import darkness_state, reality_lines, reality_thresholds
 
 # check_reality_config went with Layer C: it validated that min_reality_lines - a SELECTION
 # parameter - was reachable. Nothing selects here, so there is no such parameter to check.
 evo_cfg = snakemake.params.evolution
 THRESHOLDS = reality_thresholds(evo_cfg)
+cooc_cfg = snakemake.params.cooccurrence
 
 
 def index(path, key):
@@ -93,6 +98,17 @@ orthology = index(snakemake.input.orthology, "seq_id")
 recurrence = index(snakemake.input.recurrence, "family_id")
 synteny = index(snakemake.input.synteny, "family_id")
 rarity = index(snakemake.input.rarity, "family_id")
+
+# S8g: per dark family, the partners it shares a plasmid with in more lineages than chance
+# predicts. The pair table holds the tested pairs only; a family in none of them had no
+# partner together in cooccurrence.min_lineages_together lineages.
+with open(snakemake.input.cooccurrence, newline="") as fh:
+    pairs = [{**r, "p_value": float(r["p_value"]), "q_value": float(r["q_value"]),
+              "n_lineages_together": int(r["n_lineages_together"]),
+              "fraction_of_a": float(r["fraction_of_a"]),
+              "fraction_of_b": float(r["fraction_of_b"])}
+             for r in csv.DictReader(fh, delimiter="\t")]
+partners = family_partners(pairs, cooc_cfg["fdr"])
 
 # Which unique protein each ORF is, and which family each unique protein belongs to.
 seq_of_orf = {}
@@ -157,6 +173,14 @@ FAMILY_COLS = [
     "small_lineage_right_conservation", "small_lineage_neighborhood_conservation",
     "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
     "small_modal_left", "small_modal_right", "small_modal_synteny", "small_synteny_status",
+    # S8g: the dark families this one travels with. A partner counts when it shares a
+    # plasmid with this family in more lineages than chance predicts (q <= fdr); the best
+    # partner (lowest q) is named whether significant or not, with its q and the fraction of
+    # THIS family's lineages in which the two share a plasmid. TOO_FEW_LINEAGES: no partner
+    # shared a plasmid with it in min_lineages lineages, so no pair was tested.
+    "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
+    "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
+    "cooccurrence_fdr", "cooccurrence_min_lineages",
     # Stage 14 (section 54): descriptors, not a ranking. RARE is not better than
     # WIDELY_CONSERVED. The version travels because a label's definition can change.
     "rarity_labels", "rarity_version",
@@ -236,6 +260,11 @@ with open(snakemake.output.families, "w", newline="") as out:
                **{c: syn.get(c, "") for c in SYNTENY_COLS},
                "synteny_status": syn.get("status", ""),
                "small_synteny_status": syn.get("small_status", ""),
+               **partners.get(fid, {"n_cooccurring_partners": 0}),
+               "cooccurrence_status": (status.SUCCESS if fid in partners
+                                       else status.TOO_FEW_LINEAGES),
+               "cooccurrence_fdr": cooc_cfg["fdr"],
+               "cooccurrence_min_lineages": cooc_cfg["min_lineages_together"],
                **{c: rar.get(c, "") for c in RARITY_COLS},
                "reality_n": n,
                "reality_lines": "+".join(fired) or "none",

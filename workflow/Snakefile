@@ -10,7 +10,7 @@
 # S0  analysis set                     which plasmids are in scope
 # S1  gene calling                     with circular-origin repair
 # S2  dereplication                    exact identity, lossless
-# S2b artefact screen                  AntiFam + low complexity, flag never discard
+# S2b artefact screen                  AntiFam + low complexity; AntiFam skips the tiers
 # S2c positive control                 reviewed Swiss-Prot proteins spiked into the query
 # S3  annotation cascade               T1..Tn, self-narrowing on narrow_at
 # S4  plasmid annotation, labels        the primary deliverable
@@ -20,7 +20,8 @@
 # S4d plasmid label databases          TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS,
 #                                      Anti-CRISPRdb (DIAMOND), AMRFinderPlus
 # S8  context and structure            DefenseFinder, CONJScan, IntegronFinder, ISEScan,
-#                                      directons, context terms, Foldseek
+#                                      directons, context terms, dark family
+#                                      co-occurrence, Foldseek
 #
 # Design and rationale: plans/2026-09-10-pipeline-v2-design.md
 # Search statistics:    docs/annotation_statistics.md
@@ -95,6 +96,7 @@ rule all:
         f"{OUT}/08_protein_labels/label_disagreements.tsv",    # S4d cross-source conflicts
         f"{OUT}/12_context_and_structure/family_context_terms.tsv",  # S8c context terms
         f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",  # S8f mobility
+        f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",  # S8g families together
         f"{OUT}/10_clustering/protein_families.tsv",           # Stage 5: every protein family
         f"{OUT}/10_clustering/network_summary.tsv",            # Stage 5b: family network
         f"{OUT}/10_clustering/plasmid_lineage.tsv",            # Stage 6: independent lineages
@@ -284,9 +286,10 @@ rule protein_clustering:
 rule cascade_selection:
     """S2s: which proteins the cascade annotates, and which of those it searches.
 
-    Selected: not annotated by Tier 0, in a family (primary) holding a small-plasmid protein
-    not annotated by Tier 0. Searched: the representatives of a 90% clustering of the
-    selected proteins; the members take their representative's result at cascade_resolve.
+    Selected: neither annotated by Tier 0 nor flagged by AntiFam, in a family (primary)
+    holding a small-plasmid protein that is neither. Searched: the representatives of a 90%
+    clustering of the selected proteins; the members take their representative's result at
+    cascade_resolve. AntiFam-flagged proteins skip every tier (role artefact_antifam).
     """
     input:
         faa=f"{OUT}/03_dereplication/unique_proteins.faa",
@@ -294,6 +297,8 @@ rule cascade_selection:
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
         ps=f"{OUT}/03_dereplication/plasmidscope_proteins.tsv",
         families=f"{OUT}/10_clustering/families_{targets['clustering']['primary']}_cluster.tsv",
+        # S2b: AntiFam-flagged proteins are never searched.
+        artefact=f"{OUT}/04_orf_qc/artefact_flags.tsv",
     output:
         tsv=f"{OUT}/03_dereplication/selection.tsv",
         faa=f"{OUT}/03_dereplication/search_representatives.faa",
@@ -390,11 +395,11 @@ rule artefact_screen:
     protein - so it lands in the dark set with a perfect record. This stage is what stops
     that, at S5, where a flagged protein becomes target-ineligible.
 
-    It does NOT reduce cascade compute, and an earlier docstring claimed it did. The
-    cascade's query set is built by prepare_control from unique_proteins.faa and has no
-    dependency on these flags, so every flagged sequence is still searched through all four
-    tiers including nr. That is the deliberate consequence of P5, flag-never-discard: the
-    flags stay reversible and countable, and nothing is removed from the searched set.
+    An AntiFam flag also skips every annotation tier (user decision, 2026-09-25):
+    cascade_selection gives the protein role artefact_antifam, so it is in no tier's query
+    set, and cascade_resolve writes it as NOT_SEARCHED with annot_source artefact_antifam.
+    A low-complexity flag skips nothing. No sequence is removed from any table (P5): the
+    flagged protein keeps its row and its flag, and the skip is countable from both.
     """
     input:
         faa=f"{OUT}/03_dereplication/unique_proteins.faa",

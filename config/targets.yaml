@@ -137,6 +137,16 @@ synteny:
   # Fewer voting lineages than this gives TOO_FEW_LINEAGES and no value: conservation
   # across one lineage is one observation, so 2 is the arithmetic minimum (spec 2.9).
   min_lineages: 2
+cooccurrence:
+  # S8g: dark family pairs that share a plasmid, counted per Stage 6 lineage. A pair
+  # together in one lineage is one observation, and two singleton families on one plasmid
+  # would get p = 1/N from it, so 2 is the minimum tested - the same minimum as
+  # synteny.min_lineages (spec 2.9). No published source sets it.
+  min_lineages_together: 2
+  # Benjamini-Hochberg false discovery rate (Benjamini & Hochberg 1995, J R Stat Soc B
+  # 57:289) at which the report counts a partner; 0.05 is the conventional level, and the
+  # pair table carries every q-value, so another level can be applied to it.
+  fdr: 0.05
 structure:
   scope: representatives
   gpu: false

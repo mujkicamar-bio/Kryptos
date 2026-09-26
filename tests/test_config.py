@@ -28,11 +28,25 @@ def test_the_two_length_parameters_are_distinct_keys():
 
 
 def test_cascade_thresholds_match_the_spec():
-    """Spec §15.3. narrow_at controls compute; min_explained controls science."""
-    config = yaml.safe_load((ROOT / "config" / "config.yaml").read_text())
-    assert config["cascade"]["narrow_at"] == 0.9
-    assert config["cascade"]["min_explained"] == 0.5
-    assert config["cascade"]["narrow_at"] >= config["cascade"]["min_explained"]
+    """Spec §15.3. narrow_at controls compute; min_explained controls science.
+
+    Read from the cascade files the workflow loads (Snakefile: cascade_config), in
+    production and in the smoke and benchmark configurations alike. narrow_at 0.7 is a
+    user decision (2026-09-25)."""
+    for path in (ROOT / "config" / "cascade.yaml", ROOT / "config" / "test" / "cascade.yaml",
+                 ROOT / "config" / "bench" / "cascade.yaml"):
+        cascade = yaml.safe_load(path.read_text())
+        assert cascade["narrow_at"] == 0.7, path
+        assert cascade["min_explained"] == 0.5, path
+        assert cascade["narrow_at"] >= cascade["min_explained"], path
+
+
+def test_the_cascade_thresholds_live_only_in_the_cascade_files():
+    """A second copy of narrow_at in config.yaml, which the workflow never read, once
+    stated 0.9 while the run used 0.7. Only the cascade files may carry these keys."""
+    for path in (ROOT / "config" / "config.yaml", ROOT / "config" / "test" / "config.yaml",
+                 ROOT / "config" / "bench" / "config.yaml"):
+        assert "cascade" not in yaml.safe_load(path.read_text()), path
 
 
 def test_targets_match_their_schema():

@@ -69,6 +69,8 @@ src/plasmidann/            pure logic - no I/O, no Snakemake, fully unit-tested
   conjscan.py              S8f CONJScan output and the plasmid mobility class
   context_terms.py         S8c context terms per family, counted over lineages
   synteny.py               Stage 9 conservation, a fractional vote over lineages
+  selection.py             S2s which proteins the cascade annotates
+  cooccurrence.py          S8g dark families on the same plasmid, per lineage
   normalise.py             collapsing free-text product names
   pfam_meta.py             Pfam description, type and clan from the release
   controls.py              the positive control (SC2)
@@ -96,7 +98,7 @@ tools/                     outside the DAG
   install_tool_envs.py     builds envs/conjscan and envs/amrfinder, installs their data
   calibrate_context.py     post-run: calibrates the context terms on known families
 
-tests/                     one file per concern, 232 tests
+tests/                     one file per concern, 559 tests
   conftest.py              the harness that runs a workflow script against a fixture
 docs/, plans/              rationale
 ```
@@ -362,8 +364,17 @@ survive the multi-lineage and purifying-selection tests planned for S7. They loo
 ideal candidates all the way to the plate. Plasmids are high-yield for them: gene-dense,
 GC-skewed, saturated with mobile elements.
 
+Since 2026-09-25 an AntiFam flag also skips the cascade: `cascade_selection` reads
+`artefact_flags.tsv`, and a protein with an `antifam_family` gets the role
+`artefact_antifam`, so it is in no tier's query set, Tier 0 included. A low-complexity flag
+skips nothing. The label databases (S4d), DefenseFinder and CONJScan still read every
+unique protein. The negative-control decoys are not in `unique_proteins.faa`, so AntiFam
+never screens them and they are searched by every tier: the decoy false-positive rate
+measures the cascade thresholds alone, not AntiFam and the cascade together.
+
 Nothing is deleted (P5). A flagged protein stays in every table and count; the exclusion
-happens at target selection and stays reversible.
+happens at target selection (`exclusion_reason` `artefact`, or `artefact,not_searched`
+for an AntiFam-flagged protein) and stays reversible.
 
 ### `protein_clustering.py` (S2f)
 
@@ -376,12 +387,16 @@ annotated or not - so no member is lost to an earlier filter. Stage 5 later read
 ### `cascade_selection.py` (S2s)
 
 What the cascade annotates, and what it actually searches (spec section 13.3). The rule is
-`plasmidann.selection.select`: proteins Tier 0 does not annotate, in families (the primary,
-intermediate clustering) holding
-a small-plasmid protein Tier 0 does not annotate. Those are clustered again at 90% identity
-over 80% of BOTH lengths, and only the representatives go into `cascade_input.faa`.
-`selection.tsv` gives every unique protein its role: `plasmidscope`, `representative`,
-`member` or `not_selected`.
+`plasmidann.selection.select(clusters, on_small, skipped)`: proteins that are not skipped,
+in families (the primary, intermediate clustering) holding a small-plasmid protein that is
+not skipped either. Skipped means annotated by Tier 0 or, since 2026-09-25, flagged by
+AntiFam (it reads `04_orf_qc/artefact_flags.tsv`, so it depends on `artefact_screen`); an
+AntiFam-flagged protein therefore does not open its family for searching. The selected
+proteins are clustered again at 90% identity over 80% of BOTH lengths, and only the
+representatives go into `cascade_input.faa`. `selection.tsv` gives every unique protein
+its role, in this precedence: `artefact_antifam`, `plasmidscope`, `representative`,
+`member` or `not_selected`. An AntiFam flag overrides a Tier 0 annotation of the same
+protein.
 
 Coverage of both, not of the member only as in the families: the representative's result is
 copied to the member, and a member that is a fragment of a longer representative would
@@ -408,8 +423,10 @@ threshold have given?" needs a complete re-run, and each run is weeks. Measured 
 at the 25th percentile of the observed distribution - the densest possible place to put a
 hard cut, and the one place it could not be checked.
 
-For this cohort the counterfactual exists, so the threshold's cost can be reported with a
-confidence interval. ~70,000 sequences, ~2% of the compute.
+For this cohort the counterfactual exists, so the cost of narrowing at `narrow_at` (0.7
+since 2026-09-25) can be reported with a confidence interval. ~70,000 sequences, ~2% of
+the compute. The cohort is drawn from `cascade_input.faa`, so AntiFam-flagged proteins,
+which are not in it, are excluded automatically.
 
 ### `tier_search.py` (S3)
 
@@ -438,13 +455,16 @@ Joins every tier's hits into one row per unique protein. Calls `check_thresholds
 an incoherent config fails before a table nobody can interpret is produced.
 
 `min_explained` is applied **here**, post hoc, as a reported flag rather than a filter -
-which is what makes it sweepable, because the search narrowed on the permissive
-`narrow_at` and every protein in the interesting band was seen by every tier.
+which is what makes it sweepable: the search narrowed on `narrow_at` (0.7), so every
+protein explained below 0.7 was seen by every tier, and `min_explained` can be swept up to
+0.7 without a re-run.
 
 Every unique protein gets a row, and `annot_source` says where it came from: `self`
 (searched), `representative` (a 90% member; the row is its representative's, named in
-`annot_representative`), `plasmidscope` (Tier 0) or `not_searched` (functional class
-`NOT_SEARCHED`, neither dark nor annotated).
+`annot_representative`), `plasmidscope` (Tier 0), `not_searched` (functional class
+`NOT_SEARCHED`, neither dark nor annotated) or, since 2026-09-25, `artefact_antifam`
+(AntiFam-flagged, functional class `NOT_SEARCHED`; a PlasmidScope annotation of the same
+protein is not used).
 
 ### `annotate_plasmids.py` (S4)
 
@@ -455,7 +475,8 @@ sequence, and attaches artefact flags. Asserts that no ORF lost its mapping.
 
 ## 7. Tests
 
-98 tests, one file per concern. They are written to read as specifications: each name is a
+559 tests (measured 2026-09-25; 556 without the 3 slow tool integration tests), one file
+per concern; the table lists the cascade core. They are written to read as specifications: each name is a
 sentence about behaviour, and each docstring says why the behaviour matters, usually with
 the measurement that motivated it.
 
@@ -565,6 +586,32 @@ paralogues (a neighbour in the focal family), counts each term over Stage 6 line
 reports TOO_FEW_LINEAGES below two. `window_covers_plasmid` marks an ORF whose window
 already holds every other gene of its plasmid.
 
+### `selection.py` (S2s) - which proteins the cascade annotates
+
+`select(clusters, on_small, skipped)` returns the proteins to annotate: every member of a
+primary family that is not skipped, when at least one of those unskipped members is on a
+small plasmid. `skipped` is the union of the Tier 0 annotated proteins and, since
+2026-09-25, the AntiFam-flagged proteins, so an artefact is neither searched nor opens its
+family for searching.
+
+### `cooccurrence.py` (S8g) - dark families that travel together
+
+`cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together)` tests every
+pair of dark families that share a plasmid in at least `min_lineages_together` (2) Stage 6
+lineages. Together means a member ORF of each on the same plasmid; a lineage counts once
+however many of its plasmids carry both. The test is the hypergeometric upper tail
+(`hypergeom_sf`) over N lineages, in log space with `math.lgamma` because scipy is not a
+declared dependency and the tails fall below the smallest double; it sums the tail away from
+the mode and stops once a term no longer changes the sum. Because k counts shared plasmids,
+the test is conservative relative to lineage-level overlap. `benjamini_hochberg` gives the
+step-up q-values across the tested pairs (Benjamini & Hochberg 1995), which is the tested
+set only, since the minimum depends on the outcome. A family below the minimum is left out
+of the enumeration, which is exact and keeps the pair count bounded. `family_partners`
+gives, per family, the number of partners at q <= `fdr` and the best partner (lowest q,
+named whether or not significant) with the fraction of this family's lineages in which
+the two share a plasmid. Significance means linkage or co-transfer, not function; with
+N of the order of 1e5 lineages, K = n = k = 2 gives p = 1/C(N, 2).
+
 ### `synteny.py` (Stage 9) - conservation counted over lineages
 
 The six section-42 measurements (`conservation`), each a fractional vote over Stage 6
@@ -660,9 +707,10 @@ count once. Every threshold arrives from config through `reality_thresholds()`.
 | `conjugation_systems.py` | S8f | CONJScan 2.1.0 (Plasmids models) over every ORF of every plasmid as one MacSyFinder database, run by the MacSyFinder 2.1.6 of `envs/conjscan`; writes `conjugation_systems.tsv` and `conjugation_plasmid_class.tsv` (pCONJ, pdCONJ, pMOB, pMOBless); NOT_RUN writes header-only tables |
 | `integrons.py` | S8b | IntegronFinder, `--local-max` for CALIN elements |
 | `context_features.py` | S8c | directons, islands, neighbours; one row of `cons_*` rates per family (`cons_conj` included), and `family_context_terms.tsv`: the context terms per family counted over lineages, for the dark families and, as the calibration benchmark, every known family at the primary resolution |
+| `dark_cooccurrence.py` | S8g | reads `dark_families.tsv` (primary-resolution dark families, through their dark members), `protein_map.tsv` and `plasmid_lineage.tsv`; writes `12_context_and_structure/dark_cooccurrence.tsv`, one row per TESTED pair sorted by p (family_a, family_b, n_lineages_a, n_lineages_b, n_lineages_together, n_lineages_total, fraction_of_a, fraction_of_b, expected_together, p_value, q_value, status); settings `targets.yaml` `cooccurrence` (`min_lineages_together` 2, `fdr` 0.05). On the 100-plasmid test set: 198 dark families on 55 plasmids, 93 lineages, 6 pairs tested, all at q <= 0.05 |
 | `synteny.py` | S9a | Stage 9 at every level of `synteny.levels` (close, intermediate): one row per cluster holding a dark small-plasmid member, measured over lineages; the primary-level set must equal `dark_families.tsv` |
 | `structure_search.py` | S8d | Foldseek with ProstT5 |
-| `annotation_report.py` | final | the two CSV deliverables (section 14). Since 2026-09-25 the ORF table adds the S4d labels by term type (`amr_labels`, `metal_labels`, `ta_labels`, `conj_role_labels`, `mge_labels`, `antidefence_labels`), `conj_system`, `conj_component`, `plasmid_conjscan_class` and the close-level synteny of the ORF's close cluster (`close_*`); the family table carries the intermediate-level `lineage_*` synteny columns and `cons_conj` |
+| `annotation_report.py` | final | the two CSV deliverables (section 14). Since 2026-09-25 the ORF table adds the S4d labels by term type (`amr_labels`, `metal_labels`, `ta_labels`, `conj_role_labels`, `mge_labels`, `antidefence_labels`), `conj_system`, `conj_component`, `plasmid_conjscan_class` and the close-level synteny of the ORF's close cluster (`close_*`); the family table carries the intermediate-level `lineage_*` synteny columns and `cons_conj`, and, after the synteny block, the S8g co-occurrence columns (`cooccurrence_status` SUCCESS or TOO_FEW_LINEAGES, `n_cooccurring_partners`, `top_cooccurring_partner`, `top_cooccurring_partner_q`, `top_cooccurring_partner_fraction`, `cooccurrence_fdr`, `cooccurrence_min_lineages`); a co-occurrence status counts towards the GENOMIC_CONTEXT dimension |
 
 Two design notes worth carrying:
 
@@ -693,7 +741,7 @@ cascade.
 ```bash
 export PATH=envs/plasmidann/bin:$PATH
 
-snakemake -s workflow/Snakefile -n                  # plan: 1,481 jobs
+snakemake -s workflow/Snakefile -n -c 2             # plan: 47 jobs (measured 2026-09-25)
 snakemake -s workflow/Snakefile annotate_only -j 96 # stop after the annotated plasmidome
 snakemake -s workflow/Snakefile -j 96               # the whole project
 
@@ -808,6 +856,7 @@ results/08_protein_labels/protein_labels.tsv    every label, per protein
 results/08_protein_labels/label_disagreements.tsv   cross-source conflicts, for review
 results/12_context_and_structure/family_context_terms.tsv   context terms per family
 results/12_context_and_structure/conjugation_plasmid_class.tsv   mobility class
+results/12_context_and_structure/dark_cooccurrence.tsv   dark families on one plasmid
 results/06_annotation_tables/plasmid_annotation.gff3 / .gbk   the feature files
 results/09_quality_gate/quality_gate.txt                 the run-halting control
 ```

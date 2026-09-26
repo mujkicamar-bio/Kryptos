@@ -7,7 +7,7 @@ import pytest
 
 from plasmidann.cascade import check_thresholds, completeness
 
-OK = {"narrow_at": 0.9, "min_explained": 0.5, "min_coverage": 0.5,
+OK = {"narrow_at": 0.7, "min_explained": 0.5, "min_coverage": 0.5,
       "full_at": 0.8, "partial_at": 0.5}
 
 

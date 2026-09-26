@@ -14,7 +14,8 @@ THE EIGHT DIMENSIONS (section 56.1)
     ORF_QC                     is it a protein at all
     SEQUENCE_HOMOLOGY          Pfam, Swiss-Prot, nr, pharokka
     ORTHOLOGY                  eggNOG
-    GENOMIC_CONTEXT            neighbours, defence systems, integrons, synteny
+    GENOMIC_CONTEXT            neighbours, defence systems, integrons, synteny,
+                               dark family co-occurrence
     EVOLUTIONARY_CONSERVATION  dN/dS, RNAcode
     DISTRIBUTION               breadth over independent lineages
     STRUCTURAL_RELATIONSHIP    Foldseek
@@ -80,9 +81,10 @@ def dimensions_present(record):
     if record.get("eggnog_searched") or record.get("cog_category"):
         present.append("ORTHOLOGY")
 
-    # The S8c context rates (0 is a measurement) or a synteny status.
+    # The S8c context rates (0 is a measurement), a synteny status or an S8g co-occurrence
+    # status.
     if (record.get("cons_annotated_neighbour") not in (None, "")
-            or record.get("synteny_status")):
+            or record.get("synteny_status") or record.get("cooccurrence_status")):
         present.append("GENOMIC_CONTEXT")
 
     # Status rather than value: NO_DIVERGENCE and SATURATED are measurements, and a family

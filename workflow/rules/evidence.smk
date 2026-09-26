@@ -266,6 +266,45 @@ rule synteny:
         "../scripts/synteny.py"
 
 
+rule dark_cooccurrence:
+    """S8g: do two dark families travel together more often than chance predicts?
+
+    Together = a member ORF of each on the same plasmid; counted once per Stage 6 lineage;
+    tested by the hypergeometric upper tail over lineages, with Benjamini-Hochberg across
+    the pairs together in at least cooccurrence.min_lineages_together lineages. Only those
+    tested pairs are written. See plasmidann.cooccurrence.
+    """
+    input:
+        # The primary-resolution dark families and their dark members.
+        families=f"{OUT}/10_clustering/dark_families.tsv",
+        map=f"{OUT}/03_dereplication/protein_map.tsv",
+        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
+    output:
+        f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",
+    params:
+        cooccurrence=targets["cooccurrence"],
+    resources:
+        # Memory is ~100 B per distinct family pair sharing a plasmid (measured, a Counter
+        # of tuple keys) plus ~1 KB per tested pair. results_test (job 6985208, 100
+        # plasmids): 533 pair occurrences, 8.8 per small plasmid and 0.15 per large one,
+        # 25 MB peak, under 1 s. Scaled to 82,261 small and 61,242 large plasmids that is
+        # ~0.73 M pair occurrences (< 1 GB). The ceiling, if large plasmids carried as many
+        # dark families as when every dark protein made a family (results_bench, 2,631
+        # pairs per large plasmid), is ~162 M (~16 GB for the counts). 64 GB is a
+        # scheduling figure above that ceiling, not a measurement at full scale.
+        mem_mb=64000,
+        # Each tested pair's tail takes 2-25 us (measured); ten million pairs take minutes.
+        runtime=120,
+    benchmark:
+        f"{OUT}/benchmarks/dark_cooccurrence.tsv"
+    log:
+        f"{OUT}/logs/12_context_and_structure/dark_cooccurrence.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/dark_cooccurrence.py"
+
+
 rule recurrence:
     """Stage 7: distribution and recurrence, counted over independent units.
 
@@ -657,11 +696,14 @@ rule annotation_report:
         labels_plasmid=f"{OUT}/08_protein_labels/protein_labels_plasmid.tsv",
         conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
         conjugation_class=f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",
+        # Per family: partners it travels with (S8g).
+        cooccurrence=f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",
     output:
         annotation=f"{OUT}/15_report/annotation_complete.csv",
         families=f"{OUT}/15_report/dark_families_complete.csv",
     params:
         evolution=targets["evolution"],
+        cooccurrence=targets["cooccurrence"],
     resources:
         mem_mb=32000,
         runtime=240,

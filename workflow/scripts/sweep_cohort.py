@@ -15,7 +15,8 @@ For proteins in this cohort the counterfactual DOES exist, because they are sear
 every tier regardless of how well they were explained. That makes it possible to report,
 with a confidence interval, what the threshold choice actually cost:
 
-    "at narrow_at = 0.7 rather than 0.9, the deep-tier set changes by X% (95% CI ...)"
+    "narrowing at narrow_at = 0.7 rather than searching every tier changes the deep-tier
+     set by X% (95% CI ...)"
 
 At 2% of 3.5M proteins this is ~70,000 sequences and roughly 2% of the compute.
 

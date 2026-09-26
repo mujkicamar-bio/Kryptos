@@ -93,8 +93,10 @@ references:
 
 # S4d: plasmid-specific label databases (plasmidann.labeldb). Each is its own label kind in
 # 08_protein_labels/protein_labels.tsv; PlasAnn's database and labels are not used.
-#   TADB 3.0, BacMet 2.0 (EXP), oriTDB 2.0, mobileOG-db beatrix-1.6 (sequence evidence),
-#   dbAPIS and Anti-CRISPRdb 2.2 (experimentally verified entries): DIAMOND blastp
+#   TADB 3.0 (validated), BacMet 2.0 (EXP), oriTDB 2.0, and mobileOG-db beatrix-1.6,
+#   dbAPIS and Anti-CRISPRdb 2.2 with every evidence class kept (Manual / Homology /
+#   Keyword Search; verified / homolog; Verified / PLiterature / Putative), the class of
+#   the matched entry recorded in sub_label (user decision, 2026-09-25): DIAMOND blastp
 #   --more-sensitive -e 1e-5, tier 1 >=80% identity and >=90% coverage, tier 2 >60% and
 #   >70%, coverage on query AND subject (tiers from Islam et al. 2026, Nucleic Acids Res.).
 #   CARD protein homolog models: Perfect / Strict on the curated per-model bitscore
@@ -130,14 +132,6 @@ qc:
     # the curator across essentially the whole database (Eberhardt et al. 2012, Database
     # 2012:bas003).
     threshold: cut_ga
-
-cascade:
-  # Spec §15. Two different decisions that an earlier design conflated into one number.
-  narrow_at: 0.9      # how explained before we STOP SEARCHING (compute)
-  min_explained: 0.5  # how explained before we call it ANNOTATED (science)
-  # Fraction of proteins that bypass narrowing and are searched by every tier, so the cost
-  # of narrowing is measurable rather than assumed (spec §61).
-  sweep_cohort_fraction: 0.02
 
 controls:
   # Spec §58. Positive controls test recall; negative controls test the opposite direction.

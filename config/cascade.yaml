@@ -25,11 +25,16 @@
 # exactly at the 25th percentile of the observed distribution - the densest possible place
 # to put a hard cut.
 #
-# So narrow_at is deliberately permissive: only proteins that are essentially finished are
-# withheld from deeper tiers. min_explained is then applied post hoc, on a table where
-# every protein in the interesting band has been seen by every tier, and is freely
-# sweepable. check_thresholds() enforces narrow_at >= min_explained.
-narrow_at: 0.9
+# narrow_at stops a protein at the tier where it reaches >= narrow_at explained: it is not
+# sent to deeper tiers. min_explained (0.5) stays the reporting threshold, applied post hoc
+# at cascade_resolve, so a protein between the two was still searched by every tier until
+# it crossed narrow_at, and the reporting threshold can be swept below 0.7 without
+# re-running anything. check_thresholds() enforces narrow_at >= min_explained.
+#
+# 0.7 is a user decision (2026-09-25); no published source sets it. What narrowing at 0.7
+# rather than searching to the end costs is measured by the sweep cohort (sweep_cohort.py),
+# which bypasses narrowing and is searched by every tier.
+narrow_at: 0.7
 min_explained: 0.5
 
 # --- Classification ------------------------------------------------------------------

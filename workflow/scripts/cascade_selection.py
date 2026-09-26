@@ -2,8 +2,9 @@
 
 See src/plasmidann/selection.py for the rule. Two steps:
 
-1. SELECT by family (clustering.primary, intermediate): proteins not annotated by Tier 0,
-   in a family holding a small-plasmid protein not annotated by Tier 0.
+1. SELECT by family (clustering.primary, intermediate): proteins neither annotated by
+   Tier 0 nor flagged by AntiFam (S2b), in a family holding a small-plasmid protein that
+   is neither.
 2. SEARCH the representatives of a 90% clustering of the selected proteins (identity and
    coverage in config/cascade.yaml search_clustering). Coverage is required of BOTH
    sequences (cov-mode 0): a member then has the representative's length to within 20%,
@@ -13,10 +14,13 @@ See src/plasmidann/selection.py for the rule. Two steps:
 Output selection.tsv, one row per unique protein:
     seq_id, on_small, role, search_representative
 role is one of
-    plasmidscope    annotated by Tier 0; not searched
-    representative  searched by the cascade
-    member          not searched; takes its representative's result
-    not_selected    in no family with an unexplained small-plasmid protein; not searched
+    artefact_antifam  flagged by AntiFam (S2b) as a probable non-protein; skips every
+                      annotation tier, Tier 0 included. Other artefact flags (low
+                      complexity) skip nothing
+    plasmidscope      annotated by Tier 0; not searched
+    representative    searched by the cascade
+    member            not searched; takes its representative's result
+    not_selected      in no family with an unexplained small-plasmid protein; not searched
 """
 import collections
 import csv
@@ -49,7 +53,12 @@ with open(snakemake.input.families) as fh:
         rep, mem = line.rstrip("\n").split("\t")
         clusters[rep].append(mem)
 
-selected = select(clusters, on_small, ps_annotated)
+# AntiFam flags only: a low-complexity flag marks composition, not a known artefact family,
+# and such a protein is still searched.
+with open(snakemake.input.artefact, newline="") as fh:
+    antifam = {r["seq_id"] for r in csv.DictReader(fh, delimiter="\t") if r["antifam_family"]}
+
+selected = select(clusters, on_small, ps_annotated | antifam)
 
 # ---- the search clustering, over the selected proteins only -------------------------
 work = scratch.scratch_dir(pathlib.Path(snakemake.output.tsv).parent, "search_clustering")
@@ -86,7 +95,8 @@ with open(snakemake.output.tsv, "w", newline="") as out:
     w.writerow(["seq_id", "on_small", "role", "search_representative"])
     for sid in all_ids:
         rep = representative_of.get(sid, "")
-        role = ("plasmidscope" if sid in ps_annotated else
+        role = ("artefact_antifam" if sid in antifam else
+                "plasmidscope" if sid in ps_annotated else
                 "representative" if rep == sid else
                 "member" if rep else "not_selected")
         roles[role] += 1

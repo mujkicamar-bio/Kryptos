@@ -27,10 +27,15 @@ families researchers kept independently rediscovering and reporting as exciting 
 conserved hypothetical proteins. It is small - 278 profiles against Pfam-A's ~21,000 - so
 this costs minutes.
 
-It does NOT save cascade compute, and an earlier version of this docstring said it did. The
-cascade queries unique_proteins.faa and never reads these flags, so a flagged sequence is
-still searched through every tier. That follows from P5 below: the flag is reversible and
-countable precisely because nothing was removed from the searched set.
+An AntiFam flag also saves cascade compute. cascade_selection reads these flags, and a
+protein AntiFam flags skips every annotation tier, Tier 0 included: its
+protein_annotation.tsv row has annot_source artefact_antifam and functional_class
+NOT_SEARCHED, and it does not open its family for searching. Only AntiFam flags skip; a
+protein flagged for low complexity alone is still searched. The label databases (S4d),
+DefenseFinder and CONJScan still read every unique protein, AntiFam-flagged ones included.
+Negative-control decoys are not in unique_proteins.faa, so this screen never sees them and
+they are searched by every tier: the decoy false-positive rate measures the cascade
+thresholds alone, not AntiFam and the cascade together.
 
 Plasmids are high-yield for these artefacts: gene-dense, GC-skewed, saturated with mobile
 elements.
@@ -38,7 +43,9 @@ elements.
 DESIGN PRINCIPLE P5: FLAG, NEVER DISCARD
 
 Nothing is deleted. A flagged protein stays in every table and every count; it is excluded
-from target eligibility at S5 and the exclusion is reversible and countable.
+from target eligibility at S5 and the exclusion is reversible and countable. An
+AntiFam-flagged protein that skipped the cascade keeps its row with the exclusion reason
+"artefact,not_searched".
 """
 import csv
 import pathlib

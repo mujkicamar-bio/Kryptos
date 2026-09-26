@@ -4,7 +4,7 @@
 # Each tier searches whatever the previous tier could not explain, and hands on the
 # residue. Tier order is authority order.
 #
-# The one structural change from v1: narrowing uses `narrow_at` (permissive), while
+# The one structural change from v1: narrowing uses `narrow_at` (0.7), while
 # `min_explained` is applied post hoc at cascade_resolve. Using one number for both made
 # the threshold unsweepable, because a protein withheld at T2 has no T4 result.
 # =====================================================================================

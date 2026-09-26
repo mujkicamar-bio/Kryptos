@@ -9,8 +9,8 @@ This is where the cascade's evidence becomes a decision. Two principles govern i
     the screening pool.
 
   * min_explained is applied HERE, post hoc, not during the search. The search narrowed on
-    narrow_at (0.9), which is permissive, so every protein in the interesting band was seen
-    by every tier and this threshold can be swept without re-running anything.
+    narrow_at (0.7), so every protein explained below 0.7 was seen by every tier and this
+    threshold can be swept up to 0.7 without re-running anything.
 
 Two columns describe coverage, over disjoint evidence, and they are not redundant:
 
@@ -30,6 +30,8 @@ EVERY UNIQUE PROTEIN GETS A ROW, and annot_source says where it came from:
   plasmidscope    Tier 0
   not_searched    outside every family with an unexplained small-plasmid protein;
                   functional_class NOT_SEARCHED, which is neither dark nor annotated
+  artefact_antifam  flagged by AntiFam (S2b), so it skipped every annotation tier, Tier 0
+                  included; functional_class NOT_SEARCHED
 """
 import collections
 import csv
@@ -92,6 +94,8 @@ with open(snakemake.input.selection, newline="") as fh:
     selection = list(csv.DictReader(fh, delimiter="\t"))
 # Only representatives with members need their row kept for copying.
 copied_from = {r["search_representative"] for r in selection if r["role"] == "member"}
+# AntiFam-flagged proteins skip Tier 0 as well: PlasmidScope's name for one is not used.
+antifam = {r["seq_id"] for r in selection if r["role"] == "artefact_antifam"}
 
 cols = [
     "seq_id",
@@ -184,7 +188,7 @@ with open(snakemake.output[0], "w", newline="") as out:
     n_ps = 0
     with open(snakemake.input.ps, newline="") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
-            if r["ps_class"] != "ANNOTATED":
+            if r["ps_class"] != "ANNOTATED" or r["seq_id"] in antifam:
                 continue
             n_ps += 1
             w.writerow({
@@ -206,7 +210,7 @@ with open(snakemake.output[0], "w", newline="") as out:
 
     # Members of a search cluster take their representative's row; the rest of the
     # unique proteins were never searched, and say so.
-    n_member = n_not_searched = 0
+    n_member = n_not_searched = n_antifam = 0
     for r in selection:
         if r["role"] == "member":
             n_member += 1
@@ -217,7 +221,12 @@ with open(snakemake.output[0], "w", newline="") as out:
             n_not_searched += 1
             w.writerow({"seq_id": r["seq_id"], "annot_source": "not_searched",
                         "functional_class": "NOT_SEARCHED"})
+        elif r["role"] == "artefact_antifam":
+            n_antifam += 1
+            w.writerow({"seq_id": r["seq_id"], "annot_source": "artefact_antifam",
+                        "functional_class": "NOT_SEARCHED"})
 
 print(f"resolved {len(seq_ids)} proteins across tiers {tier_order}; "
       f"{n_member} members took their representative's result; "
-      f"{n_ps} more resolved by PlasmidScope; {n_not_searched} not searched")
+      f"{n_ps} more resolved by PlasmidScope; {n_not_searched} not searched; "
+      f"{n_antifam} AntiFam-flagged, not searched")

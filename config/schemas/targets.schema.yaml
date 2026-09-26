@@ -117,6 +117,14 @@ properties:
         uniqueItems: true
         items: {type: string}
       min_lineages: {type: integer, minimum: 2}
+  # S8g: dark family co-occurrence - the lineage minimum for a tested pair, and the FDR.
+  cooccurrence:
+    type: object
+    required: [min_lineages_together, fdr]
+    additionalProperties: false
+    properties:
+      min_lineages_together: {type: integer, minimum: 2}
+      fdr: {type: number, exclusiveMinimum: 0, maximum: 1}
   context:
     type: object
     properties:
@@ -212,3 +220,4 @@ required:
 - structure
 - conjugation
 - synteny
+- cooccurrence

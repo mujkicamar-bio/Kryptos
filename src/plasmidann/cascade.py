@@ -266,7 +266,7 @@ def narrow_by_explained(all_ids, explained, threshold):
     IMPORTANT - which threshold belongs here. The caller must pass `narrow_at`, NOT
     `min_explained`. They are two different numbers doing two different jobs:
 
-      narrow_at (0.9)      how finished a protein must be before we stop searching it
+      narrow_at (0.7)      how finished a protein must be before we stop searching it
       min_explained (0.5)  how explained a protein must be before we REPORT it as such
 
     v1 used one number for both. Because a protein removed at T2 has no T5 result, that
@@ -275,8 +275,10 @@ def narrow_by_explained(all_ids, explained, threshold):
     moved the deep-tier set by 76%, and 0.5 sat exactly at the 25th percentile of the
     observed distribution - the densest possible place to put a hard cut.
 
-    Keeping narrow_at permissive costs deep-tier compute and buys back the ability to
-    check our own threshold. See also check_thresholds, which enforces narrow_at >=
+    Keeping narrow_at above min_explained means every protein explained below narrow_at
+    was searched by every tier, so min_explained can be swept up to narrow_at without a
+    re-run; the sweep cohort measures what stopping at narrow_at costs. narrow_at 0.7 is
+    a user decision (2026-09-25). See also check_thresholds, which enforces narrow_at >=
     min_explained.
     """
     unknown = set(explained) - set(all_ids)

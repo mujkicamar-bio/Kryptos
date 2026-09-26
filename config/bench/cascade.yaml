@@ -22,7 +22,7 @@
 # workflow/bench_pipeline.sbatch.
 #
 # Every other threshold is identical to production, deliberately.
-narrow_at: 0.9
+narrow_at: 0.7
 min_explained: 0.5
 min_coverage: 0.5
 full_at: 0.8

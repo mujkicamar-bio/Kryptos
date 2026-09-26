@@ -56,6 +56,9 @@ context:
 synteny:
   levels: [close, intermediate]
   min_lineages: 2
+cooccurrence:
+  min_lineages_together: 2
+  fdr: 0.05
 structure:
   scope: representatives
   gpu: true

@@ -45,7 +45,7 @@ cols = [
     # 11, or 4 where meta mode chose the Mycoplasma code - an open issue, see the spec
     "translation_table",
     # what it is, and where that came from (self, representative, plasmidscope,
-    # not_searched; see cascade_resolve.py)
+    # not_searched, artefact_antifam; see cascade_resolve.py)
     "annot_source", "annot_representative",
     "annot_tier", "annot_label", "functional_class", "homology_depth",
     "annot_qcov", "annot_tcov", "annot_evalue", "n_informative_hits",

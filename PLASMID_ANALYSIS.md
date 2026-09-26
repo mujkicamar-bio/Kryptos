@@ -95,10 +95,13 @@ Use the validated cascade to reduce the search population for deeper/expensive t
 
 The current project configuration uses:
 
-narrow_at = 0.9
+narrow_at = 0.7
 min_explained = 0.5
 
 unless later benchmarked evidence leads to a formal revision.
+
+DECIDED 2026-09-25: narrow_at is 0.7 (it was 0.9), a user decision with no published
+source; section 15.3 states its consequences.
 
 2.6 Recurrence is not independence
 
@@ -388,6 +391,7 @@ NOT_RUN
 NO_HIT
 TOO_FEW_MEMBERS
 TOO_FEW_LINEAGES
+NO_CONTEXT
 NO_DIVERGENCE
 SATURATED
 NO_OUTPUT
@@ -399,6 +403,12 @@ DECIDED 2026-09-25: TOO_FEW_LINEAGES (darkorf.status) is reported when a measure
 over Stage 6 lineages has fewer lineages than it needs - synteny (section 42) and the context
 terms (section 53), both below two lineages. It is distinct from TOO_FEW_MEMBERS: a family
 with forty members on copies of one plasmid lineage has enough members and one lineage.
+The dark family co-occurrence columns of the family table (section 41b) use it for a family
+that no partner shares a plasmid with in two lineages.
+
+DECIDED 2026-09-25: NO_CONTEXT (darkorf.status) is reported by synteny (section 42) for a
+cluster none of whose occurrences has a named neighbour. It is registered in the one status
+vocabulary with the others, so a reader filtering on the status meets only declared values.
 
 7.3 Text fields
 
@@ -502,6 +512,33 @@ antifam_model
 antifam_description
 antifam_score
 antifam_evalue
+
+DECIDED 2026-09-25: an AntiFam-flagged protein skips every annotation tier, Tier 0
+included. Rule cascade_selection reads 04_orf_qc/artefact_flags.tsv and gives such a
+protein the role artefact_antifam in selection.tsv, so it is in no tier's query set;
+cascade_resolve writes its protein_annotation.tsv row with annot_source artefact_antifam
+and functional_class NOT_SEARCHED. The precedence is AntiFam, then Tier 0, then
+representative or member, then not_selected: an AntiFam flag overrides a PlasmidScope Tier 0
+annotation of the same protein. An AntiFam-flagged protein does not open its family for
+searching (section 13.3). Only AntiFam flags skip: a protein flagged for low complexity
+alone is still searched. This replaces the earlier statement that the screen saves no
+cascade compute and that a flagged protein is searched by every tier.
+
+Consequences:
+
+- No row is removed (P5): the protein keeps its row in every table, and the quality gate
+  records its exclusion reason as artefact,not_searched.
+- The label databases (section 24b), DefenseFinder and CONJScan still read every unique
+  protein, AntiFam-flagged ones included; the skip applies to the cascade tiers only.
+- The negative-control decoys are not in unique_proteins.faa, so AntiFam never screens
+  them and they are still searched by every tier. The decoy false-positive rate (section
+  58.2) therefore measures the cascade thresholds alone, not AntiFam and the cascade
+  together.
+- The positive controls are unaffected.
+- The sweep cohort (section 61) is drawn from cascade_input.faa, so AntiFam-flagged
+  proteins are excluded from it automatically.
+- On the 100-plasmid test set, 4 proteins are AntiFam-flagged; all 4 were previously
+  not_selected, so the searched set is unchanged (275 search representatives).
 
 9.3 Overlap QC
 
@@ -630,8 +667,9 @@ S2f  protein_clustering   every unique protein, three resolutions (close 90/80,
                           intermediate 50/80, broad 30/50; cov-mode 1, cluster-mode 2).
                           A family is a sequence cluster, so it is made before any
                           annotation and no member is lost to an earlier filter.
-S2s  cascade_selection    SELECT the proteins Tier 0 does not annotate, in families
-                          holding a small-plasmid protein Tier 0 does not annotate. Then
+S2s  cascade_selection    SELECT the proteins Tier 0 does not annotate and AntiFam does
+                          not flag, in families holding a small-plasmid protein that is
+                          neither (section 9, DECIDED 2026-09-25). Then
                           SEARCH only the representatives of a 90% clustering of those
                           (90% identity, 80% coverage of both; UniRef90).
 S4r  cascade_resolve      each 90% member takes its representative's result
@@ -759,7 +797,27 @@ The exact calculation of informative coverage must be implemented as a named fun
 
 15.3 Current cascade value
 
-narrow_at = 0.9
+narrow_at = 0.7
+
+DECIDED 2026-09-25: narrow_at is 0.7 (it was 0.9). This is a user decision; no published
+source sets the value (docs/PARAMETER_PROVENANCE.md). A protein stops at the tier at which
+its merged informative coverage reaches 0.7 and is not sent to deeper tiers.
+check_thresholds() still requires narrow_at >= min_explained.
+
+Consequences:
+
+- min_explained (0.5) remains the reporting threshold, applied post hoc at cascade_resolve.
+  Every protein explained below 0.7 was searched by every tier, so min_explained can be
+  swept up to 0.7 without a re-run; a sweep above 0.7 needs one.
+- A protein explained between 0.7 and 1 after an early tier has no deeper-tier result. Its
+  annotation comes from the earlier tier, and its explained fraction is not extended by
+  later tiers, so a protein that a deeper tier would have covered past full_at (0.8) can
+  remain in the PARTIAL completeness band.
+- Deeper-tier compute falls, most of all for nr, the dominant cost.
+- How much the threshold changes is not assumed: the sweep cohort (section 61) bypasses
+  narrowing, and sweep_cohort measures what stopping at 0.7 costs. The only measurement so
+  far is from v1, where moving the single threshold from 0.3 to 0.8 changed the deep-tier
+  set by 76%.
 
 These parameters must be stamped into the run manifest and relevant output rows.
 
@@ -1599,6 +1657,75 @@ NOT_ASSESSED
 
 Missing output must never be silently interpreted as FALSE.
 
+41b. Stage 8g — Dark Family Co-occurrence (ADDED 2026-09-25)
+
+Do two dark families travel together more often than chance predicts? A pair that does is
+a candidate for a shared function or a shared mobile unit. Rule dark_cooccurrence
+(plasmidann.cooccurrence) writes 12_context_and_structure/dark_cooccurrence.tsv.
+
+Definitions:
+
+together   both families have a member ORF on the SAME plasmid; being in one lineage on
+           different plasmids is not being together
+unit       the Stage 6 lineage: a lineage counts as together when any of its plasmids
+           carries both, so clonal copies of one plasmid are one observation (section 34.2)
+family     the dark family at the primary resolution (clustering.primary), through its
+           dark members (dark_families.tsv)
+N          the distinct lineages in plasmid_lineage.tsv
+
+Test: the hypergeometric upper tail P(X >= k) over lineages, where K lineages carry family
+A, n carry family B and k are lineages in which A and B share a plasmid. It is computed in
+log space (math.lgamma), because the tails fall far below the smallest double. Because k
+counts shared plasmids, which is at most the number of lineages carrying both families,
+the test is conservative relative to lineage-level overlap.
+
+Only pairs together in at least cooccurrence.min_lineages_together (2) lineages are
+tested. One shared lineage is one observation; for two families seen once each,
+P(X >= 1) = 1/N, so every pair of singleton families on one plasmid would appear
+significant. This is the same minimum as synteny.min_lineages (section 2.9).
+Benjamini-Hochberg (Benjamini & Hochberg 1995, J. R. Stat. Soc. B 57:289) is applied
+across the tested pairs; cooccurrence.fdr is 0.05, the conventional level, and every
+q-value is written, so another level can be applied to the table.
+
+Record, one row per TESTED pair (family_a < family_b), sorted by p-value:
+
+family_a
+family_b
+n_lineages_a
+n_lineages_b
+n_lineages_together
+n_lineages_total
+fraction_of_a
+fraction_of_b
+expected_together
+p_value
+q_value
+status (SUCCESS)
+
+Caveats:
+
+- The minimum of two lineages depends on the outcome, so Benjamini-Hochberg controls the
+  false discovery rate over the tested set, not over every possible pair.
+- Significance means genetic linkage or co-transfer on a shared plasmid, not a shared
+  function.
+- With N of the order of 1e5 lineages, two rare families together in two lineages receive
+  a very small p-value: for K = n = k = 2, p = 1/C(N, 2). Such a pair is significant on two
+  observations; fraction_of_a and fraction_of_b say how often each family is found with
+  the other.
+
+The family table (section 64) carries, per dark family, cooccurrence_status (SUCCESS, or
+TOO_FEW_LINEAGES when no pair containing it was tested), n_cooccurring_partners (partners
+at q <= fdr), top_cooccurring_partner (the lowest q, named even when not significant),
+top_cooccurring_partner_q, top_cooccurring_partner_fraction (the share of this family's
+lineages in which the partner shares a plasmid), cooccurrence_fdr and
+cooccurrence_min_lineages. A co-occurrence status satisfies the GENOMIC_CONTEXT dimension
+(section 56.1); it is not a ninth dimension.
+
+Measured on the 100-plasmid test set: 198 dark families on 55 of the 100 plasmids, 93
+lineages, 533 family pairs sharing a plasmid counted per plasmid; 6 pairs tested, all at
+q <= 0.05 (one clique of four families, each pair K = n = k = 2, p = 1/C(93, 2) =
+2.34e-4).
+
 42. Stage 9 — Synteny and Context Conservation
 
 For dark families with multiple occurrences compare neighborhoods.
@@ -2026,6 +2153,9 @@ DISTRIBUTION
 STRUCTURAL_RELATIONSHIP
 PROTEIN_PROPERTIES
 
+DECIDED 2026-09-25: GENOMIC_CONTEXT is present when the S8c rates, a synteny status or an
+S8g co-occurrence status (section 41b) was measured.
+
 56.2 Dependencies
 
 The pipeline must recognize that these are not statistically independent.
@@ -2121,6 +2251,11 @@ DARK and/or explicit decoy/QC status
 
 The negative control must not be treated as an observed biological protein.
 
+DECIDED 2026-09-25: the decoys are not screened by AntiFam (they are not in
+unique_proteins.faa) and are searched by every tier, while AntiFam-flagged real proteins
+skip the tiers (section 9). The decoy false-positive rate therefore measures the cascade
+thresholds alone, not AntiFam and the cascade together.
+
 59. Quality Gates
 
 The pipeline must stop if positive-control annotation recall falls below the configured validated threshold.
@@ -2195,6 +2330,7 @@ final/plasmid_lineages.tsv
 
 final/context_features.tsv
 final/context_occurrences.tsv
+12_context_and_structure/dark_cooccurrence.tsv (section 41b)
 
 62.8 Evolution
 
@@ -2279,6 +2415,11 @@ DECIDED 2026-09-25: the family table carries the intermediate-level synteny row 
 42 (n_lineages, n_lineages_discordant, the lineage_* measurements, modal values,
 synteny_status, synteny_min_lineages, and the small_ repeats) in place of the occurrence
 measurements, and cons_conj beside the other context rates (section 53).
+
+DECIDED 2026-09-25: after the synteny columns, the family table carries the dark family
+co-occurrence columns of section 41b: cooccurrence_status, n_cooccurring_partners,
+top_cooccurring_partner, top_cooccurring_partner_q, top_cooccurring_partner_fraction,
+cooccurrence_fdr and cooccurrence_min_lineages.
 
 65. Dark Family Membership
 

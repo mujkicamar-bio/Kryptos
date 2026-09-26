@@ -19,7 +19,7 @@
 #
 # Every other threshold is identical to production, deliberately: a smoke run that
 # used different thresholds would not be testing the pipeline that produces results.
-narrow_at: 0.9
+narrow_at: 0.7
 min_explained: 0.5
 min_coverage: 0.5
 full_at: 0.8

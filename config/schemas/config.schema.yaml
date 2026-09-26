@@ -1,7 +1,7 @@
 # Validated at workflow load time. A typo in config.yaml must fail in seconds, not in hour 45.
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
-required: [input, outdir, orf, discovery, qc, cascade, controls, seed,
+required: [input, outdir, orf, discovery, qc, controls, seed,
            references, labels, amrfinder]
 properties:
   input:
@@ -70,13 +70,6 @@ properties:
         properties:
           db: {type: string}
           threshold: {type: string, enum: [cut_ga]}
-  cascade:
-    type: object
-    required: [narrow_at, min_explained, sweep_cohort_fraction]
-    properties:
-      narrow_at: {type: number, minimum: 0, maximum: 1}
-      min_explained: {type: number, minimum: 0, maximum: 1}
-      sweep_cohort_fraction: {type: number, minimum: 0, maximum: 1}
   controls:
     type: object
     required: [positive, negative]

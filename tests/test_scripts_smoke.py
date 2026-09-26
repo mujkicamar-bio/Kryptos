@@ -37,6 +37,17 @@ def _selection(fixture_dir, rows=()):
     return str(path)
 
 
+# The S2b artefact flags as artefact_screen writes them. Empty unless rows are given.
+ARTEFACT_COLS = ["seq_id", "artefact_flag", "antifam_family", "antifam_ievalue",
+                 "low_complexity_fraction", "artefact_reason"]
+
+
+def _artefact_flags(fixture_dir, rows=()):
+    path = fixture_dir / "artefact_flags.tsv"
+    write_tsv(path, ARTEFACT_COLS, list(rows))
+    return str(path)
+
+
 def _run_families(fixture_dir, input, output, params, threads=2, classes=None,
                   small=None):
     """S2f then Stage 5, as the workflow runs them.
@@ -1404,6 +1415,13 @@ def _run_report(fixture_dir, *tables):
                 "2.1.0"]])
     conj_class = fixture_dir / "conjugation_plasmid_class.tsv"
     write_tsv(conj_class, ["plasmid_id", "class"], [["p1", "pMOB"]])
+    # S8g: F2 travels with F9 (q 0.01) and less clearly with F8; F1 was in no tested pair.
+    cooc = fixture_dir / "dark_cooccurrence.tsv"
+    write_tsv(cooc, ["family_a", "family_b", "n_lineages_a", "n_lineages_b",
+                     "n_lineages_together", "n_lineages_total", "fraction_of_a",
+                     "fraction_of_b", "expected_together", "p_value", "q_value", "status"],
+              [["F2", "F9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01, "SUCCESS"],
+               ["F2", "F8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3, "SUCCESS"]])
     out_ann = fixture_dir / "annotation_complete.csv"
     out_fam = fixture_dir / "dark_families_complete.csv"
     run_script("annotation_report.py", FakeSnakemake(
@@ -1414,10 +1432,11 @@ def _run_report(fixture_dir, *tables):
                "rarity": str(rarity_tsv), "is_elements": is_tsv,
                "registry": str(registry), "clusters_close": str(clusters_close),
                "labels_plasmid": str(labels_plasmid), "conjugation": str(conj),
-               "conjugation_class": str(conj_class)},
+               "conjugation_class": str(conj_class), "cooccurrence": str(cooc)},
         output={"annotation": str(out_ann), "families": str(out_fam)},
         params={"prioritisation": {"min_reality_lines": 2, "min_mob_clusters": 2},
-                "evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5}}))
+                "evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5},
+                "cooccurrence": {"min_lineages_together": 2, "fdr": 0.05}}))
     return out_ann, out_fam
 
 
@@ -1499,6 +1518,10 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
         "small_modal_left", "small_modal_right", "small_modal_synteny",
         "small_synteny_status",
+        # S8g: dark families it travels with.
+        "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
+        "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
+        "cooccurrence_fdr", "cooccurrence_min_lineages",
         # Stage 14: descriptors, not a ranking.
         "rarity_labels", "rarity_version",
         # Stage 15: dimensions counted, never scored.
@@ -1565,6 +1588,17 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     assert fam_rows["F1"]["synteny_status"] == "TOO_FEW_LINEAGES", (
         "one lineage is perfectly conserved with itself; that must read as a status, "
         "not as a conservation of 1.0")
+
+    # --- S8g: partners, from the tested pairs --------------------------------------
+    f2 = fam_rows["F2"]
+    assert (f2["cooccurrence_status"], f2["n_cooccurring_partners"],
+            f2["top_cooccurring_partner"], f2["top_cooccurring_partner_q"],
+            f2["top_cooccurring_partner_fraction"], f2["cooccurrence_fdr"],
+            f2["cooccurrence_min_lineages"]) == (
+        "SUCCESS", "1", "F9", "0.01", "0.6667", "0.05", "2")
+    f1 = fam_rows["F1"]
+    assert (f1["cooccurrence_status"], f1["n_cooccurring_partners"],
+            f1["top_cooccurring_partner"]) == ("TOO_FEW_LINEAGES", "0", "")
 
     # --- Stage 14: labels are descriptors -------------------------------------------
     assert fam_rows["F1"]["rarity_labels"] == "RARE,LINEAGE_SPECIFIC"
@@ -2884,7 +2918,8 @@ def test_cascade_selection_searches_representatives_of_families_on_small_plasmid
 
     run_script("cascade_selection.py", FakeSnakemake(
         input={"faa": str(faa), "map": str(pmap), "small_ids": str(small_ids),
-               "ps": ps, "families": str(families)},
+               "ps": ps, "families": str(families),
+               "artefact": _artefact_flags(fixture_dir)},
         output=out,
         params={"search": {"min_seq_id": 0.9, "coverage": 0.8, "cov_mode": 0,
                            "cluster_mode": 2}},
@@ -2931,8 +2966,157 @@ def test_cascade_resolve_gives_members_their_representatives_result(fixture_dir)
         "NOT_SEARCHED", "not_searched")
 
 
+@requires("mmseqs")
+def test_antifam_flagged_proteins_are_in_no_tier_query_set(fixture_dir):
+    """C14: a protein AntiFam flags skips every annotation tier. s_art would otherwise be
+    searched (an unexplained small-plasmid protein, its own family's representative);
+    here it is not, and it does not open its family for l_rel either. ps_art is annotated
+    by Tier 0 and flagged: the flag wins. s_lc is flagged for low complexity only, which
+    is no reason to skip, so it is searched."""
+    import random
+    rng = random.Random(5)
+    aa = "ACDEFGHIKLMNPQRSTVWY"
+    seqs = {n: "M" + "".join(rng.choice(aa) for _ in range(150))
+            for n in ("s_art", "l_rel", "s_lc", "ps_art", "s_ok")}
+    faa = fixture_dir / "unique_proteins.faa"
+    write_fasta(faa, list(seqs.items()))
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("s_art\tS1|1\nl_rel\tL1|1\ns_lc\tS2|1\nps_art\tS3|1\ns_ok\tS3|2\n")
+    small_ids = fixture_dir / "small_plasmids.txt"
+    small_ids.write_text("S1\nS2\nS3\n")
+    families = fixture_dir / "families_intermediate_cluster.tsv"
+    families.write_text("s_art\ts_art\ns_art\tl_rel\ns_lc\ts_lc\nps_art\tps_art\n"
+                        "s_ok\ts_ok\n")
+    ps = _ps_table(fixture_dir, [["ps_art", "ANNOTATED", "", "", "", "", "RHH_1", "", "",
+                                  "Prodigal:2.6", 1]])
+    artefact = _artefact_flags(fixture_dir, [
+        ["s_art", 1, "AntiFam_ANF00001", "1e-30", 0.0, "antifam"],
+        ["ps_art", 1, "AntiFam_ANF00002", "1e-20", 0.6, "antifam,low_complexity"],
+        ["s_lc", 1, "", "", 0.7, "low_complexity"],
+        ["l_rel", 0, "", "", 0.0, ""], ["s_ok", 0, "", "", 0.0, ""]])
+    out = {"tsv": str(fixture_dir / "selection.tsv"),
+           "faa": str(fixture_dir / "search_representatives.faa")}
+
+    run_script("cascade_selection.py", FakeSnakemake(
+        input={"faa": str(faa), "map": str(pmap), "small_ids": str(small_ids),
+               "ps": ps, "families": str(families), "artefact": artefact},
+        output=out,
+        params={"search": {"min_seq_id": 0.9, "coverage": 0.8, "cov_mode": 0,
+                           "cluster_mode": 2}},
+        threads=2))
+
+    roles = {r["seq_id"]: r["role"] for r in read_tsv(out["tsv"])}
+    assert roles == {"s_art": "artefact_antifam", "ps_art": "artefact_antifam",
+                     "l_rel": "not_selected", "s_lc": "representative",
+                     "s_ok": "representative"}
+    searched = {l[1:].strip() for l in open(out["faa"]) if l.startswith(">")}
+    assert searched == {"s_lc", "s_ok"}, "an AntiFam-flagged protein reached the cascade"
+
+    # prepare_control builds the first tier's query from this file, and the sweep cohort
+    # and every later tier are drawn from that query: nothing flagged can reach them.
+    raw = fixture_dir / "raw.faa"
+    write_fasta(raw, [("sp|P00001|X_ECOLI Relaxase OS=Escherichia coli", "M" + "K" * 80)])
+    decoys = fixture_dir / "negative_control.faa"
+    write_fasta(decoys, [("DECOY_rc_00000", "M" + "L" * 80)])
+    spiked = fixture_dir / "cascade_input.faa"
+    run_script("prepare_control.py", FakeSnakemake(
+        input={"faa": out["faa"], "ps": ps, "raw": str(raw), "decoys": str(decoys)},
+        output={"control": str(fixture_dir / "positive_control.faa"),
+                "spiked": str(spiked)},
+        params={"n_controls": 1, "min_controls": 1, "seed": 1}))
+    query = {l[1:].strip() for l in open(spiked) if l.startswith(">")}
+    assert not query & {"s_art", "ps_art"}
+    assert {"s_lc", "s_ok", "DECOY_rc_00000"} <= query, (
+        "decoys are not AntiFam-screened and must still be searched")
+
+
+def test_an_antifam_skipped_protein_is_not_searched_and_never_dark(fixture_dir):
+    """C14: the skipped protein has a row, NOT_SEARCHED with annot_source
+    artefact_antifam - not a PlasmidScope row, even when Tier 0 annotated it - and the
+    quality gate keeps it out of the dark set."""
+    hits, spans, faa = _resolve_fixture(fixture_dir)
+    out = fixture_dir / "protein_annotation.tsv"
+    selection = _selection(fixture_dir, [["P1", 1, "representative", "P1"],
+                                         ["A", 1, "artefact_antifam", ""],
+                                         ["PA", 1, "artefact_antifam", ""]])
+    ps = _ps_table(fixture_dir, [["PA", "ANNOTATED", "DJ", "COG2026", "ko:K06218", "",
+                                  "ParE_toxin", "", "", "Prodigal:2.6", 1]])
+
+    run_script("cascade_resolve.py", FakeSnakemake(
+        input={"hits": hits, "spans": spans, "faa": str(faa), "selection": selection,
+               "ps": ps},
+        output=[str(out)],
+        params={"thresholds": {"narrow_at": 0.7, "min_explained": 0.5, "min_coverage": 0.5,
+                               "full_at": 0.8, "partial_at": 0.5},
+                "tier_order": ["T1", "T2"]}))
+
+    rows = read_tsv(out)
+    assert [r["seq_id"] for r in rows].count("PA") == 1, "one row per protein"
+    by_id = {r["seq_id"]: r for r in rows}
+    for sid in ("A", "PA"):
+        assert (by_id[sid]["functional_class"], by_id[sid]["annot_source"],
+                by_id[sid]["annot_label"]) == ("NOT_SEARCHED", "artefact_antifam", "")
+
+    artefact = _artefact_flags(fixture_dir, [
+        ["A", 1, "AntiFam_ANF00001", "1e-30", 0.0, "antifam"],
+        ["PA", 1, "AntiFam_ANF00002", "1e-20", 0.0, "antifam"]])
+    # One recovered positive control, so the gate passes and writes its table.
+    gate_prot = fixture_dir / "gate_prot.tsv"
+    write_tsv(gate_prot, list(rows[0]), [list(r.values()) for r in rows]
+              + [["CTRL_00001_P1" if c == "seq_id" else "FUNCTIONAL"
+                  if c == "functional_class" else "" for c in rows[0]]])
+    flags = fixture_dir / "gate_flags.tsv"
+    run_script("quality_gate.py", FakeSnakemake(
+        input={"prot": str(gate_prot), "artefact": artefact},
+        output={"flags": str(flags), "report": str(fixture_dir / "gate_report.txt")},
+        params={"gate": {"min_control_recall": 0.99, "require_control_set": False,
+                         "min_controls": 1},
+                "tier_sources": {"T1": "pfam", "T2": "pfam"}}))
+    gate = {r["seq_id"]: r for r in read_tsv(flags)}
+    for sid in ("A", "PA"):
+        assert gate[sid]["target_eligible"] == "0"
+        assert gate[sid]["exclusion_reason"] == "artefact,not_searched"
+
+
 # The synteny script tests (neighbours compared by family, small_ variants, strand and
 # origin wrap) live in tests/test_synteny.py with the lineage-level measurement.
+
+
+def test_dark_cooccurrence_writes_the_tested_pairs(fixture_dir):
+    """S8g on the tables the rule reads. d1 and d2 share a plasmid in lineages A and B
+    (A's two redeposited copies count once); d3 is on B's plasmid too but in one lineage
+    only, so no pair with it is tested; d4 shares lineage C with d1 on another plasmid,
+    which is not together."""
+    fams = fixture_dir / "dark_families.tsv"
+    write_tsv(fams, ["family_id", "members"],
+              [["intermediate:d1", "s1,s1b"], ["intermediate:d2", "s2"],
+               ["intermediate:d3", "s3"], ["intermediate:d4", "s4"]])
+    mapping = fixture_dir / "protein_map.tsv"
+    mapping.write_text("s1\tA1|1,A2|1\ns1b\tB1|3,C1|1\ns2\tA1|2,A2|2,B1|1\n"
+                       "s3\tB1|2\ns4\tC2|1,D1|1\nknown\tA1|3\n")
+    lineage = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["A1", "A"], ["A2", "A"], ["B1", "B"], ["C1", "C"], ["C2", "C"],
+               ["D1", "D"], ["E1", "E"], ["F1", "F"]])
+    out = fixture_dir / "dark_cooccurrence.tsv"
+
+    run_script("dark_cooccurrence.py", FakeSnakemake(
+        input={"families": str(fams), "map": str(mapping), "lineage": str(lineage)},
+        output=[str(out)],
+        params={"cooccurrence": {"min_lineages_together": 2, "fdr": 0.05}}))
+
+    rows = read_tsv(out)
+    assert list(rows[0]) == ["family_a", "family_b", "n_lineages_a", "n_lineages_b",
+                             "n_lineages_together", "n_lineages_total", "fraction_of_a",
+                             "fraction_of_b", "expected_together", "p_value", "q_value",
+                             "status"]
+    (row,) = rows
+    assert (row["family_a"], row["family_b"], row["n_lineages_a"], row["n_lineages_b"],
+            row["n_lineages_together"], row["n_lineages_total"]) == (
+        "intermediate:d1", "intermediate:d2", "3", "2", "2", "6")
+    # P(X >= 2) with N=6, K=3, n=2: C(3,2)/C(6,2) = 3/15.
+    assert float(row["p_value"]) == pytest.approx(0.2)
+    assert (row["fraction_of_a"], row["fraction_of_b"]) == ("0.6667", "1.0")
 
 
 def test_rarefaction_samples_every_small_plasmid(fixture_dir):

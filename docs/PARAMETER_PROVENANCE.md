@@ -43,6 +43,7 @@ is correct — but the deviation is recorded with the measurement that motivated
 | **dbAPIS** | Yan Y., Zheng J., Zhang X. & Yin Y. dbAPIS: a database of anti-prokaryotic immune system genes. *Nucleic Acids Res.* **52**, D419–D425 (2024), doi:10.1093/nar/gkad932 |
 | **Anti-CRISPRdb** | Dong C. *et al.* Anti-CRISPRdb v2.2: an online repository of anti-CRISPR proteins including information on inhibitory mechanisms, activities and neighbors of curated anti-CRISPR proteins. *Database* **2022**, baac010 (2022), doi:10.1093/database/baac010 |
 | **CONJScan** | Cury J. *et al.* Identifying conjugative plasmids and integrative conjugative elements with CONJscan. *Methods Mol. Biol.* **2075**, 265–283 (2020), doi:10.1007/978-1-4939-9877-7_19 |
+| **Benjamini-Hochberg** | Benjamini Y. & Hochberg Y. Controlling the false discovery rate: a practical and powerful approach to multiple testing. *J. R. Stat. Soc. B* **57**, 289–300 (1995), doi:10.1111/j.2517-6161.1995.tb02031.x |
 | **Coluzzi** | Coluzzi C., Garcillán-Barcia M.P., de la Cruz F. & Rocha E.P.C. Evolution of plasmid mobility: origin and fate of conjugative and nonconjugative plasmids. *Mol. Biol. Evol.* **39**(6), msac115 (2022), doi:10.1093/molbev/msac115 |
 ---
 
@@ -112,7 +113,7 @@ These have no published source. Each is a researcher degree of freedom until it 
 
 | parameter | value | status |
 |---|---|---|
-| `narrow_at` | 0.9 | **No source.** Chosen to be permissive enough to preserve the counterfactual. The 2% sweep cohort measures its cost, which is a partial substitute for a citation but not a replacement. |
+| `narrow_at` | 0.7 | **No source. User decision, 2026-09-25** (was 0.9). A protein stops at the tier where it reaches 0.7 explained. Measured sensitivity: in v1, moving the single threshold from 0.3 to 0.8 changed the deep-tier set by 76%, so the value matters. Consequences: `min_explained` can be swept up to 0.7 without a re-run, not beyond; a protein 0.7-1 explained after an early tier gets no deeper-tier result and can stay PARTIAL where a deeper tier would have made it FULL (`full_at` 0.8). The 2% sweep cohort bypasses narrowing and measures what stopping at 0.7 costs, which is a partial substitute for a citation but not a replacement. `check_thresholds` requires `narrow_at >= min_explained`. Set in `config/cascade.yaml` and its test and benchmark counterparts, the only files the workflow reads it from. |
 | `min_explained` | 0.5 | **No source.** Applied post hoc and sweepable, so its cost is measurable — but the value itself is unjustified. |
 | `min_coverage` | 0.5 | Partial: 50% coverage appears in FESNov and ECLIPSE for *clustering*, not for FUNCTIONAL/DOMAIN_ONLY classification. Not the same use. |
 | `full_at` / `partial_at` | 0.8 / 0.5 | **No source.** |
@@ -229,6 +230,26 @@ The occurrence statistic and its minimum of two occurrences are replaced; see sp
 | unit of observation | Stage 6 lineage (Mash distance <= 0.05, single linkage), fractional vote: each voting lineage has weight 1, split equally over its values | a counting rule, not a threshold. Forty copies of one redeposited plasmid are one lineage and one vote |
 | `synteny.min_lineages` | 2 | arithmetic minimum: conservation across one lineage is a single observation (spec section 2.9). Below it the status is TOO_FEW_LINEAGES |
 
+## Dark family co-occurrence (S8g, added 2026-09-25)
+
+Produced by `workflow/scripts/dark_cooccurrence.py` with the rules of
+`src/plasmidann/cooccurrence.py`; configured in `config/targets.yaml` `cooccurrence`.
+
+| parameter | value | source |
+|---|---|---|
+| together | a member ORF of each family on the same plasmid | a definition, not a threshold. Two families in one lineage on different plasmids are not together |
+| unit of observation | Stage 6 lineage; N = the distinct lineages in `plasmid_lineage.tsv` | as for synteny: clonal copies of one plasmid are one observation |
+| test | hypergeometric upper tail P(X >= k) over lineages (K lineages carry A, n carry B, k share a plasmid), in log space with `math.lgamma` | the standard test for the overlap of two sets drawn from one population; exact, so no approximation is tuned. Conservative relative to lineage-level overlap, because k counts shared plasmids. Checked against exact enumeration in `tests/test_cooccurrence.py` |
+| `cooccurrence.min_lineages_together` | 2 | **Measured justification, no published source.** One shared lineage is one observation, and for two singleton families P(X >= 1) = 1/N, so every pair of singleton families on one plasmid would appear significant. The same minimum as `synteny.min_lineages` (spec section 2.9). Because the minimum depends on the outcome, Benjamini-Hochberg is over the tested set only |
+| multiple-testing correction | Benjamini-Hochberg across the tested pairs | Benjamini-Hochberg |
+| `cooccurrence.fdr` | 0.05 | the conventional false discovery rate, used only to count partners in the report; every q-value is written to `dark_cooccurrence.tsv`, so another level can be applied |
+
+Measured on the 100-plasmid test set: 93 lineages, 6 pairs tested, all at q <= 0.05, each
+with K = n = k = 2 and p = 1/C(93, 2) = 2.34e-4. At full scale, with N of the order of 1e5
+lineages, two rare families together in two lineages get p = 1/C(N, 2); a significant pair
+can therefore rest on two observations, and significance means genetic linkage or
+co-transfer, not a shared function.
+
 ## Context terms and their calibration (S8c and a post-run tool, added 2026-09-25)
 
 `family_context_terms.tsv` is written by `workflow/scripts/context_features.py` with the
@@ -248,8 +269,10 @@ pipeline and is not a rule.
 | threshold choice | the lowest conservation whose precision reaches the level and stays there at every higher point holding at least 10 families | a declared rule, not a tuned value |
 
 **Count for the sections added on 2026-09-25:** 19 label-database rows, 5 CONJScan and
-DefenseFinder rows, 3 synteny rows and 9 context-term rows. None is unreferenced: each has
-a published source (a paper, or the source code of the tool a paper describes), a
-measurement, or is an arithmetic minimum (2 lineages, 10 families), a counting rule or a
-mapping declared as such. Two are deviations, both stricter or definitional and stated:
+DefenseFinder rows, 3 synteny rows, 6 co-occurrence rows and 9 context-term rows. None is
+unreferenced: each has a published source (a paper, or the source code of the tool a paper
+describes), a measurement, or is an arithmetic minimum (2 lineages, 10 families), a
+counting rule or a mapping declared as such; `cooccurrence.min_lineages_together` is
+justified by a measurement rather than a paper, and `cooccurrence.fdr` is the conventional
+level. Two are deviations, both stricter or definitional and stated:
 coverage on both sequences, and system terms on either strand.

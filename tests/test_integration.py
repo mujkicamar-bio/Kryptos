@@ -71,3 +71,14 @@ def test_every_emitted_dimension_is_declared():
 
     assert set(integration.dimensions_present(record)) <= set(integration.DIMENSIONS)
 
+
+
+def test_cooccurrence_is_genomic_context_and_not_a_new_dimension():
+    """S8g asks which dark families share a plasmid: that is genomic context, so it
+    fills GENOMIC_CONTEXT once, alone or beside synteny, and adds no ninth dimension."""
+    alone = integration.dimensions_present({"cooccurrence_status": "TOO_FEW_LINEAGES"})
+    both = integration.dimensions_present({"cooccurrence_status": "SUCCESS",
+                                           "synteny_status": "SUCCESS"})
+
+    assert alone == ["GENOMIC_CONTEXT"]
+    assert both == ["GENOMIC_CONTEXT"]

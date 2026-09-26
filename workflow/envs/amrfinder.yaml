@@ -1,0 +1,16 @@
+# NCBI AMRFinderPlus, in its own environment.
+#
+# Antimicrobial resistance, stress response (metal, biocide, acid, heat) and virulence
+# genes, called with AMRFinderPlus's own curated rules against the Reference Gene Catalog
+# (`amrfinder -p ... --plus`; Feldgarden et al. 2021, Sci Rep 11:12728).
+#
+# Separate from plasmidann.yaml because AMRFinderPlus pins its own BLAST+ and HMMER
+# ranges, and a solver conflict there would take down every stage rather than this one.
+# 4.2.7 is the current release (GitHub ncbi/amr, tag amrfinder_v4.2.7, 2026-01-26).
+#
+# `envs/amrfinder` in the project root is a materialised copy of this specification, built
+# by tools/install_tool_envs.py, which also installs the database into data/refs/amrfinder.
+name: amrfinder
+channels: [conda-forge, bioconda]
+dependencies:
+  - ncbi-amrfinderplus=4.2.7

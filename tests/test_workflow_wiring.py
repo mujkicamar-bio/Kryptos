@@ -262,8 +262,24 @@ def test_context_features_reads_the_labels_and_conjugation_and_writes_the_terms(
 def test_the_report_reads_the_new_evidence():
     rule = _rule("annotation_report")
     for needed in ("conjugation_systems.tsv", "conjugation_plasmid_class.tsv",
-                   "protein_labels_plasmid.tsv", "families_close_cluster.tsv"):
+                   "protein_labels_plasmid.tsv", "families_close_cluster.tsv",
+                   "dark_cooccurrence.tsv", 'cooccurrence=targets["cooccurrence"]'):
         assert needed in rule, f"annotation_report does not declare {needed}"
+
+
+def test_dark_cooccurrence_reads_families_map_and_lineages_with_resources():
+    rule = _rule("dark_cooccurrence")
+    for needed in ("dark_families.tsv", "protein_map.tsv", "plasmid_lineage.tsv",
+                   "12_context_and_structure/dark_cooccurrence.tsv",
+                   'cooccurrence=targets["cooccurrence"]', '"../scripts/dark_cooccurrence.py"',
+                   "mem_mb=", "runtime="):
+        assert needed in rule, f"dark_cooccurrence does not declare {needed}"
+
+
+def test_the_cascade_selection_reads_the_artefact_flags():
+    """C14: AntiFam-flagged proteins skip every tier, which the selection can only do if
+    the artefact screen runs before it."""
+    assert "04_orf_qc/artefact_flags.tsv" in _rule("cascade_selection")
 
 
 def test_one_submission_runs_every_stage_including_structure_search():

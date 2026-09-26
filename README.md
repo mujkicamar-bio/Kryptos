@@ -53,7 +53,7 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | S0 | `01_analysis_set` | plasmids in scope, as ids and sequence; clonal registry over MOB clusters |
 | S1 | `02_orf_calling` | Pyrodigal gene calling, with circular-origin repair |
 | S2 | `03_dereplication` | exact-identity dereplication, asserted lossless |
-| S2b | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards |
+| S2b | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards; an AntiFam-flagged protein skips every annotation tier and is reported as `NOT_SEARCHED` |
 | S3 | `05_annotation_cascade` | the annotation cascade, T1…T5, self-narrowing |
 | S4 | `06_annotation_tables` | the annotated plasmidome, plus GFF3 and GenBank |
 | S4b | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
@@ -62,19 +62,21 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | S5 | `09_quality_gate` | positive and negative controls; halts the run on failure |
 | S6 | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
 | S7 | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
-| S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, Foldseek + ProstT5 |
+| S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, dark family co-occurrence (`dark_cooccurrence.tsv`: pairs of dark families sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
 | S9a | `13_synteny` | gene-order conservation counted over lineages, at the gene (close) and family (intermediate) level |
 | S9b | `14_rarity` | family rarity labels and the saturation curve |
-| final | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family |
+| final | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family (the family table includes each family's co-occurring partners) |
 
-`snakemake -n --forceall -c 2` plans **46 jobs** with the production configuration (measured 2026-09-25).
+`snakemake -n --forceall -c 2` plans **47 jobs** with the production configuration (measured 2026-09-25).
 
 ### The cascade
 
 Five tiers, each handed only what the previous one could not explain. A protein stops
-being searched once `narrow_at` (0.9) of its length is covered; whether it is *reported* as
-explained is decided separately, by `min_explained` (0.5), applied afterwards on a table
-where every protein in the interesting band has been seen by every tier.
+being searched once `narrow_at` (0.7, a user decision of 2026-09-25) of its length is
+covered; whether it is *reported* as explained is decided separately, by `min_explained`
+(0.5), applied afterwards on a table where every protein explained below 0.7 has been seen
+by every tier. A 2% sweep cohort bypasses narrowing, so what stopping at 0.7 costs is
+measured rather than assumed. Proteins flagged by AntiFam are not searched by any tier.
 
 | tier | method | database | role |
 |---|---|---|---|
@@ -106,7 +108,7 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python -m pytest -q -m "not slow"
 ```
 
-The linter reports the workflow is in good condition, and 364 tests pass. This verifies
+The linter reports the workflow is in good condition, and 556 tests pass (3 slow tool integration tests are deselected; 559 in all, measured 2026-09-25). This verifies
 the checkout is complete and internally consistent, which is as far as anyone can get
 without the reference data.
 
@@ -301,6 +303,7 @@ touched — including stages that wrote well-formed empty tables and reported su
 - Dong C. *et al.* Anti-CRISPRdb v2.2: an online repository of anti-CRISPR proteins including information on inhibitory mechanisms, activities and neighbors of curated anti-CRISPR proteins. *Database* **2022**, baac010 (2022)
 - Cury J. *et al.* Identifying conjugative plasmids and integrative conjugative elements with CONJscan. *Methods Mol. Biol.* **2075**, 265–283 (2020)
 - Coluzzi C., Garcillán-Barcia M.P., de la Cruz F. & Rocha E.P.C. Evolution of plasmid mobility: origin and fate of conjugative and nonconjugative plasmids. *Mol. Biol. Evol.* **39**, msac115 (2022)
+- Benjamini Y. & Hochberg Y. Controlling the false discovery rate: a practical and powerful approach to multiple testing. *J. R. Stat. Soc. B* **57**, 289–300 (1995)
 - Kanehisa M. *et al.* KEGG: biological systems database as a model of the real world. *Nucleic Acids Res.* **53**, D672–D677 (2025) - the KO list, for the disagreement file only
 
 ## Licence

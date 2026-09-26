@@ -6,8 +6,8 @@ from darkorf import status
 
 def test_the_vocabulary_is_centralized_and_complete():
     for expected in [
-        "NOT_RUN", "NO_HIT", "TOO_FEW_MEMBERS", "TOO_FEW_LINEAGES", "NO_DIVERGENCE",
-        "SATURATED", "NO_OUTPUT", "FAILED", "NOT_APPLICABLE", "SUCCESS",
+        "NOT_RUN", "NO_HIT", "TOO_FEW_MEMBERS", "TOO_FEW_LINEAGES", "NO_CONTEXT",
+        "NO_DIVERGENCE", "SATURATED", "NO_OUTPUT", "FAILED", "NOT_APPLICABLE", "SUCCESS",
     ]:
         assert expected in status.ALL
         assert getattr(status, expected) == expected
@@ -28,3 +28,12 @@ def test_the_lineage_count_statuses_use_the_central_spelling():
     assert context_terms.TOO_FEW_LINEAGES == status.TOO_FEW_LINEAGES
     one_lineage = [{"left": ["a"], "right": ["b"], "operon": False, "lineage": "L1"}] * 3
     assert synteny.conservation(one_lineage)["status"] == status.TOO_FEW_LINEAGES
+
+
+def test_synteny_without_named_neighbours_writes_the_central_no_context():
+    """Synteny (Stage 9) reports NO_CONTEXT when no occurrence has a named neighbour. The
+    string must be one the vocabulary declares."""
+    from plasmidann import synteny
+
+    no_neighbours = [{"left": [], "right": [], "operon": False, "lineage": "L1"}]
+    assert synteny.conservation(no_neighbours)["status"] == status.NO_CONTEXT
