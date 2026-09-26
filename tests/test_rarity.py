@@ -1,10 +1,4 @@
-"""Stage 14: rarity, conservation and rarefaction (spec sections 54 and 55).
-
-Section 54 opens with the rule: rarity and conservation are SEPARATE descriptors. A family
-seen on three plasmids and identical on all three, and one seen on four hundred with one
-sequence, are opposite biological situations - a lineage-restricted system under strong
-constraint, and a housekeeping-like gene. One axis would merge them.
-"""
+"""Rarity labels, the rarefaction curve and its saturation value (plasmidann.rarity)."""
 from plasmidann import rarity
 
 THRESHOLDS = {
@@ -16,10 +10,7 @@ THRESHOLDS = {
 
 
 def test_breadth_is_counted_in_lineages_not_plasmid_records():
-    """Section 34.2: record counts are not independent observations. A family on four
-    hundred redepositions of ONE plasmid is one observation, and calling it
-    WIDELY_CONSERVED would be exactly the error the independence counting exists to
-    prevent."""
+    """A family on four hundred redeposits of one plasmid is one observation."""
     redeposited = {"unique_plasmid_count": 400,
                    "independent_plasmid_cluster_count": 1,
                    "MOB_count": 1, "host_count": 1, "genus_count": 1}
@@ -33,7 +24,7 @@ def test_breadth_is_counted_in_lineages_not_plasmid_records():
 
 
 def test_a_genuinely_widespread_family_is_labelled_so():
-    """The other direction: counting lineages must not flatten real breadth."""
+    """Counting lineages keeps real breadth."""
     widespread = {"unique_plasmid_count": 400,
                   "independent_plasmid_cluster_count": 120,
                   "MOB_count": 6, "host_count": 40, "genus_count": 12}
@@ -46,8 +37,6 @@ def test_a_genuinely_widespread_family_is_labelled_so():
 
 
 def test_a_family_can_carry_several_labels_at_once():
-    """They describe different axes. Forcing one would make the answer depend on
-    evaluation order rather than on the biology."""
     family = {"independent_plasmid_cluster_count": 2,
               "MOB_count": 4, "host_count": 6, "genus_count": 4}
 
@@ -94,17 +83,8 @@ def test_two_hosts_or_two_genera_are_cross_host_and_cross_taxon():
     assert "SINGLE_HOST" not in labels
 
 
-def test_every_emitted_label_is_declared():
-    """An undeclared label is a state nothing downstream knows how to read."""
-    for family in ({"independent_plasmid_cluster_count": 1, "MOB_count": 1},
-                   {"independent_plasmid_cluster_count": 200, "MOB_count": 9,
-                    "host_count": 40, "genus_count": 9}):
-        assert set(rarity.rarity_labels(family, THRESHOLDS)) <= set(rarity.LABELS)
-
-
 def test_the_rarefaction_curve_rises_and_ends_at_the_observed_total():
-    """Section 55: dark families discovered against plasmids sampled. The last point must
-    be the observed total, not an extrapolation."""
+    """The last point is the observed total, not an extrapolation."""
     plasmid_families = {f"p{i}": {f"F{i}"} for i in range(20)}
 
     curve = rarity.rarefaction(plasmid_families, n_replicates=5, seed=1)
@@ -115,23 +95,17 @@ def test_the_rarefaction_curve_rises_and_ends_at_the_observed_total():
 
 
 def test_a_saturated_collection_shows_a_flat_curve():
-    """Every plasmid carries the same family, so sampling more adds nothing. This is the
-    shape that says more plasmids of this kind will not reveal new dark families."""
+    """Every plasmid carries the same family, so sampling more adds nothing."""
     plasmid_families = {f"p{i}": {"F1"} for i in range(50)}
 
     curve = rarity.rarefaction(plasmid_families, n_replicates=3, seed=1)
 
     assert {point["mean_families"] for point in curve} == {1.0}
-    # A curve that never climbed has no initial slope to compare against, so the ratio is
-    # undefined rather than 0. Reporting 0 would claim "discovery has stopped", which
-    # implies it started - and here nothing was ever discovered beyond the first plasmid.
+    # A curve that never climbed has no initial slope, so the ratio is undefined, not 0.
     assert rarity.saturation(curve) == ""
 
 
 def test_the_curve_is_averaged_over_replicates_not_one_ordering():
-    """A single ordering is one arbitrary curve - starting with the most gene-rich plasmid
-    makes discovery look fast. The shape is the entire output, so it must not be an
-    artefact of one shuffle."""
     plasmid_families = {f"p{i}": {f"F{i % 5}"} for i in range(30)}
 
     curve = rarity.rarefaction(plasmid_families, n_replicates=10, seed=3)
@@ -146,18 +120,12 @@ def test_rarefaction_of_nothing_is_empty_not_an_error():
     assert rarity.saturation([]) == ""
 
 
-def test_saturation_is_not_fooled_by_an_uneven_final_step():
-    """The first implementation compared the raw gain between the last two points. On a
-    curve whose final step was 2 plasmids wide where the others were 9, that reported a
-    steeply climbing collection as saturated - the exact wrong answer, since it would say a
-    dark set is complete when it is a lower bound.
-
-    Slope is families per plasmid added, so step width cannot change the reading."""
+def test_saturation_does_not_depend_on_step_width():
+    """Slope is families per plasmid added, so a narrow final step reads the same."""
     steep = [
         {"n_plasmids": 10, "mean_families": 100},
         {"n_plasmids": 20, "mean_families": 200},
         {"n_plasmids": 90, "mean_families": 900},
-        # A deliberately narrow final step, as the real curve had.
         {"n_plasmids": 92, "mean_families": 920},
     ]
 
@@ -178,14 +146,19 @@ def test_a_flattening_curve_gives_a_low_saturation_value():
     assert value != "" and value < 0.05
 
 
-def test_the_sample_sizes_end_on_an_even_step():
-    """An uneven last interval is what produced the false reading, so the sizes themselves
-    are built to avoid it."""
-    plasmid_families = {f"p{i}": {f"F{i}"} for i in range(92)}
+def test_the_sample_sizes_are_ten_equal_steps_ending_on_the_total():
+    """Every interval, the last included, is equal to within one plasmid, so the final
+    slope is measured over as many plasmids as the others."""
+    for n in (92, 15, 101):
+        curve = rarity.rarefaction({f"p{i}": {f"F{i}"} for i in range(n)}, n_replicates=1)
+        sizes = [0] + [point["n_plasmids"] for point in curve]
+        gaps = [b - a for a, b in zip(sizes, sizes[1:])]
 
-    curve = rarity.rarefaction(plasmid_families, n_replicates=2, seed=1)
-    sizes = [point["n_plasmids"] for point in curve]
+        assert sizes[-1] == n and len(gaps) == 10
+        assert max(gaps) - min(gaps) <= 1, f"uneven steps for {n} plasmids: {gaps}"
 
-    assert sizes[-1] == 92, "the curve must end on the observed total"
-    gaps = {sizes[i + 1] - sizes[i] for i in range(len(sizes) - 2)}
-    assert len(gaps) == 1, f"uneven sampling steps before the final point: {sorted(gaps)}"
+
+def test_fewer_than_ten_plasmids_give_one_point_per_distinct_size():
+    curve = rarity.rarefaction({"p0": {"F0"}, "p1": {"F1"}}, n_replicates=1)
+
+    assert [point["n_plasmids"] for point in curve] == [1, 2]

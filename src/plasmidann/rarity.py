@@ -1,71 +1,30 @@
-"""Stage 14: rarity, conservation and rarefaction (spec sections 54 and 55).
+"""Stage 14: rarity labels per family, and the dark-family rarefaction curve.
 
-RARITY AND CONSERVATION ARE SEPARATE DESCRIPTORS
-
-Section 54 opens with it, and the distinction is easy to lose. A family can be:
-
-    rare and conserved        seen on three plasmids, identical on all three
-    common and variable       seen on four hundred, diverging freely
-    rare and variable         three plasmids, three different versions
-    common and conserved      four hundred plasmids, one sequence
-
-Collapsing these into one axis would merge the first and the last, which are opposite
-biological situations: one is a lineage-restricted system under strong constraint, the other
-is a housekeeping-like gene. So rarity is measured from BREADTH and conservation from
-SEQUENCE IDENTITY, and the two are reported side by side.
-
-THE LABELS ARE NOT A RANKING
-
-Section 54: "These labels are not experimental rankings." RARE is not better than
-WIDELY_CONSERVED, and neither is a score. They are named states that a downstream
-prioritisation workflow may select on (section 77), and a reader can see exactly which
-threshold produced each one because the thresholds are configuration and travel with the
+Every label describes breadth; sequence conservation is not measured here. RARE,
+LINEAGE_SPECIFIC and WIDELY_CONSERVED count independent Stage 6 lineages
+(independent_plasmid_cluster_count), never plasmid records, so a family on four hundred
+redeposits of one plasmid is one observation. The MOB labels count MOB-suite clusters and
+the host labels observed host species and genera. The labels are descriptive and nothing selects on them. The thresholds are configuration
+(config/targets.yaml, `rarity`); the two lineage thresholds are recorded on every output
 row.
 
-BREADTH IS COUNTED IN LINEAGES, NOT RECORDS
-
-Every threshold here reads independent_plasmid_cluster_count from Stage 7, never the raw
-plasmid count. A family on four hundred redepositions of one plasmid is not WIDELY_CONSERVED
-- it is one observation - and section 34.2 forbids treating record counts as independent
-observations. Using the record count would relabel exactly the families where the
-distinction matters most.
-
-RAREFACTION (section 55)
-
-"This estimates whether additional plasmids continue to reveal new dark families." The curve
-is dark families discovered against plasmids sampled. If it is still climbing at the full
-sample size, the collection has not saturated and the dark set is a lower bound; if it has
-flattened, more plasmids of this kind will not add much.
-
-Section 55 is explicit that the ~1,000-candidate figure is "an experimental-budget
-objective, not a biological assumption", so nothing here treats the curve as a target.
+The rarefaction curve counts dark families discovered against plasmids sampled, averaged
+over random orderings. saturation() compares the final slope with the initial slope, in
+families gained per plasmid added.
 """
 import random
 
 # Bumped when a label's definition changes, so two runs' labels cannot be silently compared.
 RARITY_VERSION = "2"
 
-LABELS = (
-    "RARE",
-    "LINEAGE_SPECIFIC",
-    "WIDELY_CONSERVED",
-    "SINGLE_MOB",
-    "CROSS_MOB",
-    "SINGLE_HOST",
-    "CROSS_HOST",
-    "CROSS_TAXON",
-)
-
 
 def rarity_labels(family, thresholds):
-    """Every label that applies to one family. A family may carry several.
+    """Every label that applies to one family, from RARE, LINEAGE_SPECIFIC,
+    WIDELY_CONSERVED, SINGLE_MOB, CROSS_MOB, SINGLE_HOST, CROSS_HOST and CROSS_TAXON.
 
-    `family` needs the Stage 7 distribution counts: independent_plasmid_cluster_count,
+    `family` holds the Stage 7 distribution counts: independent_plasmid_cluster_count,
     MOB_count, host_count, genus_count, n_plasmids_with_species, unique_plasmid_count.
-
-    Several labels rather than one, because they describe different axes and a family can
-    be genuinely CROSS_MOB and CROSS_HOST at once. Forcing one label would make the answer
-    depend on evaluation order rather than on the biology.
+    The labels describe different axes, so a family may carry several.
     """
     def count(name):
         try:
@@ -76,8 +35,6 @@ def rarity_labels(family, thresholds):
     lineages = count("independent_plasmid_cluster_count")
     labels = []
 
-    # Breadth, always in LINEAGES. See the module docstring: the raw plasmid count would
-    # relabel exactly the families where redeposition is doing the work.
     if lineages and lineages <= thresholds["rare_max_lineages"]:
         labels.append("RARE")
     if lineages == 1:
@@ -107,31 +64,22 @@ def rarity_labels(family, thresholds):
 
 
 def rarefaction(plasmid_families, sample_sizes=None, n_replicates=20, seed=0):
-    """Dark families discovered against plasmids sampled (section 55).
+    """Dark families discovered against plasmids sampled.
 
     `plasmid_families` maps plasmid_id to the set of dark family ids on it. Returns a list
-    of dicts: n_plasmids, mean_families, min_families, max_families, n_replicates.
-
-    Averaged over `n_replicates` random orderings rather than computed once. A single
-    ordering is one arbitrary curve - starting with the most gene-rich plasmid makes
-    discovery look fast, starting with cryptic ones makes it look slow - and the shape of
-    the curve is the entire output, so it must not be an artefact of one shuffle.
-
-    The replicate spread is reported, not just the mean, because a wide spread means the
-    curve is unstable and its flattening cannot be trusted.
+    of dicts: n_plasmids, mean_families, min_families, max_families, n_replicates. Each
+    point is the mean over `n_replicates` random samples, because one ordering gives one
+    arbitrary curve; the replicate range shows how stable the curve is.
     """
     plasmids = sorted(plasmid_families)
     if not plasmids:
         return []
 
     if sample_sizes is None:
-        # Ten EVEN steps ending exactly on the full set. Even matters: an uneven final step
-        # - 90 then 92 - makes the last interval narrower than the rest, and any gain
-        # measured across it looks small for a sampling reason rather than a biological
-        # one. That produced a false "saturated" reading on the first real run.
+        # Ten steps ending on the full set, equal to within one plasmid, so the final slope
+        # is measured over as many plasmids as every other.
         n = len(plasmids)
-        step = max(1, n // 10)
-        sample_sizes = sorted({min(i, n) for i in range(step, n + step, step)} | {n})
+        sample_sizes = sorted({n * i // 10 for i in range(1, 11)} - {0})
 
     rng = random.Random(seed)
     curve = []
@@ -154,21 +102,11 @@ def rarefaction(plasmid_families, sample_sizes=None, n_replicates=20, seed=0):
 
 
 def saturation(curve):
-    """Final slope relative to initial slope: is discovery still climbing?
+    """Final slope / initial slope, each in families gained per plasmid added.
 
-    Slope is families gained PER PLASMID ADDED, so the statistic does not depend on how
-    wide the sampling steps are. Comparing raw gains between the last two points does - the
-    first implementation did exactly that, and on a curve whose final step was 2 plasmids
-    wide where the others were 9, it reported a steeply climbing collection as saturated.
-
-    Returns final_slope / initial_slope:
-
-        near 0   the curve has flattened; more plasmids of this kind add few new families
-        near 1   discovery is as fast at the end as at the start, so the dark family count
-                 is a LOWER BOUND and the collection is nowhere near saturated
-
-    It is NOT a target and nothing selects on it. Section 55: the ~1,000-candidate figure
-    is an experimental-budget objective, not a biological assumption.
+    Near 0 the curve has flattened; near 1 discovery is as fast at the end as at the start,
+    so the dark family count is a lower bound. "" when undefined: fewer than three points,
+    or no gain over the first step.
     """
     if len(curve) < 3:
         return ""

@@ -276,9 +276,8 @@ def test_dark_cooccurrence_writes_the_tested_pairs(fixture_dir):
     assert (row["fraction_of_a"], row["fraction_of_b"]) == ("0.6667", "1.0")
 
 
-def test_rarefaction_samples_every_small_plasmid(fixture_dir):
-    """The x-axis is the small plasmids, with a dark family or without; a dark family's
-    copies on large plasmids do not put those plasmids on the axis."""
+def _run_rarity(fixture_dir, small_plasmids):
+    """One dark family d, on small plasmid S1 and large plasmid L1."""
     recurrence = fixture_dir / "recurrence.tsv"
     write_tsv(recurrence, ["family_id", "independent_plasmid_cluster_count"],
               [["broad:d", 2]])
@@ -287,7 +286,7 @@ def test_rarefaction_samples_every_small_plasmid(fixture_dir):
     mapping = fixture_dir / "protein_map.tsv"
     mapping.write_text("d\tS1|1,L1|4\n")
     small_ids = fixture_dir / "small_plasmids.txt"
-    small_ids.write_text("S1\nS2\nS3\nS4\n")
+    small_ids.write_text("".join(f"{p}\n" for p in small_plasmids))
     out = fixture_dir / "rarefaction.tsv"
 
     run_script("rarity.py", FakeSnakemake(
@@ -298,10 +297,25 @@ def test_rarefaction_samples_every_small_plasmid(fixture_dir):
                            "cross_min_hosts": 2, "cross_min_genera": 2,
                            "rarefaction_replicates": 5},
                 "seed": 1}))
+    return read_tsv(out)
 
-    final = read_tsv(out)[-1]
+
+def test_rarefaction_samples_every_small_plasmid(fixture_dir):
+    """The x-axis is the small plasmids, with a dark family or without; a dark family's
+    copies on large plasmids do not put those plasmids on the axis."""
+    final = _run_rarity(fixture_dir, ["S1", "S2", "S3", "S4"])[-1]
+
     assert final["n_plasmids"] == "4"
     assert final["mean_families"] == "1.0"
+
+
+def test_an_undefined_saturation_is_not_reported_as_flattened(fixture_dir, capsys):
+    """Two small plasmids give two curve points, too few for a saturation value."""
+    assert len(_run_rarity(fixture_dir, ["S1", "S2"])) == 2
+
+    log = capsys.readouterr().out
+    assert "saturation undefined" in log
+    assert "flattened" not in log
 
 
 def _run_families(fixture_dir, input, output, params, threads=2, classes=None,
