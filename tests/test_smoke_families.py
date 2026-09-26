@@ -275,3 +275,310 @@ def test_rarefaction_samples_every_small_plasmid(fixture_dir):
     final = read_tsv(out)[-1]
     assert final["n_plasmids"] == "4"
     assert final["mean_families"] == "1.0"
+
+
+def _run_families(fixture_dir, input, output, params, threads=2, classes=None,
+                  small=None):
+    """S2f then Stage 5, as the workflow runs them.
+
+    functional_class defaults to NONE for the dark ids and FUNCTIONAL for everything else;
+    every plasmid in the map is small unless `small` lists them.
+    """
+    input = dict(input)
+    res = sorted(params["clustering"]["resolutions"])
+    clusters = [str(fixture_dir / f"families_{r}_cluster.tsv") for r in res]
+    run_script("protein_clustering.py", FakeSnakemake(
+        input={"faa": input.pop("faa")},
+        output={"reps": [str(fixture_dir / f"families_{r}_rep_seq.fasta") for r in res],
+                "clusters": clusters},
+        params=params, threads=threads))
+    dark = set(open(input["dark_ids"]).read().split())
+    seq_ids, plasmids = [], set()
+    for line in open(input["map"]):
+        sid, orfs = line.rstrip("\n").split("\t")
+        seq_ids.append(sid)
+        plasmids |= {o.rsplit("|", 1)[0] for o in orfs.split(",")}
+    prot = fixture_dir / "protein_annotation.tsv"
+    write_tsv(prot, ["seq_id", "functional_class"],
+              [[sid, (classes or {}).get(sid, "NONE" if sid in dark else "FUNCTIONAL")]
+               for sid in seq_ids])
+    small_ids = fixture_dir / "small_plasmids.txt"
+    small_ids.write_text("".join(f"{p}\n" for p in sorted(plasmids if small is None
+                                                             else small)))
+    run_script("protein_families.py", FakeSnakemake(
+        input={**input, "clusters": clusters, "prot": str(prot),
+               "small_ids": str(small_ids)},
+        output=output, params=params, threads=threads))
+
+
+@requires("mmseqs")
+def test_a_conserved_protein_on_many_plasmids_is_not_reported_as_a_singleton(fixture_dir):
+    """Clustering runs on the DEREPLICATED set, so a protein whose sequence is identical on
+    two hundred plasmids is ONE member. It clusters alone and is labelled ORPHAN - while
+    being one of the most strongly conserved things in the collection.
+
+    That is defensible as a definition: it is not a family of divergent homologs. It is not
+    defensible as a REPORT, because `family_size: 1` reads as "seen once". The ORF count
+    has to be there too, or a reader cannot tell a genuine singleton from a protein carried
+    by two hundred plasmids."""
+    faa = fixture_dir / "unique_proteins.faa"
+    write_fasta(faa, [("S1", "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEK"),
+                      ("S2", "MQQTTLNRSDEIVWCAPGHKGGAFLNDVWRDNPHLAGCVLLTSDGKLLWQRRD")])
+    pmap = fixture_dir / "protein_map.tsv"
+    # S1 is one unique sequence carried by four plasmids; S2 by one.
+    pmap.write_text("S1\tp1|1,p2|1,p3|1,p4|1\nS2\tp5|1\n")
+    registry = fixture_dir / "clonal_registry.tsv"
+    write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "hab_top"],
+              [["p1", "AA1", "E. coli", "H"], ["p2", "AA2", "E. coli", "H"],
+               ["p3", "AA3", "E. coli", "H"], ["p4", "AA1", "E. coli", "H"],
+               ["p5", "AA9", "E. coli", "H"]])
+    lineage = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["p1", "L1"], ["p2", "L2"], ["p3", "L3"], ["p4", "L1"], ["p5", "L9"]])
+    dark_ids = fixture_dir / "dark_ids.txt"
+    dark_ids.write_text("S1\nS2\n")
+    out = fixture_dir / "protein_families.tsv"
+
+    _run_families(fixture_dir,
+        input={"faa": str(faa), "map": str(pmap),
+               "registry": str(registry), "lineage": str(lineage),
+               "dark_ids": str(dark_ids)},
+        output={"families": str(out),
+                "dark_families": str(fixture_dir / "dark_families.tsv")},
+        params={"clustering": {
+            "resolutions": {"broad": {"min_seq_id": 0.30, "coverage": 0.50}},
+            "primary": "broad", "cov_mode": 0, "cluster_mode": 0}},
+        threads=2)
+
+    rows = {r["representative"]: r for r in read_tsv(out)}
+    assert "S1" in rows, f"S1 did not survive clustering: {list(rows)}"
+    assert rows["S1"]["family_size"] == "1", "S1 is one unique sequence"
+    assert rows["S1"]["n_orfs"] == "4", (
+        "the ORF count is missing, so a protein on four plasmids is indistinguishable "
+        "from one seen once")
+    assert rows["S1"]["family_plasmid_count"] == "4"
+    assert rows["S1"]["family_MOB_count"] == "3"
+    # And the independence count, which is the one a recurrence claim needs: four plasmid
+    # records but only three independent lineages, because p1 and p4 are the same lineage.
+    assert rows["S1"]["family_plasmid_lineage_count"] == "3"
+
+
+@requires("mmseqs")
+def test_protein_families_clusters_annotated_and_dark_together(fixture_dir):
+    """Spec section 31.2 requires dark_member_count, annotated_member_count and
+    percentage_dark_in_family, and section 32 derives a dark-only family as 100% dark. None
+    of those can be computed from a clustering that contains only dark proteins: every
+    family would be trivially 100% dark, and a dark protein among well-annotated homologs -
+    a strong observation - would look identical to one that is genuinely alone."""
+
+    # Two near-identical proteins that must cluster together, one dark and one annotated,
+    # plus an unrelated dark one that must not join them.
+    shared = ("MKVLATTLLGAAFAASSALAQKKWLVRNGDTLSGIAQRYGVSVAQLQRWNHLSSDTIHPGQ"
+              "KLRVGSDAPQAAPKAEPKVEAKPAAKPVAKPAAKPVAKPAAKPAAKPKAEEKPKAEEK")
+    variant = shared.replace("SSDTIHPGQ", "SSDTIHPGK")
+    other = ("MPQRSTVWYACDEFGHIKLMNPQRSTVWYACDEFGHIKLMNPQRSTVWYACDEFGHIKLMN"
+             "PQRSTVWYACDEFGHIKLMNPQRSTVWYACDEFGHIKLMNPQRSTVWY")
+
+    faa = fixture_dir / "unique_proteins.faa"
+    write_fasta(faa, [("p_dark", shared), ("p_annot", variant), ("p_lone", other)])
+
+    dark_ids = fixture_dir / "dark_ids.txt"
+    dark_ids.write_text("p_dark\np_lone\n")
+
+    mapping = fixture_dir / "protein_map.tsv"
+    mapping.write_text("p_dark\tpl1|1\np_annot\tpl2|1\np_lone\tpl3|1\n")
+
+    registry = fixture_dir / "clonal_registry.tsv"
+    write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "topology", "size_bp",
+                         "hab_top"],
+              [["pl1", "MOB_A", "Escherichia coli", "circular", 5000, "Host-associated"],
+               ["pl2", "MOB_B", "Salmonella enterica", "circular", 6000, "Host-associated"],
+               ["pl3", "MOB_A", "Escherichia coli", "linear", 7000, "Environmental"]])
+
+    lineage_tsv = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage_tsv, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["pl1", "L1"], ["pl2", "L2"], ["pl3", "L1"]])
+
+    families = fixture_dir / "protein_families.tsv"
+    dark_families = fixture_dir / "dark_families.tsv"
+    _run_families(fixture_dir,
+        input={"faa": str(faa), "dark_ids": str(dark_ids),
+               "map": str(mapping), "registry": str(registry),
+               "lineage": str(lineage_tsv)},
+        output={"families": str(families), "dark_families": str(dark_families)},
+        params={"clustering": {
+            "resolutions": {"broad": {"min_seq_id": 0.3, "coverage": 0.5}},
+            "primary": "broad", "cov_mode": 0, "cluster_mode": 0}},
+        threads=2)
+
+    rows = read_tsv(families)
+    assert rows, "no families written"
+
+    mixed = [r for r in rows if int(r["family_size"]) > 1]
+    assert mixed, "the two near-identical proteins did not cluster together"
+    row = mixed[0]
+    # The whole point: both counts are non-zero, which a dark-only clustering cannot show.
+    assert int(row["dark_member_count"]) == 1
+    assert int(row["annotated_member_count"]) == 1
+    assert float(row["percentage_dark_in_family"]) == 50.0
+    assert row["dark_only"] == "0"
+    # Section 31.3 distribution fields, measured over independent units.
+    assert int(row["family_plasmid_count"]) == 2
+    assert int(row["family_host_count"]) == 2
+    assert int(row["family_MOB_count"]) == 2
+
+
+@requires("mmseqs")
+def test_protein_families_calls_each_family_small_only_or_mixed_and_known_or_unknown(
+        fixture_dir):
+    """A family is written when it holds a small-plasmid protein. It is mixed when a member
+    also occurs on a large plasmid, and known when any member is named - on either side.
+    Counts cover ALL members; the small/large split is in its own columns."""
+    import random
+    rng = random.Random(7)
+    aa = "ACDEFGHIKLMNPQRSTVWY"
+
+    def seq():
+        return "M" + "".join(rng.choice(aa) for _ in range(150))
+
+    def variant(s):
+        return "".join(c if i % 20 else rng.choice(aa) for i, c in enumerate(s))
+
+    a, b, c, d, f = (seq() for _ in range(5))
+    proteins = [("s_known", a), ("s_dark_rel", variant(a)),    # small_only_known
+                ("s_alone", b),                               # small_only_unknown
+                ("s_dark_c", c), ("l_known", variant(c)),     # mixed_known, known on large
+                ("both", d),                                  # on a small AND a large one
+                ("l_only", f), ("l_only2", variant(f))]       # no small member: not written
+    plasmid = {"s_known": "S1", "s_dark_rel": "S2", "s_alone": "S3", "s_dark_c": "S4",
+               "l_known": "L1", "l_only": "L2", "l_only2": "L3"}
+    faa = fixture_dir / "unique_proteins.faa"
+    write_fasta(faa, proteins)
+    dark_ids = fixture_dir / "dark_ids.txt"
+    dark_ids.write_text("s_dark_rel\ns_alone\ns_dark_c\nboth\n")
+    mapping = fixture_dir / "protein_map.tsv"
+    mapping.write_text("".join(f"{sid}\t{plasmid[sid]}|1\n" for sid in plasmid)
+                       + "both\tS5|1,L4|1\n")
+    plasmids = sorted(set(plasmid.values()) | {"S5", "L4"})
+    registry = fixture_dir / "clonal_registry.tsv"
+    write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "hab_top"],
+              [[p, "M", "E. coli", "H"] for p in plasmids])
+    lineage_tsv = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage_tsv, ["plasmid_id", "plasmid_lineage_cluster"],
+              [[p, "L"] for p in plasmids])
+    families = fixture_dir / "protein_families.tsv"
+    dark_families = fixture_dir / "dark_families.tsv"
+
+    _run_families(fixture_dir,
+        input={"faa": str(faa), "dark_ids": str(dark_ids), "map": str(mapping),
+               "registry": str(registry), "lineage": str(lineage_tsv)},
+        output={"families": str(families), "dark_families": str(dark_families)},
+        params={"clustering": {
+            "resolutions": {"broad": {"min_seq_id": 0.3, "coverage": 0.5}},
+            "primary": "broad", "cov_mode": 0, "cluster_mode": 0}},
+        classes={"l_only": "NOT_SEARCHED", "l_only2": "NOT_SEARCHED"},
+        small=["S1", "S2", "S3", "S4", "S5"])
+
+    by_member = {m: r for r in read_tsv(families) for m in r["members"].split(",")}
+    assert "l_only" not in by_member, "a family without a small-plasmid member was written"
+    assert by_member["s_known"]["scope"] == "small_only_known"
+    assert by_member["s_known"]["known_from"] == "small"
+    assert by_member["s_alone"]["scope"] == "small_only_unknown"
+    mixed = by_member["s_dark_c"]
+    assert (mixed["scope"], mixed["known_from"]) == ("mixed_known", "large")
+    # Every member counts; the split is in its own columns.
+    assert (mixed["family_size"], mixed["n_small_members"],
+            mixed["n_large_members"]) == ("2", "1", "1")
+    both = by_member["both"]
+    assert both["scope"] == "mixed_unknown" and both["family_class"] == "ORPHAN"
+    assert (both["n_small_members"], both["n_large_members"]) == ("1", "1")
+    assert {r["scope"] for r in read_tsv(dark_families)} == {
+        "small_only_known", "small_only_unknown", "mixed_known", "mixed_unknown"}
+
+
+@requires("mmseqs")
+def test_family_ids_are_content_derived_not_ordinal(fixture_dir):
+    """Spec section 31: 'family IDs must not depend on result ordering', and section 5.4
+    gives the form. The previous version numbered families F0000001, F0000002, ... in
+    cluster order, so inserting one protein renumbered every family after it and no id
+    could be compared between two runs."""
+    faa = fixture_dir / "unique_proteins.faa"
+    write_fasta(faa, [("a", "MKVLATTLLGAAFAASSALAQKKWLVRNGDTLSGIAQRYGVSVAQLQRWNH"),
+                      ("b", "MPQRSTVWYACDEFGHIKLMNPQRSTVWYACDEFGHIKLMNPQRSTVWYAC")])
+    dark_ids = fixture_dir / "dark_ids.txt"
+    dark_ids.write_text("a\n")
+    mapping = fixture_dir / "protein_map.tsv"
+    mapping.write_text("a\tpl1|1\nb\tpl2|1\n")
+    registry = fixture_dir / "clonal_registry.tsv"
+    write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "topology", "size_bp",
+                         "hab_top"], [["pl1", "M1", "E. coli", "circular", 100, "H"],
+                                      ["pl2", "M2", "E. coli", "circular", 100, "H"]])
+
+    lineage_tsv = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage_tsv, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["pl1", "L1"], ["pl2", "L2"]])
+
+    families = fixture_dir / "protein_families.tsv"
+    _run_families(fixture_dir,
+        input={"faa": str(faa), "dark_ids": str(dark_ids),
+               "map": str(mapping), "registry": str(registry),
+               "lineage": str(lineage_tsv)},
+        output={"families": str(families),
+                "dark_families": str(fixture_dir / "dark_families.tsv")},
+        params={"clustering": {
+            "resolutions": {"broad": {"min_seq_id": 0.3, "coverage": 0.5}},
+            "primary": "broad", "cov_mode": 0, "cluster_mode": 0}},
+        threads=2)
+
+    for row in read_tsv(families):
+        assert row["family_id"] == f"broad:{row['representative']}", (
+            f"family_id {row['family_id']!r} is not <resolution>:<representative>")
+        assert not row["family_id"].startswith("F0"), "family ids are ordinal again"
+
+
+@requires("mmseqs")
+def test_the_dark_family_representative_is_a_dark_protein(fixture_dir):
+    """S8d searches the representative structurally. If MMseqs2 picks an ANNOTATED member
+    as the cluster representative, searching it would spend the ProstT5 budget on a protein
+    that is not in the dark set and produce no structural evidence for the dark one."""
+    shared = ("MKVLATTLLGAAFAASSALAQKKWLVRNGDTLSGIAQRYGVSVAQLQRWNHLSSDTIHPGQ"
+              "KLRVGSDAPQAAPKAEPKVEAKPAAKPVAKPAAKPVAKPAAKPAAKPKAEEKPKAEEK")
+    faa = fixture_dir / "unique_proteins.faa"
+    # The longer sequence is the one MMseqs2 tends to pick as representative; make it the
+    # ANNOTATED member so the test fails if the representative is taken unconditionally.
+    write_fasta(faa, [("p_annot_long", shared + "AAAKPAAKPAAKPAAKPKAEEK"),
+                      ("p_dark", shared)])
+    dark_ids = fixture_dir / "dark_ids.txt"
+    dark_ids.write_text("p_dark\n")
+    mapping = fixture_dir / "protein_map.tsv"
+    mapping.write_text("p_annot_long\tpl1|1\np_dark\tpl2|1\n")
+    registry = fixture_dir / "clonal_registry.tsv"
+    write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "topology", "size_bp",
+                         "hab_top"], [["pl1", "M1", "E. coli", "circular", 100, "H"],
+                                      ["pl2", "M2", "E. coli", "circular", 100, "H"]])
+
+    lineage_tsv = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage_tsv, ["plasmid_id", "plasmid_lineage_cluster"],
+              [["pl1", "L1"], ["pl2", "L2"]])
+
+    dark_families = fixture_dir / "dark_families.tsv"
+    _run_families(fixture_dir,
+        input={"faa": str(faa), "dark_ids": str(dark_ids),
+               "map": str(mapping), "registry": str(registry),
+               "lineage": str(lineage_tsv)},
+        output={"families": str(fixture_dir / "protein_families.tsv"),
+                "dark_families": str(dark_families)},
+        params={"clustering": {
+            "resolutions": {"broad": {"min_seq_id": 0.3, "coverage": 0.5}},
+            "primary": "broad", "cov_mode": 0, "cluster_mode": 0}},
+        threads=2)
+
+    rows = read_tsv(dark_families)
+    assert rows, "no dark families derived"
+    for row in rows:
+        assert row["representative"] == "p_dark", (
+            f"the dark family's representative is {row['representative']!r}, which is not "
+            "a dark protein - S8d would search the wrong sequence")
+        assert "p_annot_long" not in row["members"], (
+            "an annotated member leaked into the dark family's member list, which would "
+            "widen every downstream evolution and context measurement")
