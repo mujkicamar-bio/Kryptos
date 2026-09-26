@@ -160,3 +160,43 @@ def project_tools_on_path():
 @pytest.fixture
 def fixture_dir(tmp_path):
     return tmp_path
+
+
+# ---- Fixture helpers shared by several smoke-test files ----
+
+# PlasmidScope's per-protein table as S2p writes it. Empty unless rows are given: a stage
+# test that is not about PlasmidScope must see a run in which it resolved nothing.
+PS_COLS = ["seq_id", "ps_class", "cog_category", "cog_id", "kegg_ko", "kegg_pathways",
+           "pfams", "gos", "ec", "orf_source", "n_orfs"]
+
+
+def _ps_table(fixture_dir, rows=()):
+    path = fixture_dir / "plasmidscope_proteins.tsv"
+    write_tsv(path, PS_COLS, list(rows))
+    return str(path)
+
+
+# The cascade_selection table (S2s). Empty unless rows are given: a resolve test that is
+# not about search clusters sees a run in which every searched protein is its own
+# representative.
+def _selection(fixture_dir, rows=()):
+    path = fixture_dir / "selection.tsv"
+    write_tsv(path, ["seq_id", "on_small", "role", "search_representative"], list(rows))
+    return str(path)
+
+
+# ISEScan elements as S8e writes them. Empty unless rows are given.
+IS_COLS = ["plasmid_id", "is_id", "family", "cluster", "start", "end", "strand",
+           "complete", "evalue", "tir"]
+
+
+def _is_table(fixture_dir, rows=()):
+    path = fixture_dir / "is_elements.tsv"
+    write_tsv(path, IS_COLS, list(rows))
+    return str(path)
+
+
+# protein_labels_plasmid.tsv as label_databases writes it (plasmidann.labeldb.COLUMNS).
+PLASMID_LABEL_COLS = ["seq_id", "source", "label_kind", "label", "sub_label", "tier",
+                      "cut_off", "pident", "qcov", "scov", "bitscore", "subject",
+                      "database_version"]
