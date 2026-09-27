@@ -6,8 +6,9 @@ import pytest
 from conftest import FakeSnakemake, read_tsv, requires, run_script, write_fasta, write_tsv
 
 
-def _recurrence_fixture(fixture_dir, lineage_rows):
-    """One family on three plasmids; the caller decides how independent those are."""
+def _recurrence_fixture(fixture_dir, lineage_rows, mob="MOB_A"):
+    """One family on three plasmids, all in MOB cluster `mob`; the caller decides how
+    independent those are."""
     families = fixture_dir / "protein_families.tsv"
     write_tsv(families, ["family_id", "family_resolution", "representative", "members"],
               [["broad:s1", "broad", "s1", "s1,s2"]])
@@ -17,11 +18,11 @@ def _recurrence_fixture(fixture_dir, lineage_rows):
     registry = fixture_dir / "clonal_registry.tsv"
     write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "genus",
                          "predicted_host_range", "topology", "size_bp", "hab_top"],
-              [["pl1", "MOB_A", "Escherichia coli", "Escherichia", "Enterobacterales",
+              [["pl1", mob, "Escherichia coli", "Escherichia", "Enterobacterales",
                 "circular", 100, "Host-associated"],
-               ["pl2", "MOB_A", "Escherichia coli", "Escherichia", "Enterobacterales",
+               ["pl2", mob, "Escherichia coli", "Escherichia", "Enterobacterales",
                 "circular", 100, "Host-associated"],
-               ["pl3", "MOB_A", "", "", "Actinomycetota,Pseudomonadota", "circular", 100,
+               ["pl3", mob, "", "", "Actinomycetota,Pseudomonadota", "circular", 100,
                 "Host-associated"]])
     lineage = fixture_dir / "plasmid_lineage.tsv"
     write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"], lineage_rows)
@@ -58,6 +59,13 @@ def test_independent_lineages_are_counted_apart_from_mob_clusters(fixture_dir):
 
     assert row["independent_plasmid_cluster_count"] == "3"
     assert row["MOB_count"] == "1"
+
+
+def test_plasmids_without_a_mob_cluster_give_no_mob_count(fixture_dir):
+    """The registry leaves mob_cluster empty when MOB-suite assigned none, so a family on
+    untyped plasmids has MOB_count 0 and carries neither MOB label."""
+    row = _recurrence_fixture(fixture_dir, [["pl1", "L1"]], mob="")
+    assert row["MOB_count"] == "0"
 
 
 def test_host_counts_say_how_many_plasmids_had_a_host(fixture_dir):
@@ -116,7 +124,8 @@ def test_clonal_registry_takes_the_host_from_three_sources(fixture_dir):
     assert rows["d"]["genus"] == "" and rows["d"]["host_source"] == ""
     # MOB-suite's predicted range is its own column, never the host.
     assert rows["d"]["predicted_host_range"] == "Bacteroides"
-    assert rows["b"]["lifestyle"] == "metagenomic"
+    # MOB-suite assigned b no cluster: the column stays empty, so no count treats it as one.
+    assert rows["b"]["mob_cluster"] == "" and rows["a"]["mob_cluster"] == "M1"
 
 
 @requires("mash")
