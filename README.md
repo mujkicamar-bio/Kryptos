@@ -53,7 +53,7 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | S0 | `01_analysis_set` | plasmids in scope, as ids and sequence; clonal registry over MOB clusters |
 | S1 | `02_orf_calling` | Pyrodigal gene calling, with circular-origin repair |
 | S2 | `03_dereplication` | exact-identity dereplication, asserted lossless |
-| S2b | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards; an AntiFam-flagged protein skips every annotation tier and is reported as `NOT_SEARCHED` |
+| S2b | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards; an AntiFam-flagged protein skips every annotation tier and is reported as `NOT_SEARCHED`; a low-complexity-flagged one skips the DIAMOND tiers |
 | S3 | `05_annotation_cascade` | the annotation cascade, T1…T5, self-narrowing |
 | S4 | `06_annotation_tables` | the annotated plasmidome, plus GFF3 and GenBank |
 | S4b | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
@@ -73,10 +73,11 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 
 Five tiers, each handed only what the previous one could not explain. A protein stops
 being searched once `narrow_at` (0.7, a user decision of 2026-09-25) of its length is
-covered; whether it is *reported* as explained is decided separately, by `min_explained`
-(0.5), applied afterwards on a table where every protein explained below 0.7 has been seen
-by every tier. A 2% sweep cohort bypasses narrowing, so what stopping at 0.7 costs is
-measured rather than assumed. Proteins flagged by AntiFam are not searched by any tier.
+covered. A protein below that reaches every tier, except that T5 does not search proteins
+Pfam or Swiss-Prot named (`skip_if_named_by`). It is FUNCTIONAL once `min_coverage` (0.5)
+of its length is explained by informative hits. Proteins flagged by AntiFam are not
+searched by any tier; proteins flagged for low complexity are not searched by the DIAMOND
+tiers.
 
 | tier | method | database | role |
 |---|---|---|---|

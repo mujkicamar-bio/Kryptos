@@ -1,9 +1,9 @@
-"""S2s: the proteins the cascade annotates, and the ones it actually searches.
+"""Rule cascade_selection: the proteins the cascade annotates, and the ones it searches.
 
 See src/plasmidann/selection.py for the rule. Two steps:
 
 1. SELECT by family (clustering.primary, intermediate): proteins neither annotated by
-   Tier 0 nor flagged by AntiFam (S2b), in a family holding a small-plasmid protein that
+   Tier 0 nor flagged by AntiFam (artefact_flags.tsv), in a family holding a small-plasmid protein that
    is neither.
 2. SEARCH the representatives of a 90% clustering of the selected proteins (identity and
    coverage in config/cascade.yaml search_clustering). Coverage is required of BOTH
@@ -14,9 +14,10 @@ See src/plasmidann/selection.py for the rule. Two steps:
 Output selection.tsv, one row per unique protein:
     seq_id, on_small, role, search_representative
 role is one of
-    artefact_antifam  flagged by AntiFam (S2b) as a probable non-protein; skips every
-                      annotation tier, Tier 0 included. Other artefact flags (low
-                      complexity) skip nothing
+    artefact_antifam  flagged by AntiFam as a probable non-protein; skips every
+                      annotation tier, Tier 0 included. A low-complexity flag does not
+                      change the role; tier_search keeps such a protein out of the
+                      DIAMOND tiers
     plasmidscope      annotated by Tier 0; not searched
     representative    searched by the cascade
     member            not searched; takes its representative's result
@@ -54,7 +55,7 @@ with open(snakemake.input.families) as fh:
         clusters[rep].append(mem)
 
 # AntiFam flags only: a low-complexity flag marks composition, not a known artefact family,
-# and such a protein is still searched.
+# and such a protein is still selected (the DIAMOND tiers skip it in tier_search).
 with open(snakemake.input.artefact, newline="") as fh:
     antifam = {r["seq_id"] for r in csv.DictReader(fh, delimiter="\t") if r["antifam_family"]}
 

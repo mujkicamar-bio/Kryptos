@@ -40,11 +40,11 @@ def test_a_misspelt_config_key_is_refused():
 
 def test_the_smoke_and_bench_cascades_use_the_production_thresholds():
     production = load(CONFIG / "cascade.yaml")
-    assert production["narrow_at"] >= production["min_explained"]
+    assert production["narrow_at"] >= production["min_coverage"]
     for path in (CONFIG / "test" / "cascade.yaml", CONFIG / "bench" / "cascade.yaml"):
         cascade = load(path)
-        for key in ("narrow_at", "min_explained", "min_coverage", "full_at", "partial_at",
-                    "max_target_seqs", "sweep_cohort_fraction", "search_clustering",
+        for key in ("narrow_at", "min_coverage", "full_at", "partial_at",
+                    "max_target_seqs", "search_clustering",
                     "artefact_screen"):
             assert cascade[key] == production[key], f"{path}: {key}"
 

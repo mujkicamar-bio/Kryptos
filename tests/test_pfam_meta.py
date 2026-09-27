@@ -1,8 +1,7 @@
 """Pfam family metadata, which the search output does not carry.
 
-hmmsearch --domtblout gives the family NAME and accession. The description, the type
-(Family, Domain, Repeat, Motif) and the clan are in Pfam-A.hmm.dat, and they are what
-makes a Pfam hit interpretable as anything other than a string. Pfam 38.2 ships 30,134
+hmmsearch --domtblout gives the family NAME and accession. The description and the clan
+are in Pfam-A.hmm.dat. Pfam 38.2 ships 30,134
 families; the parser must handle every one without a special case.
 """
 import gzip
@@ -31,9 +30,7 @@ def test_a_family_with_a_clan_is_parsed_completely():
     meta = pfam_meta.parse_pfam_dat(SAMPLE)
 
     assert meta["RepA_N"] == {
-        "accession": "PF06970.16",
         "description": "Replication initiator protein A (RepA) N-terminus",
-        "type": "Family",
         "clan": "CL0123",
     }
 
@@ -58,11 +55,11 @@ def test_a_gzipped_file_is_read_transparently(tmp_path):
     with gzip.open(path, "wt") as fh:
         fh.write(SAMPLE)
 
-    assert pfam_meta.load(path)["RepA_N"]["accession"] == "PF06970.16"
+    assert pfam_meta.load(path)["RepA_N"]["clan"] == "CL0123"
 
 
 def test_an_uncompressed_file_is_also_read(tmp_path):
     path = tmp_path / "Pfam-A.hmm.dat"
     path.write_text(SAMPLE)
 
-    assert pfam_meta.load(path)["MobA_MobL"]["type"] == "Family"
+    assert pfam_meta.load(path)["MobA_MobL"]["description"] == "MobA/MobL family protein"

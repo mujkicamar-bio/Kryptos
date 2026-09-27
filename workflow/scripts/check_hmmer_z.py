@@ -1,17 +1,9 @@
-"""S2z: confirm that the declared -Z still describes the protein set, as soon as it exists.
+"""Rule check_hmmer_z: check hmmer_z against the number of unique proteins in
+unique_proteins.faa; every search depends on this rule.
 
-hmmer_z is the number of unique proteins. Change the ORF set - S1 origin repair and S0
-terminal-repeat trimming both do - and the count moves. A stale -Z silently rescales every
-E-value in the run, which is precisely the failure -Z was introduced to prevent.
-
-The check runs directly after dereplication, and the artefact screen and every tier depend
-on it, so nothing searches with a -Z that was not confirmed.
-
--Z counts EVERY unique protein, including those PlasmidScope annotated and those the
-selection does not search: an E-value then means what it would if the whole collection had
-been searched, and does not move with PlasmidScope's coverage or with the selection. The
-larger -Z is the conservative choice - a smaller one makes weak hits significant, and each
-removes a protein from the dark set.
+-Z counts every unique protein, searched or not, so that E-values do not move with the
+selection or with PlasmidScope's coverage. The check allows a 2% difference
+(cascade.HMMER_Z_TOLERANCE).
 """
 import _ctx  # noqa: F401
 

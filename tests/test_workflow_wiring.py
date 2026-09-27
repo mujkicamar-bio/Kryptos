@@ -241,12 +241,12 @@ def test_every_rule_is_reached_by_all(rule_graph):
     ("preflight", "tier_search"), ("preflight", "artefact_screen"),
     ("preflight", "label_databases"), ("preflight", "conjugation_systems"),
     # No search uses an unconfirmed -Z.
-    ("check_hmmer_z", "artefact_screen"), ("check_hmmer_z", "sweep_cohort"),
-    ("sweep_cohort", "tier_search"),
-    # AntiFam-flagged proteins are left out of the cascade selection.
-    ("artefact_screen", "cascade_selection"),
-    # The search representatives are the first tier's query and the sweep cohort's pool.
-    ("cascade_selection", "tier_search"), ("cascade_selection", "sweep_cohort"),
+    ("check_hmmer_z", "artefact_screen"),
+    # AntiFam-flagged proteins are left out of the cascade selection, and the DIAMOND
+    # tiers skip every artefact-flagged protein.
+    ("artefact_screen", "cascade_selection"), ("artefact_screen", "tier_search"),
+    # The search representatives are the first tier's query.
+    ("cascade_selection", "tier_search"),
     # The dark set is the target-eligible proteins.
     ("target_eligibility", "dark_set"),
     # The label table merges the label databases, defence and CONJScan components.

@@ -1,9 +1,7 @@
 """Pfam family metadata, from the release file rather than from the search output.
 
-hmmsearch --domtblout carries only the family name and accession. The description, type
-and clan come from Pfam-A.hmm.dat, which ships with the release: the description gives a
-family name a matchable meaning, and the clan groups families that are homologous but too
-divergent to align as one.
+hmmsearch --domtblout carries only the family name and accession. The description and
+clan come from Pfam-A.hmm.dat, which ships with the release.
 """
 import gzip
 import pathlib
@@ -11,9 +9,7 @@ import pathlib
 # Stockholm '#=GF <tag> <value>' tags this module keeps, mapped to output key.
 _TAGS = {
     "ID": "name",
-    "AC": "accession",
     "DE": "description",
-    "TP": "type",
     "CL": "clan",
 }
 
@@ -31,12 +27,8 @@ def parse_pfam_dat(text):
         if line.startswith("//"):
             name = record.pop("name", "")
             if name:
-                families[name] = {
-                    "accession": record.get("accession", ""),
-                    "description": record.get("description", ""),
-                    "type": record.get("type", ""),
-                    "clan": record.get("clan", ""),
-                }
+                families[name] = {"description": record.get("description", ""),
+                                  "clan": record.get("clan", "")}
             record = {}
             continue
         if not line.startswith("#=GF "):
