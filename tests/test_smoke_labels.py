@@ -4,7 +4,6 @@ Each test runs one workflow script against a small fixture.
 """
 import pytest
 from conftest import (
-    PLASMID_LABEL_COLS,
     FakeSnakemake,
     _ps_table,
     _selection,
@@ -13,6 +12,8 @@ from conftest import (
     write_fasta,
     write_tsv,
 )
+
+from plasmidann import labeldb
 
 
 def test_the_quality_gate_passes_when_controls_are_annotated(fixture_dir):
@@ -70,9 +71,8 @@ def test_the_quality_gate_halts_when_known_proteins_come_out_dark(fixture_dir):
 
 
 def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
-    """S1 reconstructs genes broken by linearising a circular plasmid and writes them
-    start > end. GFF3 forbids that and GenBank has dedicated syntax for it, so this is the
-    case where a feature file silently puts a gene in the wrong part of the molecule."""
+    """A gene reconstructed across the origin has start > end: two GFF3 rows sharing one
+    ID, and a GenBank complement(join(...))."""
     import gzip
 
     ann = fixture_dir / "plasmid_annotation.tsv"
@@ -140,12 +140,7 @@ def test_feature_files_write_genbank_that_biopython_parses(fixture_dir):
 
 def test_feature_files_cover_the_analysis_set_and_nothing_else(fixture_dir):
     """One record per sequence in the analysis-set FASTA, whether or not it carries an
-    annotation.
-
-    This stage used to read the whole corpus FASTA, so on a 100-plasmid run it emitted
-    208,245 GenBank records. The scope has to come from the FASTA S0 wrote. A plasmid with
-    no called ORFs still gets a record - it is in the analysis set and the answer for it
-    is "no features", which is not the same as the record being absent.
+    annotation. A plasmid with no called ORFs still gets a record with no features.
     """
     ann = fixture_dir / "scope.tsv"
     write_tsv(ann, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
@@ -211,7 +206,7 @@ def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
     aggregated into pathways.
 
     With no eggNOG database present the run must still produce a complete, empty-valued
-    table rather than no table - the column has to exist for S8 to read."""
+    table rather than no table - the columns have to exist for the context features."""
     prot = fixture_dir / "protein_annotation.tsv"
     write_tsv(prot, ["seq_id", "functional_class"],
               [["named1", "FUNCTIONAL"], ["named2", "DOMAIN_ONLY"],
@@ -234,10 +229,10 @@ def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
 
 def _label_inputs(fixture_dir, label_rows=(), ko_lines=(), defence_rows=(),
                   conj_rows=(), protein_map=""):
-    """The S4d inputs of protein_labels, empty unless rows are given: the plasmid label
+    """The plasmid-label inputs of protein_labels, empty unless rows are given: the label
     databases' table, the KEGG KO list, the defence and CONJScan calls and the map."""
     labels_plasmid = fixture_dir / "protein_labels_plasmid.tsv"
-    write_tsv(labels_plasmid, PLASMID_LABEL_COLS, list(label_rows))
+    write_tsv(labels_plasmid, labeldb.COLUMNS, list(label_rows))
     ko_list = fixture_dir / "list_ko.txt"
     ko_list.write_text("".join(f"{line}\n" for line in ko_lines))
     defence = fixture_dir / "defence_systems.tsv"
@@ -327,9 +322,7 @@ def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
                      "category", "threshold", "max_evalue"],
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
                 "T1", "pfam", "", "--cut_ga", ""],
-               # The three sources the pharokka tier emits. The first real run failed
-               # here with KeyError: 'pharokka' - the provenance map had no entry, and
-               # no fixture had exercised a row from the new tier.
+               # The three sources the pharokka tier emits.
                ["s2", "ParA-like partition protein", "phrog_164", "", "", "1e-42", "True",
                 1, "", "", "T3", "pharokka", "DNA, RNA and nucleotide metabolism", "",
                 "1e-05"],
@@ -405,7 +398,7 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
 
 def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreements(
         fixture_dir):
-    """S4d: every plasmid label database row enters protein_labels.tsv as its own kind,
+    """Every plasmid label database row enters protein_labels.tsv as its own kind,
     sub_label included (AMRFinderPlus's element type decides amr against metal), and the
     cross-source conflicts are written beside it without changing a label."""
     hits = fixture_dir / "hits.tsv"
@@ -476,7 +469,7 @@ def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreemen
     conflicts = {(r["seq_id"], r["conflict_type"]) for r in read_tsv(disagree)}
     assert conflicts == {("s1", "card_vs_amrfinder"), ("s2", "tier0_vs_bacmet"),
                          ("s3", "tadb_vs_defencefinder")}
-    # No label was removed because of a disagreement.
+    # A disagreement removes no label.
     assert len(merged) == len(label_rows)
 
 
