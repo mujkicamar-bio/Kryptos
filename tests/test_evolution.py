@@ -14,10 +14,10 @@ from plasmidann.evolution import (
     back_translate,
     codon_differences,
     consensus,
-    dnds,
     dnds_detail,
     synonymous_sites,
 )
+from plasmidann.evolution_worker import rnacode
 
 # --- site counting -------------------------------------------------------------------
 
@@ -66,7 +66,7 @@ def test_identical_sequences_give_no_signal():
     """Zero divergence carries no information about selection, and must not be reported as
     dN/dS = 0, which would look like maximal purifying selection."""
     seq = "ATGCTAGCTAGCAAA"
-    assert dnds(seq, seq) is None
+    assert dnds_detail(seq, seq)[0] is None
 
 
 def test_only_silent_changes_indicate_strong_purifying_selection():
@@ -74,24 +74,23 @@ def test_only_silent_changes_indicate_strong_purifying_selection():
     beyond it the correction has no domain and the estimate is meaningless."""
     a = "CTA" * 10
     b = "CTA" * 7 + "CTG" + "CTT" + "CTC"    # 3 silent changes in 10 Leu codons
-    ratio = dnds(a, b)
-    assert ratio is not None and ratio == 0.0
+    assert dnds_detail(a, b)[0] == 0.0
 
 
 def test_only_replacement_changes_give_a_ratio_above_one():
     a = "ATGATGATGATGATG"          # Met x5
     b = "ATAATAATAATAATA"          # Ile x5
-    assert dnds(a, b) == float("inf")
+    assert dnds_detail(a, b) == (float("inf"), "MEASURED")
 
 
 def test_sequences_of_unequal_length_are_refused():
     with pytest.raises(ValueError):
-        dnds("ATGATG", "ATG")
+        dnds_detail("ATGATG", "ATG")
 
 
 def test_a_sequence_that_is_not_a_whole_number_of_codons_is_refused():
     with pytest.raises(ValueError):
-        dnds("ATGAT", "ATGAT")
+        dnds_detail("ATGAT", "ATGAT")
 
 
 def test_gapped_and_ambiguous_codons_are_skipped_not_counted():
@@ -100,7 +99,7 @@ def test_gapped_and_ambiguous_codons_are_skipped_not_counted():
     alignment is least trustworthy."""
     a = "CTA" * 4 + "---" + "CTA" * 5
     b = "CTA" * 2 + "CTG" + "CTT" + "---" + "CTA" * 5
-    assert dnds(a, b) == 0.0
+    assert dnds_detail(a, b)[0] == 0.0
 
 
 def test_sequences_too_diverged_to_correct_return_no_estimate():
@@ -108,7 +107,7 @@ def test_sequences_too_diverged_to_correct_return_no_estimate():
     there would be inventing one."""
     a = "CTA" * 5
     b = "CTG" * 3 + "CTT" + "CTC"     # every codon changed: saturated
-    assert dnds(a, b) is None
+    assert dnds_detail(a, b)[0] is None
 
 
 # --- codon alignment from a protein alignment ----------------------------------------
@@ -127,48 +126,32 @@ def test_back_translation_refuses_a_cds_that_is_too_short():
 # --- distinguishing WHY there is no estimate -----------------------------------------
 
 def test_no_divergence_is_reported_separately_from_a_failed_estimate():
-    """A family of identical sequences has no divergence to measure. That is not the same
-    as a family that was measured and found neutral, and it must not be scored as absence
-    of evidence - clonal redundancy would otherwise silently penalise the most conserved
-    families in the collection."""
-    from plasmidann.evolution import dnds_detail
-
+    """A family of identical sequences has no divergence to measure, which is not the same
+    as a family measured and found neutral."""
     value, status = dnds_detail("ATGCTAGCTAGCAAA", "ATGCTAGCTAGCAAA")
     assert value is None
     assert status == "NO_DIVERGENCE"
 
 
 def test_saturation_is_reported_as_its_own_status():
-    from plasmidann.evolution import dnds_detail
-
     value, status = dnds_detail("CTA" * 5, "CTG" * 3 + "CTT" + "CTC")
     assert value is None and status == "SATURATED"
 
 
 def test_a_successful_estimate_is_reported_as_measured():
-    from plasmidann.evolution import dnds_detail
-
     value, status = dnds_detail("CTA" * 10, "CTA" * 7 + "CTG" + "CTT" + "CTC")
     assert value == 0.0 and status == "MEASURED"
 
 
 def test_too_little_usable_alignment_is_reported_as_its_own_status():
-    from plasmidann.evolution import dnds_detail
-
     value, status = dnds_detail("CTA---", "CTG---")
     assert value is None and status == "TOO_SHORT"
 
 
-# --- min_codons was declared in config and never applied ------------------------------
+# --- min_codons ----------------------------------------------------------------------
 
 def test_a_pair_with_too_few_usable_codons_reports_no_estimate():
-    """config/targets.yaml declares `min_codons: 20`, described as the point below which a
-    dN/dS estimate is noise whatever it says. Nothing read it. The only floor actually
-    applied was a hardcoded 3, so eight-codon fragments produced dN/dS values that were
-    then used as `purifying_selection` - one of the four reality tests, and the strongest
-    of them.
-
-    Eight codons is above the absolute floor of 3 and below the declared 20."""
+    """Eight codons is above the arithmetic floor of 3 and below min_codons = 20."""
     a = "ATGAAAGTGCTGGCGACCACCCTG"          # 8 codons
     b = "ATGAAAGTACTGGCGACCACCCTA"          # same protein, two silent changes
     assert len(a) == len(b) == 24
@@ -191,9 +174,7 @@ def test_the_same_pair_is_measurable_when_the_floor_allows_it():
 # --- the family-consensus re-check ----------------------------------------------------
 
 def test_the_consensus_is_the_commonest_residue_per_column():
-    """Pavlopoulos removed 6.5% of clusters this way: a family can be collectively
-    recognisable while every member individually misses the per-sequence threshold. The
-    consensus is what carries the family's shared signal, so it is what gets re-searched."""
+    """The consensus carries the family's shared signal, so it is what gets re-searched."""
     aln = {"a": "MKVL-AT", "b": "MKIL-AT", "c": "MKVLQAS"}
     assert consensus(aln) == "MKVLAT"
 
@@ -216,3 +197,44 @@ def test_ties_are_broken_deterministically():
 
 def test_an_empty_alignment_has_no_consensus():
     assert consensus({}) == ""
+
+
+# --- RNAcode ----------------------------------------------------------------------------
+
+def _stand_in_rnacode(tmp_path, monkeypatch, body):
+    exe = tmp_path / "bin" / "RNAcode"
+    exe.parent.mkdir()
+    exe.write_text(f"#!/bin/sh\n{body}\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:/usr/bin:/bin")
+
+
+ALN = {"m0": "ATGAAAGTG", "m1": "ATGAAGGTG"}
+
+
+def test_rnacode_best_p_is_read_per_strand(tmp_path, monkeypatch):
+    rows = ["1 + 1 30 1 30 m0 1 90 5.1 0.001", "2 - 2 30 1 30 m0 1 90 3.0 0.2",
+            "3 + 3 30 1 30 m0 1 90 4.0 0.01"]
+    _stand_in_rnacode(tmp_path, monkeypatch, "printf '" + "\\n".join(rows) + "\\n'")
+    assert rnacode(ALN, tmp_path / "a.aln") == (0.001, 0.2, "MEASURED")
+
+
+def test_rnacode_that_reports_nothing_is_no_signal(tmp_path, monkeypatch):
+    _stand_in_rnacode(tmp_path, monkeypatch, "exit 0")
+    assert rnacode(ALN, tmp_path / "a.aln") == (None, None, "NO_SIGNAL")
+
+
+def test_rnacode_that_prints_an_error_and_exits_0_is_no_output(tmp_path, monkeypatch):
+    _stand_in_rnacode(tmp_path, monkeypatch,
+                      "echo 'ERROR: Unknown alignment file format'; exit 0")
+    assert rnacode(ALN, tmp_path / "a.aln") == (None, None, "NO_OUTPUT")
+
+
+def test_rnacode_that_exits_non_zero_is_no_output(tmp_path, monkeypatch):
+    _stand_in_rnacode(tmp_path, monkeypatch, "exit 3")
+    assert rnacode(ALN, tmp_path / "a.aln") == (None, None, "NO_OUTPUT")
+
+
+def test_a_missing_rnacode_is_no_output(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert rnacode(ALN, tmp_path / "a.aln") == (None, None, "NO_OUTPUT")

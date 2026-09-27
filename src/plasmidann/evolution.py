@@ -19,13 +19,12 @@ WHY NEI-GOJOBORI COUNTING, AND WHY IT IS THE ONLY ESTIMATOR HERE
 
 Counting needs no tree, no optimiser and no external process. It runs over hundreds of
 thousands of small families in-process, is fully unit-testable, and reports a status rather
-than a silence when it cannot measure.
-
-A codon model (HyPhy BUSTED on a per-family tree) sat beside it as S7d until 2026-09-14,
-when it was removed for cost; the measurements are in docs/PIPELINE_CODE.md section 13.
-Counting is therefore the pipeline's only dN/dS estimate, and `dnds_status` together with
-the pair count carry the whole of the qualification a second method would have supplied.
+than a silence when it cannot measure. It is the pipeline's only dN/dS estimate; a codon
+model per family was too costly at this scale (docs/PIPELINE_CODE.md), so `dnds_status`
+and the pair count carry the qualification of each estimate.
 """
+import itertools
+import math
 
 # Standard genetic code, table 11 (bacterial). '*' is a stop codon.
 GENETIC_CODE = {}
@@ -80,7 +79,6 @@ def codon_differences(a, b):
         return (1, 0) if aa_a == aa_b else (0, 1)
 
     # Average over every order in which the differing positions could have changed.
-    import itertools
     syn_total = non_total = 0
     paths = 0
     for order in itertools.permutations(positions):
@@ -113,7 +111,6 @@ def _jukes_cantor(p):
     Returns None where the proportion is at or beyond the correction's domain (p >= 0.75),
     which means the sequences are too diverged for the estimate to mean anything.
     """
-    import math
     if p <= 0:
         return 0.0
     if p >= 0.75:
@@ -127,36 +124,21 @@ ABSOLUTE_MIN_CODONS = 3
 def dnds_detail(seq_a, seq_b, min_codons=ABSOLUTE_MIN_CODONS):
     """Nei-Gojobori dN/dS with a status code explaining any absent estimate.
 
-    `min_codons` is the number of USABLE codons - gaps, ambiguity and stop codons removed -
-    below which no estimate is returned. It is a parameter rather than a constant because
-    the value belongs in config/targets.yaml with everything else (design principle P4).
-    The default is the absolute arithmetic floor, three; the project's declared value is 20
-    and S7b passes it. Until it did, the declared 20 was inert and eight-codon fragments
-    produced dN/dS values that fed `purifying_selection`, the strongest of the four reality
-    tests.
+    `min_codons` is the number of USABLE codons - gaps, ambiguity and stop codons excluded -
+    below which no estimate is returned; S7b passes evolution.min_codons from config. The
+    default is the arithmetic floor, three.
 
     Returns (value, status). Status is one of:
 
       MEASURED       a usable estimate; value is a float or inf
       NO_DIVERGENCE  the sequences are identical, so there is nothing to measure
-      TOO_SHORT      too few usable codons after gaps and stops were removed
+      TOO_SHORT      too few usable codons once gaps, ambiguity and stops are excluded
       SATURATED      beyond the Jukes-Cantor domain (pS >= 0.75); no correction exists
 
-    WHY THE STATUSES MATTER, AND WHY NONE IS NOT ZERO
-
-    All four of these once collapsed into a bare None, and downstream that None was scored
-    as "no evidence of selection" - indistinguishable from a family that WAS measured and
-    found to be evolving neutrally.
-
-    The consequence was systematic and backwards. NO_DIVERGENCE means every member of the
-    family is identical, which happens when a family is highly conserved or clonally
-    redundant. Scoring that as absence of evidence penalises exactly the families most
-    likely to be real. S9 therefore treats NO_DIVERGENCE as neutral - it withholds
-    judgement - rather than as evidence against.
-
-    Reporting dN/dS = 0 for identical sequences would be worse still: 0 reads as maximal
-    purifying selection, and every clonal duplicate in the collection would rise to the top
-    of the target list.
+    Without a value the status says why. NO_DIVERGENCE (identical sequences, common in
+    conserved or clonally redundant families) is not evidence of neutral evolution, and
+    evidence.reality_lines does not fire purifying_selection on it; nor is it dN/dS = 0,
+    which would read as maximal purifying selection.
     """
     if len(seq_a) != len(seq_b):
         raise ValueError(f"aligned sequences differ in length: {len(seq_a)} vs {len(seq_b)}")
@@ -185,10 +167,8 @@ def dnds_detail(seq_a, seq_b, min_codons=ABSOLUTE_MIN_CODONS):
         syn_diff += sd
         non_diff += nd
 
-    # Two floors in one test. Three codons is arithmetic - below it nothing can be
-    # estimated at all - and min_codons is the project's judgement about when an estimate
-    # is worth trusting. Both produce the same honest answer: no value, and TOO_SHORT as
-    # the reason, which S9 reads as "not measured" rather than "measured and neutral".
+    # Three codons is the arithmetic floor; min_codons is the configured floor for a
+    # trustworthy estimate. Below either there is no value, and the status is TOO_SHORT.
     if usable < max(min_codons, ABSOLUTE_MIN_CODONS):
         return None, "TOO_SHORT"
     if syn_diff == 0 and non_diff == 0:
@@ -204,15 +184,6 @@ def dnds_detail(seq_a, seq_b, min_codons=ABSOLUTE_MIN_CODONS):
         # Every observed change is a replacement: evidence AGAINST a conserved protein.
         return (float("inf"), "MEASURED") if dn > 0 else (None, "NO_DIVERGENCE")
     return round(dn / ds, 4), "MEASURED"
-
-
-def dnds(seq_a, seq_b, min_codons=ABSOLUTE_MIN_CODONS):
-    """Nei-Gojobori dN/dS, or None where no estimate is possible.
-
-    Thin wrapper over dnds_detail for callers that do not need the reason. Prefer
-    dnds_detail in the pipeline: the reason changes how S9 should score the family.
-    """
-    return dnds_detail(seq_a, seq_b, min_codons=min_codons)[0]
 
 
 def back_translate(aligned_protein, cds):
@@ -245,15 +216,9 @@ def back_translate(aligned_protein, cds):
 def consensus(alignment, max_gap_fraction=0.5):
     """The commonest residue per alignment column, as one ungapped sequence.
 
-    WHY THIS EXISTS
-
     A protein can miss every per-sequence threshold while its family is collectively
-    recognisable - the shared signal is spread thinly across members and none of them
-    carries enough of it alone. Pavlopoulos et al. removed 6.5% of their clusters by
-    searching the family consensus back against the reference databases, and every one of
-    those was a cluster that looked novel member by member.
-
-    That is the same 6.5% this pipeline would otherwise send to the bench as novel.
+    recognisable; Pavlopoulos et al. removed 6.5% of their clusters by searching the family
+    consensus back against the reference databases (S7c).
 
     `alignment` maps name -> aligned sequence, all the same length.
 

@@ -48,9 +48,10 @@ def rnacode(alignment, path):
     Returns (p_sense, p_antisense, status). Tabular columns are
     HSS, strand, frame, length, from, to, name, start, end, score, P.
 
-    A tool that reports failure on stdout and exits 0 cannot be trusted to its return code,
-    so an unparsable output is NO_OUTPUT rather than "no coding signal". The distinction
-    matters: no signal is evidence against a family, and a tool that did not run is not.
+    NO_OUTPUT when RNAcode did not run: a non-zero exit (including a missing executable),
+    or an ERROR line on stdout, which RNAcode prints for an unreadable alignment while
+    exiting 0. NO_SIGNAL when it ran and reported no segment. The two differ because no
+    signal is evidence against a family and a tool that did not run is not.
     """
     clustal(alignment, path)
     proc = subprocess.run(f"RNAcode -t {path}", shell=True, capture_output=True, text=True)
@@ -65,11 +66,14 @@ def rnacode(alignment, path):
             continue
         if best[f[1]] is None or p < best[f[1]]:
             best[f[1]] = p
+    failed = proc.returncode != 0 or any(
+        line.startswith("ERROR") for line in proc.stdout.splitlines())
+    if failed:
+        return None, None, "NO_OUTPUT"
     if best["+"] is None and best["-"] is None:
-        note = proc.stdout.strip().splitlines()
-        return None, None, ("NO_OUTPUT" if any(l.startswith("ERROR") for l in note)
-                            else "NO_SIGNAL")
+        return None, None, "NO_SIGNAL"
     return best["+"], best["-"], "MEASURED"
+
 
 def measure(job):
     """(family_id, member_set, members) -> (row, consensus or None). One family, one set."""
@@ -132,16 +136,11 @@ def measure(job):
         except ValueError:
             continue
 
-    # Statuses are counted, not just values. A family of identical sequences
-    # (NO_DIVERGENCE) is a different thing from one measured and found neutral, and S9
-    # scores them differently - the first withholds judgement, the second is evidence
-    # against. Collapsing both into a bare None penalised the most conserved families.
+    # The status of every pair is counted as well as the values: a family of identical
+    # sequences (NO_DIVERGENCE) is not a family measured and found neutral. A pair with
+    # dN/dS = inf (dS = 0, dN > 0) is counted in the statuses but not in the median.
     ratios, statuses = [], collections.Counter()
     for a, b in itertools.combinations(sorted(codon_aln), 2):
-        # min_codons comes from config and is applied HERE, per pair. It was
-        # declared and never read: the only floor in force was the arithmetic
-        # minimum of three, so eight-codon fragments produced dN/dS values that
-        # then fired purifying_selection, the strongest of the four reality tests.
         r, status = dnds_detail(codon_aln[a], codon_aln[b],
                                 min_codons=_cfg["min_codons"])
         statuses[status] += 1
@@ -169,8 +168,7 @@ def measure(job):
         row["dnds_status"] = "MEASURED"
     else:
         row["evidence_note"] = "no_informative_pairs"
-        # Which kind of absence? The commonest status across the pairs is the honest
-        # summary, and it is what S9 reads.
+        # The commonest status across the pairs says which kind of absence this is.
         row["dnds_status"] = (statuses.most_common(1)[0][0] if statuses
                               else "NO_INFORMATIVE_PAIRS")
     return row, family_consensus

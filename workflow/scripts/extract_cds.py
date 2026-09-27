@@ -49,13 +49,9 @@ with open(snakemake.input.index, newline="") as fh:
         needed.setdefault(r["plasmid_id"], []).append((sid, r))
 
 n_written = n_origin = 0
-
 with open(snakemake.output[0], "w") as out:
-    def emit(pid, seq):
-        global n_written, n_origin
-        if pid not in needed:
-            return
-        for sid, r in needed[pid]:
+    for pid, seq in iter_fasta([snakemake.input.fasta]):
+        for sid, r in needed.get(pid, ()):
             start, end = int(r["start"]), int(r["end"])
             if r.get("spans_origin") == "1":
                 # start..L then 1..end
@@ -69,9 +65,6 @@ with open(snakemake.output[0], "w") as out:
                 continue
             out.write(f">{sid}\n{nt}\n")
             n_written += 1
-
-    for pid, seq in iter_fasta([snakemake.input.fasta]):
-        emit(pid, seq)
 
 print(f"CDS written={n_written} of {len(wanted)} dark proteins "
       f"(origin-spanning={n_origin})")

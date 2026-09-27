@@ -8,7 +8,6 @@ This stage reports something POSITIVE:
 
   dN/dS < 0.5        selection is suppressing replacement changes, so there IS a protein
   RNAcode P < 0.05   the region carries coding signal independent of the gene caller
-  lineage breadth    it is not a single-lineage accident
 
 WHY RNAcode SCORES BOTH STRANDS HERE
 
@@ -46,24 +45,11 @@ import _ctx  # noqa: F401
 
 from plasmidann import scratch
 from plasmidann.evolution_worker import COLS, configure, measure
+from plasmidann.fasta import iter_fasta
 
 cfg = snakemake.params.evolution
-
-def read_fasta(path):
-    out, name, buf = {}, None, []
-    for line in open(path):
-        if line[0] == ">":
-            if name:
-                out[name] = "".join(buf)
-            name, buf = line[1:].split()[0], []
-        else:
-            buf.append(line.strip())
-    if name:
-        out[name] = "".join(buf)
-    return out
-
-proteins = read_fasta(snakemake.input.faa)
-cds = read_fasta(snakemake.input.cds)
+proteins = dict(iter_fasta([snakemake.input.faa]))
+cds = dict(iter_fasta([snakemake.input.cds]))
 
 families = []
 with open(snakemake.input.families, newline="") as fh:

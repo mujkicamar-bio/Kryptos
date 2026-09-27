@@ -18,9 +18,8 @@ from conftest import (
 
 @requires("mafft")
 def test_family_evolution_runs_and_reports_a_dnds_status(fixture_dir):
-    """S7b crashed with NameError on the first family with >=3 members. It survived
-    review because without mafft on PATH the script takes the ALIGNMENT_FAILED branch and
-    exits 0 - so the bug only appears when the tool is actually present."""
+    """An alignable, divergent family reaches a dN/dS status; the small-plasmid member set
+    is measured on its own."""
     faa = fixture_dir / "dark.faa"
     cds = fixture_dir / "dark.fna"
     fams = fixture_dir / "families.tsv"
@@ -155,11 +154,8 @@ PROSTT5 = "data/refs/foldseek/prostt5"
 @pytest.mark.skipif(not pathlib.Path(PROSTT5).exists(),
                     reason="ProstT5 model not downloaded")
 def test_structure_search_reports_what_the_match_actually_is(fixture_dir):
-    """Foldseek's `target` is a PDB accession - `12as-assembly1_A`. Every downstream use
-    of structural evidence needs to know WHAT the fold is, not which entry it came from:
-    the nucleic_acid_binding stratum tested for the word "nucle" in the accession and so
-    could never be filled, and the hypothesis written into the synthesis order read
-    `structural:12as-assembly1_A`, which tells a bench scientist nothing.
+    """Foldseek's `target` is a PDB accession (12as-assembly1_A), which names nothing; the
+    description (theader) says what the matched structure is.
 
     Takes about 35 s because ProstT5 has to load; marked slow."""
     faa = fixture_dir / "dark_proteins.faa"
@@ -191,15 +187,8 @@ def test_structure_search_reports_what_the_match_actually_is(fixture_dir):
 
 @requires("mafft", "RNAcode")
 def test_family_evolution_reports_coding_potential(fixture_dir):
-    """The design names RNAcode as one of two positive-evidence tests at S7: coding signal
-    independent of the gene caller. `evolution.rnacode_max_p` was declared, the binary was
-    installed, and no code invoked it - the columns were written empty for every family and
-    the run reported success.
-
-    RNAcode scores BOTH strands, which matters more here than anywhere: a shadow ORF is the
-    reverse complement of a real gene, so its antisense signal should beat its sense signal.
-    Recording only the sense P would throw away the one number that distinguishes the
-    artefact class this stage exists to catch."""
+    """RNAcode gives coding signal independent of the gene caller, on both strands: a
+    shadow ORF, the reverse complement of a real gene, should score higher antisense."""
     prot = "MKVLATTLLGAAFAASSALAQKKWLVRDGHIYQPLMNEATSGKLW"
     cod = {"M": "ATG", "K": "AAA", "V": "GTG", "L": "CTG", "A": "GCG", "T": "ACC",
            "G": "GGC", "F": "TTT", "S": "AGC", "Q": "CAG", "W": "TGG", "R": "CGT",
@@ -241,40 +230,30 @@ def test_family_evolution_reports_coding_potential(fixture_dir):
     assert row["rnacode_status"] == "MEASURED"
 
 
-@requires("mafft", "RNAcode")
-def test_an_rnacode_failure_is_not_silently_a_pass(fixture_dir):
-    """RNAcode prints `ERROR: Unknown alignment file format` to stdout and exits 0. Parsing
-    its output without checking would read zero rows as "no coding signal" - which is
-    evidence AGAINST a family - when in fact the tool never ran."""
-    faa = fixture_dir / "dark.faa"
-    cds = fixture_dir / "dark.fna"
-    # Two members: below min_members_for_dnds, so no alignment is attempted at all.
-    write_fasta(faa, [("m0", "MKVL"), ("m1", "MKVL")])
-    write_fasta(cds, [("m0", "ATGAAAGTGCTG"), ("m1", "ATGAAAGTACTG")])
-    fams = fixture_dir / "families.tsv"
-    write_tsv(fams, ["family_id", "representative", "n_members", "n_orfs", "n_plasmids",
-                     "n_mob_clusters", "family_class", "members"],
-              [["F1", "m0", 2, 2, 2, 1, "FAMILY", "m0,m1"]])
-    out = fixture_dir / "family_evolution.tsv"
-
-    run_script("family_evolution.py", FakeSnakemake(
-        input={"families": str(fams), "faa": str(faa), "cds": str(cds)},
-        output={"tsv": str(out), "consensus": str(out.parent / "consensus.faa")},
-        params={"evolution": {"min_codons": 20, "min_members_for_dnds": 3,
-                              "dnds_purifying_max": 0.5, "rnacode_max_p": 0.05,
-                              "max_members_aligned": 50}},
-        threads=1))
-
-    row = read_tsv(out)[0]
-    assert row["coding_signal"] == "", "absence of a test must not read as a failed test"
-    assert row["rnacode_status"] == "TOO_FEW_MEMBERS"
+def test_extract_cds_recovers_origin_spanning_and_minus_strand_genes(fixture_dir):
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, [("p1", "ATGAAACCCGGGTTTTAG"), ("p2", "AAAAAA")])
+    ids = fixture_dir / "dark_ids.txt"
+    ids.write_text("S1\nS2\nS3\n")
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("S1\tp1|1\nS2\tp1|2,p1|9\nS3\tp1|3\nS4\tp2|1\n")
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "spans_origin"],
+              [["p1|1", "p1", 1, 9, "1", "0"],
+               ["p1|2", "p1", 16, 3, "1", "1"],      # 16..18 then 1..3
+               ["p1|3", "p1", 4, 9, "-1", "0"],
+               ["p2|1", "p2", 1, 6, "1", "0"]])
+    out = fixture_dir / "dark_cds.fna"
+    run_script("extract_cds.py", FakeSnakemake(
+        input={"ids": str(ids), "map": str(pmap), "index": str(index), "fasta": str(fasta)},
+        output=[str(out)]))
+    assert out.read_text() == ">S1\nATGAAACCC\n>S2\nTAGATG\n>S3\nGGGTTT\n"
 
 
 @requires("mafft")
 def test_family_evolution_writes_a_consensus_per_family(fixture_dir):
-    """The re-check needs one sequence per family carrying the family's shared signal.
-    S7b already has the protein alignment in hand, so building it here costs nothing and
-    avoids aligning every family a second time."""
+    """S7b writes one consensus per family from its protein alignment, for the S7c
+    re-check."""
     prot_a = "MKVLATTLLGAAFAASSALAQKKWLVRDGHIY"
     prot_b = "MKVLATTLLGAAFCASSALAQKKWLVRDGHIY"
     faa = fixture_dir / "dark.faa"
@@ -311,11 +290,8 @@ def test_family_evolution_writes_a_consensus_per_family(fixture_dir):
                     reason="Pfam-A not downloaded")
 @pytest.mark.slow
 def test_the_consensus_recheck_finds_a_family_that_is_collectively_recognisable(fixture_dir):
-    """A family whose consensus hits Pfam is NOT collectively novel, however dark each
-    member looked on its own. Pavlopoulos removed 6.5% of clusters this way, and those are
-    exactly the clusters this pipeline would otherwise send to the bench as novel.
-
-    This is a LABEL, not a filter - the family stays in the table with the verdict on it."""
+    """A family whose consensus hits Pfam is not collectively novel, however dark each
+    member looked on its own. This is a label, not a filter: the family stays in the table."""
     import subprocess
     # A real Pfam consensus sequence, so the re-check has something true to find.
     subprocess.run("hmmfetch --index data/refs/pfam/Pfam-A.hmm", shell=True,
@@ -354,8 +330,7 @@ def test_the_consensus_recheck_finds_a_family_that_is_collectively_recognisable(
 
 def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir):
     """A mandatory component of a complete system and a neutral component of a fragment
-    are not the same evidence, and both arrived as the same row. MacSyFinder reports the
-    distinction and it was discarded."""
+    are different evidence; MacSyFinder's hit_status and sys_wholeness say which."""
     out = fixture_dir / "defence_systems.tsv"
     phase2 = out.parent / "phase2" / "run"
     phase2.mkdir(parents=True)
