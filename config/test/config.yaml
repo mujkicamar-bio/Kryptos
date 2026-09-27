@@ -1,10 +1,11 @@
 # Test-scale configuration: the 100-plasmid smoke set.
 #
 # Run with:
-#   snakemake --configfile config/test/config.yaml -j 8 --use-conda
+#   envs/plasmidann/bin/snakemake -s workflow/Snakefile --configfile config/test/config.yaml -c 8
 #
-# Everything a smaller set forces is here and nowhere else, so the production config
-# is never edited to run a test - which is how a test setting reaches production.
+# Overrides config/config.yaml, which the Snakefile always loads first. Everything a
+# smaller set forces is here and nowhere else, so the production config is never edited
+# to run a test.
 #
 #   fasta       the seeded 100-plasmid sample from tools/make_test_set.py, covering
 #               circular, linear, direct terminal repeat and inverted terminal repeat
