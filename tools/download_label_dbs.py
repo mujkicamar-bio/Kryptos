@@ -8,14 +8,14 @@ WHAT IS INSTALLED
   card      CARD, the current release: card.json and the protein homolog model FASTA
   mobileog  mobileOG-db beatrix-1.6, every entry (Manual, Homology, Keyword Search)
   dbapis    dbAPIS, the verified APIS proteins and their sequence homologues
-  acrdb     Anti-CRISPRdb v2.2, every entry of the core dataset
-  kegg_ko   the KEGG Orthology list (KO id, gene symbols, name); no FASTA. It maps
+  acrdb     Anti-CRISPRdb version 2.2, every entry of the core dataset
+  kegg_ko   the KEGG Orthology list as downloaded (raw/list_ko.txt); no FASTA. It maps
             PlasmidScope Tier 0 KOs to gene symbols for the disagreement file only
 
 EVIDENCE RULE
 
 mobileOG-db, dbAPIS and Anti-CRISPRdb keep all evidence classes, and the class of every
-entry is recorded in its FASTA header (and metadata table), so each label can carry it.
+entry is recorded in its FASTA header, so each label can carry it.
 TADB keeps its experimentally validated files (*_exp) and BacMet its experimentally
 confirmed set (BacMet2_EXP); CARD keeps every protein homolog model; oriTDB keeps
 validated plus predicted entries. Each SOURCE file states its rule and the counts.
@@ -28,8 +28,9 @@ PINNED DOWNLOADS
 
 Every download except CARD and KEGG is pinned by SHA-256, so a changed file upstream stops
 the install instead of silently changing the labels. CARD and the KEGG KO list are taken as
-the current release, and their version is read from the download (card.json, info/ko). A pinned file may instead be taken from a local
-copy (--local DIR, looked up as DIR/<db>/<file name>), and only when its SHA-256 matches.
+the current release, and their version is read from the download (card.json, info/ko). A
+pinned file may instead be taken from a local copy (--local DIR, looked up as
+DIR/<db>/<file name>), and only when its SHA-256 matches.
 
 IDEMPOTENT
 
@@ -163,11 +164,9 @@ DBS = {
         header="original mobileOG header, id|name|UniProt|major category|minor "
                "categories|element|evidence (field 7: Manual, Homology or Keyword Search); "
                "headers can contain spaces (element 'Plasmid RefSeq', evidence 'Keyword "
-               "Search'), so a search tool's subject id is the header up to the first space, "
-               "which is the fasta_id column of mobileog_metadata.tsv (entry_id, "
-               "major_category, minor_category, evidence, fasta_id); 119 entry ids occur "
-               "twice, once as Homology and once as Keyword Search with the same sequence, "
-               "and are told apart by fasta_id"),
+               "Search'), so a search tool's subject id is the header up to the first space; "
+               "119 entry ids occur twice, once as Homology and once as Keyword Search with "
+               "the same sequence, and are told apart by that subject id"),
     "dbapis": dict(
         version="dbAPIS release 2026-06-18 (380 APIS families, 149 verified seeds), verified "
                 "proteins and sequence homologues (anti_defense.pep)",
@@ -195,7 +194,8 @@ DBS = {
                "singleton seed; 14 accessions assigned to two families with the same sequence "
                "are one record with both families comma-separated. The inhibited defence "
                "systems are in dbapis_metadata.tsv (protein_id, gene, family, "
-               "defence_system, evidence). The anti-CRISPR (Acr*) entries that "
+               "defence_system, evidence), kept for reference and not read by the "
+               "pipeline. The anti-CRISPR (Acr*) entries that "
                "anti_defense.pep also carries are not installed: dbAPIS states it does not "
                "cover anti-CRISPR proteins, and acrdb is the anti-CRISPR source"),
     "acrdb": dict(
@@ -232,9 +232,9 @@ DBS = {
                 "non-academic use requires a commercial licence "
                 "(https://www.kegg.jp/kegg/legal.html)",
         evidence="not applicable (a term list, not a sequence database)",
-        header="no FASTA; ko_list.tsv has columns ko, symbols (comma-separated, may be "
-               "empty), name. Used only to map PlasmidScope Tier 0 KOs to gene symbols for "
-               "the disagreement file, not for context terms"),
+        header="no FASTA; raw/list_ko.txt as KEGG serves it, '<KO><TAB><symbols>; <name>'. "
+               "Used only to map PlasmidScope Tier 0 KOs to gene symbols for the "
+               "disagreement file, not for context terms"),
 }
 
 
@@ -363,7 +363,6 @@ def build_card(d, raw):
 
 def build_mobileog(d, raw):
     counts = dict.fromkeys(MOBILEOG_EVIDENCE, 0)
-    rows = []
 
     def records():
         for head, seq in fasta(raw / "mobileOG-db_beatrix-1.6.All.faa"):
@@ -372,14 +371,9 @@ def build_mobileog(d, raw):
                 sys.exit(f"mobileOG header not id|name|uniprot|major|minor|element|"
                          f"evidence with a known evidence class: {head}")
             counts[f[6]] += 1
-            rows.append((f[0], f[3], f[4], f[6], head.split()[0]))
             yield head, seq
 
     n = write_fasta(d / "mobileog.faa", records())
-    with open(d / "mobileog_metadata.tsv", "w", newline="") as out:
-        w = csv.writer(out, delimiter="\t", lineterminator="\n")
-        w.writerow(("entry_id", "major_category", "minor_category", "evidence", "fasta_id"))
-        w.writerows(rows)
     return f"{n} entries ({', '.join(f'{k} {v}' for k, v in counts.items())})"
 
 
@@ -460,17 +454,8 @@ def build_kegg_ko(d, raw):
     info = (raw / "info_ko.txt").read_text()
     entries = re.search(r"([\d,]+) entries", info).group(1)
     updated = re.search(r"Last update (\S+)", info).group(1)
-    n = 0
-    with open(raw / "list_ko.txt") as fh, open(d / "ko_list.tsv", "w", newline="") as out:
-        w = csv.writer(out, delimiter="\t", lineterminator="\n")
-        w.writerow(("ko", "symbols", "name"))
-        for line in fh:
-            ko, text = line.rstrip("\n").split("\t", 1)
-            symbols, sep, name = text.partition("; ")
-            if not sep:  # an entry without gene symbols
-                symbols, name = "", text
-            w.writerow((ko.removeprefix("ko:"), symbols, name))
-            n += 1
+    with open(raw / "list_ko.txt") as fh:
+        n = sum(1 for _ in fh)
     if n != int(entries.replace(",", "")):
         sys.exit(f"KEGG list/ko has {n} entries, info/ko reports {entries}")
     DBS["kegg_ko"]["version"] = (f"KEGG Orthology, {entries} entries, last update {updated} "
