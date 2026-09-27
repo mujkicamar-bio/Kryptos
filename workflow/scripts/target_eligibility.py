@@ -1,4 +1,4 @@
-"""S5: which proteins are screening candidates at all.
+"""Which proteins are screening candidates at all.
 
 A protein is target-eligible when the cascade gave it no informative name
 (UNCHARACTERIZED_HOMOLOG or NONE), it was searched, and it is not artefact-flagged. No

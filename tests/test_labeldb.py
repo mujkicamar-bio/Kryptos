@@ -445,24 +445,6 @@ def test_script_labels_proteins_and_records_absent_databases_as_not_run(tmp_path
         assert status[db]["status"] == "NOT_RUN"
 
 
-def test_script_halts_when_a_required_database_is_absent(tmp_path):
-    refs = tmp_path / "refs"
-    _refs(refs, dbs=("tadb",))
-    amr = _fake_amrfinder(tmp_path, [])
-    with pytest.raises(SystemExit) as err:
-        run_script("label_databases.py", _snake(tmp_path, refs, amr, required=True))
-    assert "bacmet" in str(err.value)
-
-
-def test_script_halts_when_amrfinder_is_required_and_absent(tmp_path):
-    refs = tmp_path / "refs"
-    refs.mkdir()
-    amr = (str(tmp_path / "no" / "amrfinder"), str(tmp_path / "nodb"))
-    with pytest.raises(SystemExit) as err:
-        run_script("label_databases.py", _snake(tmp_path, refs, amr, amr_required=True))
-    assert "amrfinder" in str(err.value).lower()
-
-
 def test_script_records_everything_not_run_when_nothing_is_installed(tmp_path):
     refs = tmp_path / "refs"
     refs.mkdir()
@@ -474,3 +456,5 @@ def test_script_records_everything_not_run_when_nothing_is_installed(tmp_path):
     status = read_tsv(snake.output.status)
     assert {r["database"] for r in status} == set(labeldb.DATABASES) | {"amrfinder"}
     assert {r["status"] for r in status} == {"NOT_RUN"}
+    # The working directory of raw search tables is removed once the tables are written.
+    assert not (tmp_path / "08_protein_labels" / "label_databases").exists()

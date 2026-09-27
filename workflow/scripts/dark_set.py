@@ -28,9 +28,8 @@ with open(snakemake.input.map) as fh:
 
 with open(snakemake.input.index, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
-        sid = seq_of_orf.get(r["orf_id"])
-        if sid is None:
-            continue
+        # Dereplication is lossless, so every ORF of the index is in the map.
+        sid = seq_of_orf[r["orf_id"]]
         if r["partial"] == "0":
             complete.add(sid)
         else:
@@ -55,4 +54,5 @@ with open(snakemake.output.ids, "w") as out:
 
 print(f"eligible={len(eligible)} excluded_partial_only={len(eligible & partial_only)} "
       f"dark_set={n_written}")
-assert n_written > 0, "the dark set is empty - check the quality-gate flags and the cascade output"
+assert n_written > 0, ("the dark set is empty - check the target-eligibility flags and the "
+                       "cascade output")
