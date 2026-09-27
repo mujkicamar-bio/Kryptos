@@ -1,14 +1,19 @@
-# Validated at workflow load time. A typo in config.yaml must fail in seconds, not in hour 45.
+# Schema for config/config.yaml, validated when the Snakefile loads. Unknown keys are
+# refused (outside the controls block), so a misspelt key fails at load time instead of
+# falling back to a default.
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
 required: [input, outdir, orf, discovery, qc, controls, seed,
-           references, labels, amrfinder]
+           references, labels, amrfinder, foldseek_db, prostt5_model]
+additionalProperties: false
 properties:
   input:
     type: object
-    required: [master_table, fasta, plasmidscope_proteins, max_plasmid_size_bp,
-               host_provenance, working_set]
+    required: [master_table, fasta, exclude_hab_top, plasmidscope_proteins,
+               max_plasmid_size_bp, host_provenance, working_set]
+    additionalProperties: false
     properties:
+      exclude_hab_top: {type: array, items: {type: string}}
       master_table: {type: string}
       host_provenance: {type: string}
       working_set: {type: string}
@@ -18,20 +23,22 @@ properties:
   outdir: {type: string}
   orf:
     type: object
-    required: [min_call_length_aa, meta_mode, min_terminal_repeat_bp]
+    required: [min_call_length_aa, min_terminal_repeat_bp]
+    additionalProperties: false
     properties:
       min_call_length_aa: {type: integer, minimum: 1}
-      meta_mode: {type: boolean}
       min_terminal_repeat_bp: {type: integer, minimum: 1}
   discovery:
     type: object
     required: [min_dark_candidate_length_aa]
+    additionalProperties: false
     properties:
       min_dark_candidate_length_aa: {type: integer, minimum: 1}
   references:
     type: object
     required: [pfam_dat, pfam_version, swissprot_version, nr_version, eggnog_version,
-               pharokka_db_version, plasmidscope_version, conjscan_models, kegg_ko_list]
+               pharokka_db_version, macsyfinder_models, conjscan_models, kegg_ko_list]
+    additionalProperties: false
     properties:
       pfam_dat: {type: string}
       pfam_version: {type: string}
@@ -39,7 +46,6 @@ properties:
       nr_version: {type: string}
       eggnog_version: {type: string}
       pharokka_db_version: {type: string}
-      plasmidscope_version: {type: string}
       macsyfinder_models: {type: string}
       conjscan_models: {type: string}
       kegg_ko_list: {type: string}
@@ -61,15 +67,10 @@ properties:
       required: {type: boolean}
   qc:
     type: object
-    required: [max_opposite_strand_overlap_fraction, antifam]
+    required: [max_opposite_strand_overlap_fraction]
+    additionalProperties: false
     properties:
       max_opposite_strand_overlap_fraction: {type: number, minimum: 0, maximum: 1}
-      antifam:
-        type: object
-        required: [db, threshold]
-        properties:
-          db: {type: string}
-          threshold: {type: string, enum: [cut_ga]}
   controls:
     type: object
     required: [positive, negative]
@@ -88,3 +89,8 @@ properties:
           n_reverse_complement: {type: integer, minimum: 0}
           min_length: {type: integer, minimum: 1}
   seed: {type: integer}
+  foldseek_db: {type: string}
+  prostt5_model: {type: string}
+  # Alternative cascade and targets files for the test and benchmark runs (Snakefile).
+  cascade_config: {type: string}
+  targets_config: {type: string}

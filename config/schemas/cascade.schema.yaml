@@ -3,8 +3,8 @@
 # This checks SHAPE and RANGE. It cannot check relationships between fields - that
 # narrow_at must not be stricter than min_explained, for instance - so every entry point
 # also calls plasmidann.cascade.check_thresholds(), which raises on incoherent
-# combinations. The two together are the P4 guarantee: no threshold reaches a search
-# without having been declared and validated.
+# combinations. Together they ensure that no threshold reaches a search without having
+# been declared and validated.
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
 additionalProperties: false
@@ -88,9 +88,8 @@ properties:
         method:
           type: string
           enum: [hmmer, pharokka, diamond]
-        # The database the tier searches, as every hits.tsv row will carry it. It decides
-        # a label's kind downstream; reading it from the row replaces guessing it from the
-        # tier's position, which broke the moment a tier was inserted.
+        # The database the tier searches, as every hits.tsv row carries it. It decides a
+        # label's kind downstream, independently of the tier's position in the list.
         source:
           type: string
           enum: [pfam, pharokka, swissprot, nr]

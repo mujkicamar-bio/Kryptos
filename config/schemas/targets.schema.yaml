@@ -1,6 +1,5 @@
-# Schema for config/targets.yaml (S5-S9). Shape and range only; cross-field coherence -
-# that the portfolio strata sum to the declared total, and that the prioritisation weights
-# sum to 1 - is checked in the Snakefile at load time, before any job is scheduled.
+# Schema for config/targets.yaml. Shape and range only; relations between keys are
+# checked in the Snakefile at load time.
 $schema: https://json-schema.org/draft/2020-12/schema
 type: object
 additionalProperties: false
@@ -221,3 +220,6 @@ required:
 - conjugation
 - synteny
 - cooccurrence
+- lineage
+- rarity
+- defence
