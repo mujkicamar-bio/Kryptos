@@ -324,6 +324,16 @@ def test_rarefaction_samples_every_lineage_with_a_small_plasmid(fixture_dir):
     assert final["mean_families"] == "1.0"
 
 
+def test_the_log_reports_the_saturation_ratio_without_a_verdict(fixture_dir, capsys):
+    """Ten lineages, one with the dark family: the ratio is printed, and nothing says
+    whether the curve is climbing or flat."""
+    _run_rarity(fixture_dir, [f"S{i}" for i in range(1, 11)])
+
+    log = capsys.readouterr().out
+    assert "of the initial slope" in log
+    assert "climbing" not in log and "flattened" not in log
+
+
 def test_rarefaction_counts_redeposited_plasmids_of_one_lineage_once(fixture_dir):
     """S1 and S2 are one lineage, so four small plasmids give three sampling units."""
     final = _run_rarity(fixture_dir, ["S1", "S2", "S3", "S4"], lineages={"S2": "S1"})[-1]

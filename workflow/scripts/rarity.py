@@ -118,11 +118,5 @@ if curve:
     else:
         print(f"             final slope is {gained} of the initial slope "
               "(families gained per lineage added)")
-        if gained > 0.2:
-            print("             the curve is still climbing: the dark family count is a "
-                  "LOWER BOUND, and more lineages would reveal more families")
-        else:
-            print("             the curve has flattened: more lineages of this kind would "
-                  "add few new dark families")
 else:
     print("rarefaction: no small plasmids - the curve is empty")
