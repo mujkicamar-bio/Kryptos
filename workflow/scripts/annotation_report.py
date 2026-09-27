@@ -40,16 +40,9 @@ ORPHANs and families that failed every test. Absence of evidence is written as a
 status - TOO_FEW_MEMBERS, NO_DIVERGENCE, NO_SIGNAL - never as a blank that reads as a failed
 test. Choosing what to do with all that is the report's job, and the report is you.
 
-Spec section 76 draws the boundary as a list of columns that must NOT be here:
-candidate_score, novelty_score, experimental_rank, top_1000. Section 2.3 gives the reason,
-and it is not tidiness - two proteins with the same composite can be entirely different
-bets, one with overwhelming evidence that it is a real protein and no idea what it does,
-the other with a sharp hypothesis resting on almost nothing. Those demand different
-experiments, and a single number destroys the distinction.
-
-evidence_dimension_count counts DISTINCT MEASUREMENTS present, which is why it belongs
-here where a score does not. supporting_observations_count is reported beside it and
-labelled, in the column name itself, as not independent.
+There is no score, rank or candidate column. evidence_dimension_count counts the distinct
+measurements present (plasmidann.integration); supporting_observations_count is reported
+beside it and labelled, in the column name itself, as not independent.
 """
 import collections
 import csv
@@ -63,8 +56,6 @@ from plasmidann.context import overlapping_islands
 from plasmidann.cooccurrence import family_partners
 from plasmidann.evidence import darkness_state, reality_lines, reality_thresholds
 
-# check_reality_config went with Layer C: it validated that min_reality_lines - a SELECTION
-# parameter - was reachable. Nothing selects here, so there is no such parameter to check.
 evo_cfg = snakemake.params.evolution
 THRESHOLDS = reality_thresholds(evo_cfg)
 cooc_cfg = snakemake.params.cooccurrence
@@ -129,9 +120,8 @@ for fid, fam in families.items():
 FAMILY_COLS = [
     "family_id", "representative", "family_class",
     "n_members", "n_orfs", "n_plasmids", "n_mob_clusters",
-    # section 31.2
     "dark_member_count", "annotated_member_count", "percentage_dark_in_family", "dark_only",
-    # small plasmids and large ones (spec section 13.3); the small_ columns below repeat a
+    # small plasmids and large ones; the small_ columns below repeat a
     # measurement over the small-plasmid members or occurrences alone
     "n_small_members", "n_large_members", "scope", "known_from",
     # evidence that it is a real protein
@@ -149,7 +139,7 @@ FAMILY_COLS = [
     "cons_defence", "cons_integron", "cons_is_element",
     "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
     "cons_conj",
-    # Stage 7 (section 34): SEVEN counts, never collapsed. A family on forty copies of one
+    # Stage 7: SEVEN counts, never collapsed. A family on forty copies of one
     # redeposited plasmid is one observation, and reading only the first of these numbers
     # is how a reader concludes otherwise.
     "plasmid_occurrence_count", "unique_plasmid_count",
@@ -159,7 +149,7 @@ FAMILY_COLS = [
     "predicted_host_range_count",
     "predicted_host_ranges", "MOB_count", "habitat_count",
     "database_source_count",
-    # Stage 9 (section 42): six conservation measurements, kept apart because they fail
+    # Stage 9: six conservation measurements, kept apart because they fail
     # apart - a conserved left neighbour with a variable right one is a real arrangement
     # that a single averaged context score would hide. Counted over Stage 6 lineages, one
     # vote per lineage; the family table carries the primary-level (family) rows.
@@ -181,10 +171,10 @@ FAMILY_COLS = [
     "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
     "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
     "cooccurrence_fdr", "cooccurrence_min_lineages",
-    # Stage 14 (section 54): descriptors, not a ranking. RARE is not better than
+    # Stage 14: descriptors, not a ranking. RARE is not better than
     # WIDELY_CONSERVED. The version travels because a label's definition can change.
     "rarity_labels", "rarity_version",
-    # Stage 15 (sections 56-57): dimensions counted, never scored.
+    # Stage 15: dimensions counted, never scored.
     "evidence_dimensions_present", "evidence_dimension_count",
     "supporting_observations_count", "supporting_observations_are_not_independent",
 ]
@@ -211,10 +201,9 @@ SYNTENY_COLS = ("n_occurrences", "context_recurrence", "n_lineages", "n_lineages
                 "small_lineage_synteny_conservation", "small_modal_left",
                 "small_modal_right", "small_modal_synteny")
 
-# Every small_ measurement the evolution and synteny tables write must reach the report
-# (spec section 13.3: each is reported twice). extrasaction="ignore" below drops anything
-# not listed without a word - which is how six small_ evolution and five small_ synteny
-# columns went missing - so the lists are checked against the tables' own headers here.
+# Every small_ measurement the evolution and synteny tables write must reach the report.
+# extrasaction="ignore" below drops any column not listed without a word, so the lists are
+# checked against the tables' own headers here.
 for path in (snakemake.input.evolution, snakemake.input.synteny):
     with open(path, newline="") as fh:
         header = next(csv.reader(fh, delimiter="\t"), [])
