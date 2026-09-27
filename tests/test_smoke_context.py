@@ -2,7 +2,9 @@
 
 Each test runs one workflow script against a small fixture.
 """
+import os
 import pathlib
+import sys
 
 import pytest
 from conftest import (
@@ -450,14 +452,20 @@ def test_defence_halts_when_the_models_are_required_and_absent(fixture_dir):
             threads=1))
 
 
-def test_structure_search_restricts_to_family_representatives(fixture_dir):
-    """Spec section 49 sets representative scale as the discovery-scale strategy and
-    section 79 makes it a success criterion. ProstT5 is a transformer and the query count
-    is the cost of the stage, so searching every dark protein rather than one per family is
-    the difference between the largest job in the pipeline and a modest one.
+# Stand-in for foldseek: records its arguments and writes one hit per query.
+FAKE_FOLDSEEK = """#!{python}
+import pathlib, sys
+args = sys.argv[1:]
+query, out = args[1], args[3]
+pathlib.Path(out).parent.joinpath("foldseek_argv.txt").write_text("\\n".join(args))
+names = [l[1:].split()[0] for l in open(query) if l.startswith(">")]
+with open(out, "w") as fh:
+    for n in names:
+        fh.write(f"{n}\\t1abc_A\\tA SYNTHETASE\\t0.4\\t100\\t1e-10\\t80\\n")
+"""
 
-    Foldseek is not invoked here: the assertion is on which sequences reach the query file,
-    which is what the scope setting controls."""
+
+def _structure(fixture_dir, monkeypatch, required=True, with_refs=True):
     faa = fixture_dir / "dark_proteins.faa"
     write_fasta(faa, [("rep_a", "MKTAYIAKQRQISFVKSHFSRQ"),
                       ("member_a", "MKTAYIAKQRQISFVKSHFSRK"),
@@ -466,27 +474,50 @@ def test_structure_search_restricts_to_family_representatives(fixture_dir):
     write_tsv(families, ["family_id", "representative", "members"],
               [["broad:rep_a", "rep_a", "rep_a,member_a"],
                ["broad:rep_b", "rep_b", "rep_b"]])
-
+    db, model = fixture_dir / "pdb", fixture_dir / "prostt5"
+    if with_refs:
+        db.write_text("")
+        model.mkdir()
+    exe = fixture_dir / "bin" / "foldseek"
+    exe.parent.mkdir()
+    exe.write_text(FAKE_FOLDSEEK.replace("{python}", sys.executable))
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
     out = fixture_dir / "structure_hits.tsv"
-    # foldseek will fail on the absent database; the query file is written before that, and
-    # it is the only thing under test.
-    try:
-        run_script("structure_search.py", FakeSnakemake(
-            input={"faa": str(faa), "families": str(families)},
-            output=[str(out)],
-            params={"structure": {"max_evalue": 1.0e-3, "scope": "representatives"},
-                    "target_db": str(fixture_dir / "absent_db"),
-                    "prostt5": str(fixture_dir / "absent_model")},
-            threads=1))
-    except Exception:
-        pass
+    run_script("structure_search.py", FakeSnakemake(
+        input={"faa": str(faa), "families": str(families)}, output=[str(out)],
+        params={"structure": {"max_evalue": 1.0e-3, "scope": "representatives",
+                              "required": required},
+                "target_db": str(db), "prostt5": str(model)},
+        threads=1))
+    return out
+
+
+def test_structure_search_restricts_to_family_representatives(fixture_dir, monkeypatch):
+    """The default scope searches one sequence per dark family, not every dark protein."""
+    out = _structure(fixture_dir, monkeypatch)
 
     query = fixture_dir / "structure_query.faa"
-    assert query.exists(), "no representative query file was written"
     names = {l[1:].split()[0] for l in query.read_text().splitlines() if l.startswith(">")}
-    assert names == {"rep_a", "rep_b"}, (
-        f"the query set is {sorted(names)}; it must be one sequence per family, and "
-        "member_a is a family member rather than a representative")
+    assert names == {"rep_a", "rep_b"}
+    argv = (fixture_dir / "foldseek_argv.txt").read_text().split("\n")
+    assert argv[:2] == ["easy-search", str(query)]
+    assert argv[argv.index("--prostt5-model") + 1] == str(fixture_dir / "prostt5")
+    rows = read_tsv(out)
+    assert {r["seq_id"] for r in rows} == {"rep_a", "rep_b"}
+    assert {(r["target_description"], r["status"]) for r in rows} == {
+        ("A SYNTHETASE", "SUCCESS")}
+
+
+def test_structure_search_records_not_run_when_optional_and_absent(fixture_dir, monkeypatch):
+    """With structure.required false and the references absent, the stage exits 0 with one
+    NOT_RUN row, so the run continues and the table does not read as 'no match'."""
+    with pytest.raises(SystemExit) as done:
+        _structure(fixture_dir, monkeypatch, required=False, with_refs=False)
+    assert done.value.code == 0
+    rows = read_tsv(fixture_dir / "structure_hits.tsv")
+    assert [(r["seq_id"], r["status"]) for r in rows] == [("", "NOT_RUN")]
+    assert not (fixture_dir / "foldseek_argv.txt").exists()
 
 
 def test_an_operon_across_the_origin_of_a_circular_plasmid_counts(fixture_dir):
