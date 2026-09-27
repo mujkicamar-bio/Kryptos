@@ -1,18 +1,10 @@
-"""Stage 15: evidence integration without a ranking (spec sections 56 and 57).
-
-Section 56, first line: "Evidence integration combines results without producing an
-experimental ranking." Section 56.2 gives the harder half: Pfam, pharokka, Swiss-Prot, eggNOG,
-nr, MMseqs2 and Foldseek "share evolutionary information to varying degrees", and the
-objective "is not to manufacture 'independent evidence' but to preserve distinct
-measurements and avoid double-counting them".
-"""
+"""Stage 15: evidence dimensions counted without a score (plasmidann.integration)."""
 from plasmidann import integration
 
 
 def test_four_sequence_databases_are_one_dimension_not_four():
-    """The central rule of section 56.2. Counting four database hits as four lines of
-    evidence would make a well-studied protein look four times better supported than an
-    equally well-supported one that happens to be in fewer databases."""
+    """Pfam, Swiss-Prot, nr and pharokka share evolutionary information, so their hits
+    fill one dimension, not four."""
     record = {"pfam_searched": 1, "swissprot_searched": 1, "nr_searched": 1,
               "pharokka_searched": 1, "annot_tier": "T1"}
 
@@ -23,9 +15,8 @@ def test_four_sequence_databases_are_one_dimension_not_four():
 
 
 def test_structure_is_a_separate_dimension_from_sequence():
-    """Section 2.8: structure reaches further back than sequence, so a structural match
-    where sequence found nothing is a genuinely different measurement - while still being
-    related, which is why they are two named dimensions rather than points on a scale."""
+    """Structure reaches further back than sequence, so a structural match is its own
+    dimension."""
     record = {"annot_tier": "T1", "structural_match": "1abc_A"}
 
     present = integration.dimensions_present(record)
@@ -44,8 +35,6 @@ def test_a_dimension_is_present_when_measured_not_when_positive():
 
 
 def test_the_summary_contains_no_score_or_rank():
-    """Section 56: integration combines results WITHOUT producing an experimental ranking,
-    and section 2.3 forbids collapsing evidence into a single number."""
     summary = integration.evidence_summary({"annot_tier": "T1", "protein_length": 120})
 
     for forbidden in ("score", "rank", "novelty", "candidate", "priority"):
@@ -54,9 +43,8 @@ def test_the_summary_contains_no_score_or_rank():
 
 
 def test_the_observation_count_is_labelled_non_independent():
-    """It counts database hits, so it rewards being well studied. Reported because section
-    56.3 asks for it, and flagged so a column selected into a downstream ranking carries
-    the warning with it."""
+    """It counts database hits, so it rewards being well studied; the flag travels with
+    the column."""
     summary = integration.evidence_summary({"n_informative_hits": 7})
 
     assert summary["supporting_observations_count"] == 7
@@ -70,7 +58,6 @@ def test_every_emitted_dimension_is_declared():
               "protein_length": 100}
 
     assert set(integration.dimensions_present(record)) <= set(integration.DIMENSIONS)
-
 
 
 def test_cooccurrence_is_genomic_context_and_not_a_new_dimension():
