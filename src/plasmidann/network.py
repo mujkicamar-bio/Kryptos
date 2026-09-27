@@ -21,11 +21,12 @@ import networkx as nx
 def edges_from_hits(hits, max_out, min_cov, max_evalue):
     """Undirected weighted edges from MMseqs2 hit rows.
 
-    `hits` are dicts with query, target, evalue, qcov, tcov (coverages as fractions). A hit
-    counts when it covers at least `min_cov` of EITHER protein - a small protein wholly
-    inside a larger one is a relationship - and its E-value is below `max_evalue`. Each
-    query contributes its `max_out` best targets by E-value. An edge found in both
-    directions is kept once, with the better E-value.
+    `hits` is an iterable of dicts with query, target, evalue, qcov, tcov (coverages as
+    fractions). A hit counts when it covers at least `min_cov` of EITHER protein - a small
+    protein wholly inside a larger one is a relationship - and its E-value is below
+    `max_evalue`. Each query contributes its `max_out` best targets by E-value (ties by
+    target id), and only those are held in memory. An edge found in both directions is
+    kept once, with the better E-value.
     """
     by_query = {}
     for h in hits:
@@ -34,11 +35,15 @@ def edges_from_hits(hits, max_out, min_cov, max_evalue):
         ev = float(h["evalue"])
         if ev >= max_evalue or max(float(h["qcov"]), float(h["tcov"])) < min_cov:
             continue
-        by_query.setdefault(h["query"], []).append((ev, h["target"]))
+        best = by_query.setdefault(h["query"], [])
+        best.append((ev, h["target"]))
+        if len(best) > max_out:
+            best.sort()
+            best.pop()
 
     edges = {}
     for q, targets in by_query.items():
-        for ev, t in sorted(targets)[:max_out]:
+        for ev, t in targets:
             key = tuple(sorted((q, t)))
             if key not in edges or ev < edges[key]:
                 edges[key] = ev
@@ -75,8 +80,8 @@ def communities(edges, nodes, seed):
     g = nx.Graph()
     g.add_nodes_from(nodes)
     for (a, b), ev in edges.items():
-        # Durairaj weight edges by E-value; a smaller E-value is a stronger link, so the
-        # weight is its negative log, floored for E = 0.
+        # The weight is chosen here: -log10(E), so a smaller E-value is a stronger link,
+        # and 300 for E = 0.
         g.add_edge(a, b, weight=-math.log10(ev) if ev > 0 else 300.0)
     out = {}
     for i, comm in enumerate(sorted(nx.community.asyn_lpa_communities(

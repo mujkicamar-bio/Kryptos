@@ -22,6 +22,25 @@ def test_a_name_that_is_not_an_organism_is_no_host():
         assert hosts.normalise(name) == ("", ""), name
 
 
+def test_a_higher_taxon_or_a_free_text_word_is_no_genus():
+    """Names found in the analysis set: each would otherwise give a family, order, class or
+    a non-taxon as the genus and inflate genus_count."""
+    for name in ("Enterobacteriaceae bacterium", "Rhodobacteraceae_bacterium_SC52",
+                 "Hyphomicrobiales bacterium 7MK25", "Mollicutes bacterium LVI A0006",
+                 "Alphaproteobacteria bacterium AO1-B", "Nostocales cyanobacterium HT-58-2",
+                 "Natrialbaceae archaeon AArc-T1-2", "Abditibacteriota_bacterium",
+                 "Enterobacteriaceae endosymbiont of Donacia simplex",
+                 "arsenite-oxidising bacterium NT-25", "endosymbiont_of_Sipalinus_gigas",
+                 "glnQ allelic exchange vector pAG101",
+                 "'Catharanthus_roseus'_aster_yellows_phytoplasma"):
+        assert hosts.normalise(name) == ("", ""), name
+    # A genus before "endosymbiont", and a bracketed misplaced genus, are genera.
+    assert hosts.normalise("Wolbachia endosymbiont of Drosophila") == (
+        "Wolbachia endosymbiont", "Wolbachia")
+    assert hosts.normalise("[Clostridium] innocuum") == (
+        "[Clostridium] innocuum", "[Clostridium]")
+
+
 def test_the_first_source_that_names_an_organism_wins():
     assert hosts.resolve([("plsdb", ""), ("plasmidscope", "gut metagenome"),
                           ("organism", "Escherichia coli")]) == \

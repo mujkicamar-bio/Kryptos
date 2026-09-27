@@ -1,7 +1,8 @@
 """Summary figures for the protein families of one pipeline run.
 
 Every figure is drawn from the run's own tables, so it regenerates exactly:
-  family_sizes         family size (members) per clustering resolution, log-log counts
+  family_sizes         family size (members) per clustering resolution, log-log counts,
+                       over the families holding a small-plasmid protein
   dark_fraction        percentage of dark members per family, families with >= 2 members
   dark_family_classes  dark-only vs mixed dark families, and ORPHAN vs FAMILY
   rarefaction          dark families against small plasmids sampled (mean and range)
@@ -49,6 +50,7 @@ def family_sizes(run, out):
         sizes = sorted(by_res[res])
         ax.plot(sizes, [by_res[res][s] for s in sizes], "o-", ms=3, color=colour,
                 label=f"{res} ({sum(by_res[res].values()):,} families)")
+    ax.set_title("families with a small-plasmid protein", fontsize=9)
     ax.set(xscale="log", yscale="log", xlabel="family size (unique proteins)",
            ylabel="number of families")
     ax.legend(frameon=False, fontsize=8)
@@ -120,9 +122,8 @@ def dark_orf_lengths(run, out):
             sid, orf_ids = line.rstrip("\n").split("\t")
             if sid in dark:
                 dark_orfs.update(orf_ids.split(","))
-    # Both tables have a row per ORF (8.3M in production, with sequences in orf_index), so
-    # they are streamed and only the ORF ids and lengths needed are kept. Loading them whole
-    # as dicts of rows needed tens of GB.
+    # Both tables have a row per ORF, with sequences in orf_index, so they are streamed and
+    # only the ORF ids and lengths needed are kept.
     functional = set()
     with open(run / "06_annotation_tables/plasmid_annotation.tsv", newline="") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):

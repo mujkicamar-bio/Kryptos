@@ -11,8 +11,7 @@ THE DEFINITION
   together  both families have a member ORF on the SAME plasmid. Being in the same
             lineage on different plasmids is not being together.
   unit      the Stage 6 lineage. A lineage counts as together when any of its plasmids
-            carries both, so twenty redeposited copies of one plasmid are one observation
-            (spec section 34.2: record counts are not independent observations).
+            carries both, so twenty redeposited copies of one plasmid are one observation.
   family    a dark family at the primary resolution, through its dark members.
 
 THE TEST
@@ -32,9 +31,9 @@ synteny (targets.yaml synteny.min_lineages): conservation across one lineage is 
 observation. Benjamini-Hochberg (Benjamini & Hochberg 1995, J R Stat Soc B 57:289) is
 applied across the tested pairs.
 
-Computed in log space with math.lgamma: scipy is not a declared dependency of the pipeline environment, and the tails
-reach far below the smallest double (1/C(1000, 50) is about 1e-85; at full scale much
-smaller).
+Computed in log space with math.lgamma: scipy is not a declared dependency of the
+pipeline environment, and the tails reach far below the smallest double (1/C(1000, 50) is
+about 1e-85; at full scale much smaller).
 """
 import collections
 import itertools
@@ -48,8 +47,8 @@ def _log_comb(a, b):
 
 
 def _log_sum_decreasing(terms):
-    """log(sum(exp(t))) for log terms that decrease from the first, stopping once a term
-    no longer changes the sum at double precision."""
+    """log(sum(exp(t))) for log terms that decrease from the first, stopping at the first
+    term too small to change the sum at double precision."""
     first = total = None
     for t in terms:
         if first is None:

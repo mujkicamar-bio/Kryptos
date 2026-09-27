@@ -1,6 +1,12 @@
 """Family network rules, taken from Durairaj et al. (Nature 2023, Methods)."""
-from plasmidann.network import (communities, edges_from_hits, member_brightness,
-                                node_brightness)
+import tracemalloc
+
+from plasmidann.network import (
+    communities,
+    edges_from_hits,
+    member_brightness,
+    node_brightness,
+)
 
 RULE = {"max_out": 4, "min_cov": 0.5, "max_evalue": 1e-4}
 
@@ -26,6 +32,20 @@ def test_each_node_keeps_its_four_best_outbound_edges():
             [("b", 1e-9), ("c", 1e-30), ("d", 1e-20), ("e", 1e-10), ("f", 1e-5)]]
     edges = edges_from_hits(hits, **RULE)
     assert set(edges) == {("a", "c"), ("a", "d"), ("a", "e"), ("a", "b")}
+
+
+def test_only_the_best_hits_per_query_are_held_in_memory():
+    """50,000 passing hits of one query, streamed: memory stays at a few targets, and the
+    four kept are the best."""
+    hits = (_hit("a", f"t{i:05d}", 1e-10 / (i + 1), 0.9, 0.9) for i in range(50000))
+
+    tracemalloc.start()
+    edges = edges_from_hits(hits, **RULE)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+
+    assert set(edges) == {("a", f"t{i:05d}") for i in range(49996, 50000)}
+    assert peak < 200_000, f"peak {peak} bytes: the passing hits were all kept"
 
 
 def test_an_edge_found_both_ways_is_one_edge_with_the_better_evalue():
