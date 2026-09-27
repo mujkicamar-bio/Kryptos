@@ -1,15 +1,16 @@
-"""S7a: recover the nucleotide coding sequence for every dark ORF.
+"""Rule extract_cds: recover the nucleotide coding sequence for every dark ORF.
 
 dN/dS needs codons, and the pipeline stores protein only - but orf_index.tsv carries
 plasmid_id, start, end, strand and spans_origin, which is enough to recover the CDS from
-the analysis-set FASTA written at S0, which is what every stage that needs sequence reads.
+the analysis-set FASTA written by rule analysis_set, which is what every stage that needs
+sequence reads.
 
 Two details that are easy to get wrong and silently corrupt every downstream estimate:
 
   spans_origin  A gene reconstructed across the cut point of a circular plasmid runs
                 start..length THEN 1..end - the GenBank join() convention - so start > end
-                and a naive slice returns nothing. These are exactly the genes S1 worked to
-                recover, so dropping them here would undo that work.
+                and a naive slice returns nothing. These are exactly the genes the gene caller
+                recovers across the origin, so dropping them here would undo that work.
 
   strand        A gene on the minus strand must be reverse-complemented before translation.
                 Forgetting this yields a sequence that translates to nonsense, which

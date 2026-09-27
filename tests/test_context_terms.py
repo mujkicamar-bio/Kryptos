@@ -1,4 +1,5 @@
-"""S8c context terms: what a family's neighbours are, counted per independent lineage.
+"""Context terms (plasmidann.context_terms): what a family's neighbours are, counted per
+independent lineage.
 
 Two neighbour rules, deliberately different. A gene label (amr:, ta:, metal:, conj_role:,
 mge:, antidefence:) counts only from a neighbour in the same directon - same strand, gaps

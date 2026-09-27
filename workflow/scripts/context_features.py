@@ -1,4 +1,4 @@
-"""S8c: genomic context per ORF, aggregated to one row of rates per family.
+"""Rule context_features: genomic context per ORF, aggregated to one row of rates per family.
 
 WHAT IT MEASURES
 
@@ -28,10 +28,10 @@ redundancy between distinct plasmids is not corrected in these rates.
 CONTEXT TERMS (family_context_terms.tsv)
 
 A second, long table names WHAT the context holds: one row per family and term, such as
-amr:<CARD family> or defence:<system>, counted per Stage 6 lineage rather than per plasmid,
-so clonal redundancy is corrected there. The terms, the two neighbour rules and the
-paralogue exclusion are in plasmidann.context_terms. Rows are written for the dark
-families above, over their dark members as the rates are.
+amr:<CARD family> or defence:<system>, counted per plasmid lineage (plasmid_lineage.tsv)
+rather than per plasmid, so clonal redundancy is corrected there. The terms, the two
+neighbour rules and the paralogue exclusion are in plasmidann.context_terms. Rows are
+written for the dark families above, over their dark members as the rates are.
 """
 import collections
 import csv

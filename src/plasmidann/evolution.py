@@ -1,4 +1,4 @@
-"""S7: evolutionary evidence that a dark ORF is a real protein.
+"""Evolutionary evidence that a dark ORF is a real protein.
 
 Pairwise dN, dS and omega = dN/dS by the Yang and Nielsen (2000, Mol Biol Evol 17:32)
 method, computed by yn00 of PAML 4.10.7 (Yang 2007, Mol Biol Evol 24:1586) run as is on a
@@ -103,7 +103,7 @@ def consensus(alignment, max_gap_fraction=0.5):
 
     A protein can miss every per-sequence threshold while its family is collectively
     recognisable; Pavlopoulos et al. removed 6.5% of their clusters by searching the family
-    consensus back against the reference databases (S7c).
+    consensus back against the reference databases (rule consensus_recheck).
 
     `alignment` maps name -> aligned sequence, all the same length.
 

@@ -215,12 +215,12 @@ rule rarity:
 
 
 rule synteny:
-    """Stage 9: does a dark family's gene order RECUR across its occurrences?
+    """Does a dark family's gene order RECUR across its occurrences?
 
-    Distinct from Stage 8, which asks what one ORF sits next to once. Conserved gene order
-    survives because the arrangement matters, so it is a much stronger claim than
-    adjacency. Six measurements, kept separate, counted over Stage 6
-    lineages, at every level of synteny.levels (close and intermediate).
+    Distinct from context_features, which asks what one ORF sits next to once. Conserved
+    gene order survives because the arrangement matters, so it is a much stronger claim
+    than adjacency. Six measurements, kept separate, counted over plasmid lineages
+    (plasmid_lineage.tsv), at every level of synteny.levels (close and intermediate).
     """
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
@@ -231,7 +231,7 @@ rule synteny:
         # neighbours are named by their cluster at that level.
         clusters=expand(f"{OUT}/10_clustering/families_{{res}}_cluster.tsv",
                         res=targets["synteny"]["levels"]),
-        # The counting unit: one vote per independent lineage (Stage 6).
+        # The counting unit: one vote per independent lineage.
         lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
         dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
@@ -325,7 +325,7 @@ rule recurrence:
 
 
 rule extract_cds:
-    """S7a: recover nucleotide CDS - dN/dS needs codons, and we store protein only."""
+    """Recover nucleotide CDS - dN/dS needs codons, and we store protein only."""
     input:
         ids=f"{OUT}/10_clustering/dark_ids.txt",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
@@ -347,7 +347,7 @@ rule extract_cds:
 
 
 rule family_evolution:
-    """S7b: dN/dS per family - the strongest evidence a dark ORF is a real protein."""
+    """dN/dS per family - the strongest evidence a dark ORF is a real protein."""
     input:
         families=f"{OUT}/10_clustering/dark_families.tsv",
         faa=f"{OUT}/10_clustering/dark_proteins.faa",
@@ -355,8 +355,9 @@ rule family_evolution:
     output:
         tsv=f"{OUT}/11_distribution_and_evolution/family_evolution.tsv",
         # The family consensus, built from the protein alignment this rule already makes.
-        # S7c re-searches it: a family can be collectively recognisable while every member
-        # individually misses the cut, and Pavlopoulos removed 6.5% of clusters that way.
+        # consensus_recheck re-searches it: a family can be collectively recognisable while
+        # every member individually misses the cut, and Pavlopoulos removed 6.5% of
+        # clusters that way.
         consensus=f"{OUT}/11_distribution_and_evolution/family_consensus.faa",
         # Every yn00 pair row, as yn00 reported it.
         pairs=f"{OUT}/11_distribution_and_evolution/family_yn00_pairs.tsv.gz",
@@ -377,7 +378,7 @@ rule family_evolution:
 
 
 rule consensus_recheck:
-    """S7c: is the family collectively novel, or only individually unmatched?
+    """Is the family collectively novel, or only individually unmatched?
 
     A label, never a filter. A family whose consensus hits Pfam keeps its row and gains
     the name of what it matched, and `collectively_novel = 0` unless that name is a DUF or
@@ -408,7 +409,7 @@ rule consensus_recheck:
 
 
 rule defence_search:
-    """S8a phase 1: which proteins look like defence components.
+    """DefenseFinder phase 1: which proteins look like defence components.
 
     Runs on the DEREPLICATED set with --db-type unordered, MacSyFinder's
     "components only, no system calling" mode. Safe to dereplicate here and only here:
@@ -439,7 +440,7 @@ rule defence_search:
 
 
 rule defence_gembase:
-    """S8a phase 1.5: propagate component labels, prune, write genomic order.
+    """Between the DefenseFinder phases: propagate component labels, prune, write genomic order.
 
     A component hit on a unique protein applies to every ORF sharing that sequence, so one
     search covers all copies. Plasmids carrying no component are pruned - they cannot meet
@@ -467,7 +468,7 @@ rule defence_gembase:
 
 
 rule defence_systems:
-    """S8a phase 2: call systems from gene adjacency.
+    """DefenseFinder phase 2: call systems from gene adjacency.
 
     MacSyFinder is driven directly rather than through `defense-finder run`, because the
     wrapper passes no replicon topology; each replicon gets its registry topology.
@@ -499,7 +500,7 @@ rule defence_systems:
 
 
 rule conjugation_systems:
-    """S8f: conjugation and mobilisation systems (CONJScan 2.1.0, Plasmids models) on
+    """Conjugation and mobilisation systems (CONJScan 2.1.0, Plasmids models) on
     every plasmid, and each plasmid's mobility class (pCONJ, pdCONJ, pMOB, pMOBless).
 
     Every ORF of every plasmid in genomic order, as ONE MacSyFinder database: HMMER's
@@ -535,7 +536,7 @@ rule conjugation_systems:
 
 
 rule integrons:
-    """S8b: integron cassette arrays - the strongest plasmid-specific signal available.
+    """Integron cassette arrays - the strongest plasmid-specific signal available.
 
     IntegronFinder walks the replicons one at a time and threads only its HMM searches,
     so the analysis set is split into one chunk per core, each run on one thread. Each
@@ -561,8 +562,34 @@ rule integrons:
         "../scripts/integrons.py"
 
 
+rule phage_plasmids:
+    """geNomad end-to-end, run as is, on every plasmid, and each plasmid's
+    phage-plasmid label from geNomad's own virus calls and virus hallmark genes. geNomad
+    runs from envs/genomad, named by path (genomad.executable).
+    """
+    input:
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
+    output:
+        tsv=f"{OUT}/12_context_and_structure/phage_plasmids.tsv",
+    params:
+        exe=config["genomad"]["executable"],
+        db=config["genomad"]["database"],
+    threads: workflow.cores
+    resources:
+        mem_mb=64000,
+        runtime=2880,
+    benchmark:
+        f"{OUT}/benchmarks/phage_plasmids.tsv"
+    log:
+        f"{OUT}/logs/12_context_and_structure/phage_plasmids.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/phage_plasmids.py"
+
+
 rule is_elements:
-    """S8e: insertion sequence elements - boundaries, IS family, complete or partial.
+    """Insertion sequence elements - boundaries, IS family, complete or partial.
 
     ISEScan on the whole analysis set in one job, split into one chunk per core with each
     chunk on one thread: its own threading kept 3.8 of 16 cores busy on the test run
@@ -589,7 +616,7 @@ rule is_elements:
 
 
 rule structure_search:
-    """S8d: structural homology for the dark set, via Foldseek + ProstT5.
+    """Structural homology for the dark set, via Foldseek + ProstT5.
 
     Scope is family representatives by default: ProstT5 is a transformer, and the query
     count is the cost of this stage.
@@ -620,7 +647,7 @@ rule structure_search:
 
 
 rule context_features:
-    """S8c: genomic context per ORF, as one row of descriptive rates per family (defence,
+    """Genomic context per ORF, as one row of descriptive rates per family (defence,
     conjugation, integron and IS element membership, annotated neighbours, operons), and
     the context terms per family counted over lineages (family_context_terms.tsv): the
     plasmid label databases and the defence and conjugation systems, never KEGG. Rows for
@@ -689,6 +716,7 @@ rule annotation_report:
         labels_plasmid=f"{OUT}/08_protein_labels/protein_labels_plasmid.tsv",
         conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
         conjugation_class=f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",
+        phage_plasmids=f"{OUT}/12_context_and_structure/phage_plasmids.tsv",
         # Per family: partners it travels with (S8g).
         cooccurrence=f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",
     output:

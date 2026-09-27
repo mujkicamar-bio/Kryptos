@@ -1,4 +1,4 @@
-"""The per-family work of S7b (workflow/scripts/family_evolution.py), in a module.
+"""The per-family work of rule family_evolution (workflow/scripts/family_evolution.py), in a module.
 
 A process pool can only run a function it can import by name, and a Snakemake script is
 not importable - hence this module, with the same configure()-per-worker pattern as

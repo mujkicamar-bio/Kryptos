@@ -1,4 +1,4 @@
-"""S8a phase 1: which proteins look like defence components.
+"""Rule defence_search, DefenseFinder phase 1: which proteins look like defence components.
 
 Runs DefenseFinder's HMM profiles over the dereplicated protein set with
 `--db-type unordered`, MacSyFinder's mode that reports components without calling systems.

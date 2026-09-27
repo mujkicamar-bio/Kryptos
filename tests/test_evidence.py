@@ -1,5 +1,5 @@
 """Reality lines and darkness state (plasmidann.evidence). Lineage breadth is counted in
-Stage 6 lineages, not MOB-suite clusters.
+plasmid lineages (plasmid_lineage.tsv), not MOB-suite clusters.
 
 MOB-suite gives every plasmid the cluster of its nearest reference however distant, so
 unrelated novel plasmids share a cluster (AA379 holds 21,817 small plasmids of the analysis

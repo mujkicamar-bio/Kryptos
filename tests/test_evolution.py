@@ -1,4 +1,4 @@
-"""S7: yn00 dN/dS, codon projection, consensus and RNAcode."""
+"""Rule family_evolution: yn00 dN/dS, codon projection, consensus and RNAcode."""
 import pytest
 from conftest import requires
 

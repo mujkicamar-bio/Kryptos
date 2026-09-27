@@ -1,10 +1,10 @@
-"""S8: the genomic neighbourhood of a gene - transcriptional units, flanking genes and the
+"""The genomic neighbourhood of a gene - transcriptional units, flanking genes and the
 islands (defence systems, integron arrays, IS elements) a gene lies in.
 
 Genes are dicts with orf_id, start, end and strand, one plasmid at a time. A gene
 reconstructed across the origin of a circular plasmid is written start > end (start..L
-then 1..end, the GenBank join() convention). The same definitions serve S8 context and
-S9 synteny.
+then 1..end, the GenBank join() convention). The same definitions serve rules context_features
+and synteny.
 """
 
 # Maximum intergenic distance, in nucleotides, for two consecutive same-strand genes to be

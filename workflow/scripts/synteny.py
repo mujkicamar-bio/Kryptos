@@ -1,10 +1,10 @@
-"""Stage 9: synteny and context conservation (plasmidann.synteny) per cluster.
+"""Rule synteny: synteny and context conservation (plasmidann.synteny) per cluster.
 
-Inputs: the annotation table, the protein map, the Stage 6 lineages and one cluster file
-per level in synteny.levels. Each level (close: 90% identity; intermediate: the protein
-family) gives one row per cluster holding a dark small-plasmid member, measured over the
-occurrences of its dark members; at clustering.primary these clusters must equal
-dark_families.tsv. Neighbours come from the Stage 8 definition (plasmidann.context), are
+Inputs: the annotation table, the protein map, the plasmid lineages (plasmid_lineage.tsv)
+and one cluster file per level in synteny.levels. Each level (close: 90% identity;
+intermediate: the protein family) gives one row per cluster holding a dark small-plasmid
+member, measured over the occurrences of its dark members; at clustering.primary these
+clusters must equal dark_families.tsv. Neighbours come from the definition in plasmidann.context, are
 named by their cluster at the same level, and left and right are taken on the gene's own
 strand. Every measurement is given over all occurrences and, prefixed small_, over those on
 small plasmids. MMseqs2 clusterings are not nested, so a close row lists the families of
@@ -70,8 +70,9 @@ with open(snakemake.input.annotation, newline="") as fh:
             "strand": 1 if r["strand"] in ("1", "+") else -1})
         class_of[r["orf_id"]] = r.get("functional_class") or ""
 
-# Stage 6 assigns every plasmid of the analysis set a lineage. A plasmid without one means
-# the inputs come from different runs; guessing its own lineage would inflate independence.
+# Rule plasmid_lineage assigns every plasmid of the analysis set a lineage. A plasmid
+# without one means the inputs come from different runs; guessing its own lineage would
+# inflate independence.
 missing = sorted(set(by_plasmid) - set(lineage_of))
 if missing:
     raise SystemExit(f"synteny: {len(missing)} plasmids have no lineage in "

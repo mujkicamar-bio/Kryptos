@@ -1,4 +1,4 @@
-"""S8b: integron elements per plasmid, with IntegronFinder (--local-max).
+"""Rule integrons: integron elements per plasmid, with IntegronFinder (--local-max).
 
 Input: the analysis-set FASTA, split into one chunk per core, and each plasmid's registry
 topology (darkorf.circular.is_circular), passed as --topology-file. Output: integrons.tsv, one

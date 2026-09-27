@@ -1,4 +1,5 @@
-"""S7b: evolutionary evidence per dark family (plasmidann.evolution, evolution_worker).
+"""Rule family_evolution: evolutionary evidence per dark family (plasmidann.evolution,
+plasmidann.evolution_worker).
 
 For each family: the median of the pairwise omega = dN/dS values that PAML yn00 reports
 (Yang and Nielsen 2000; a median below evolution.dnds_purifying_max indicates purifying
@@ -7,7 +8,7 @@ RNAcode coding signal, sense and antisense kept apart (`rnacode_p`, `rnacode_p_a
 `coding_signal` applies evolution.rnacode_max_p to the sense P), because a shadow ORF, the
 reverse complement of a real gene, is expected to show the stronger signal on its
 antisense strand. The stage also writes one consensus per family from the protein
-alignment, which S7c searches back against Pfam.
+alignment, which rule consensus_recheck searches back against Pfam.
 
 Every measurement is made over all of the family's dark members and again, in columns
 prefixed small_, over the dark members on small plasmids (dark_families.tsv
@@ -37,7 +38,7 @@ with open(snakemake.input.families, newline="") as fh:
         families.append(r)
 
 tmpdir = str(scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent))
-# The consensus carries the family's shared signal and is re-searched at S7c.
+# The consensus carries the family's shared signal and is re-searched by consensus_recheck.
 consensus_out = open(snakemake.output.consensus, "w")
 jobs = []
 # A family whose dark members all sit on small plasmids has one member set, not two: the

@@ -1,4 +1,4 @@
-"""S8a: DefenseFinder's two phases on the representation each needs.
+"""DefenseFinder's two phases on the representation each needs.
 
 Phase 1 (per-protein HMM search) runs on dereplicated proteins; phase 2 (MacSyFinder system
 calling, whose models count intervening genes) runs on every ORF of a candidate plasmid in

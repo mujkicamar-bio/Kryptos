@@ -11,8 +11,8 @@ This module describes evidence and does not select on it: no score, rank or shor
   darkness_state    Whether the fold of a dark family is recognisable, as a named state.
 """
 
-# Present on this many Stage 6 lineages makes recurrence independent rather than clonal:
-# two, the smallest count that is more than one.
+# Present on this many plasmid lineages (plasmid_lineage.tsv) makes recurrence independent
+# rather than clonal: two, the smallest count that is more than one.
 MIN_LINEAGES = 2
 
 # The four lines of evidence that a dark ORF is a real protein, each a named boolean over a
@@ -27,7 +27,7 @@ REALITY_TESTS = [
     },
     {
         "name": "multi_lineage",
-        # Present on two or more Stage 6 lineages (plasmid_lineage, Mash): one clone
+        # Present on two or more plasmid lineages (plasmid_lineage.tsv, Mash): one clone
         # sequenced forty times is one lineage. Not MOB-suite clusters, which assign the
         # nearest reference however distant and so put unrelated novel plasmids together.
         "test": lambda f, thr: (_int(f.get("independent_plasmid_cluster_count"))

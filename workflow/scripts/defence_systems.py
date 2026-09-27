@@ -1,4 +1,4 @@
-"""S8a phase 2: call defence systems from gene adjacency.
+"""Rule defence_systems, DefenseFinder phase 2: call defence systems from gene adjacency.
 
 MacSyFinder is run directly rather than through `defense-finder run`, because the wrapper
 passes no replicon topology: under linear topology a system spanning the origin of a

@@ -297,8 +297,8 @@ def test_extract_cds_recovers_origin_spanning_and_minus_strand_genes(fixture_dir
 
 @requires("mafft")
 def test_family_evolution_writes_a_consensus_per_family(fixture_dir):
-    """S7b writes one consensus per family from its protein alignment, for the S7c
-    re-check."""
+    """family_evolution writes one consensus per family from its protein alignment, for
+    consensus_recheck."""
     prot_a = "MKVLATTLLGAAFAASSALAQKKWLVRDGHIY"
     prot_b = "MKVLATTLLGAAFCASSALAQKKWLVRDGHIY"
     faa = fixture_dir / "dark.faa"
@@ -661,3 +661,43 @@ def test_integrons_passes_each_plasmid_its_registry_topology(fixture_dir, monkey
         "c1 circ", "l1 lin", "d1 circ"]
     assert {r["plasmid_id"]: r["integron_type"] for r in read_tsv(out)} == {
         "c1": "In0", "l1": "In0", "d1": "In0"}
+
+
+# Stand-in for geNomad end-to-end: writes the virus summary and the gene table in its
+# layout, <outdir>/<prefix>_summary and <outdir>/<prefix>_annotate.
+FAKE_GENOMAD = """#!{python}
+import pathlib, sys
+args = sys.argv[1:]
+fasta, out = pathlib.Path(args[-3]), pathlib.Path(args[-2])
+prefix = fasta.name.split(".")[0]
+(out / f"{prefix}_summary").mkdir(parents=True)
+(out / f"{prefix}_annotate").mkdir()
+(out / f"{prefix}_summary" / f"{prefix}_virus_summary.tsv").write_text(
+    "seq_name\\tlength\\tvirus_score\\n"
+    "whole\\t5000\\t0.95\\n"
+    "pro|provirus_100_2000\\t1901\\t0.9\\n")
+(out / f"{prefix}_annotate" / f"{prefix}_genes.tsv").write_text(
+    "gene\\tstart\\tend\\tplasmid_hallmark\\tvirus_hallmark\\n"
+    "hall_mark_1\\t1\\t300\\t0\\t1\\n"
+    "hall_mark_2\\t400\\t900\\t0\\t0\\n"
+    "none_1\\t1\\t300\\t1\\t0\\n")
+"""
+
+
+def test_phage_plasmids_labels_each_plasmid_from_genomad_alone(fixture_dir):
+    """A virus call on the whole plasmid, a provirus inside it, or one virus hallmark gene
+    labels it a phage-plasmid; a plasmid hallmark does not."""
+    exe = fixture_dir / "genomad"
+    exe.write_text(FAKE_GENOMAD.replace("{python}", sys.executable))
+    exe.chmod(0o755)
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, [(p, "ACGT") for p in ("whole", "pro", "hall_mark", "none")])
+    out = fixture_dir / "out" / "phage_plasmids.tsv"
+    out.parent.mkdir()
+    run_script("phage_plasmids.py", FakeSnakemake(
+        input={"fasta": str(fasta)}, output={"tsv": str(out)},
+        params={"exe": str(exe), "db": "genomad_db"}, threads=1))
+    got = {r["plasmid_id"]: (r["genomad_virus"], r["n_virus_hallmarks"], r["phage_plasmid"])
+           for r in read_tsv(out)}
+    assert got == {"whole": ("whole", "0", "1"), "pro": ("pro|provirus_100_2000", "0", "1"),
+                   "hall_mark": ("", "1", "1"), "none": ("", "0", "0")}

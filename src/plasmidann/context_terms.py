@@ -1,4 +1,5 @@
-"""S8c context terms: what a family's neighbours are, counted per independent lineage.
+"""Context terms (rule context_features, family_context_terms.tsv): what a family's
+neighbours are, counted per independent lineage.
 
 WHAT A TERM IS
 
@@ -34,7 +35,8 @@ is never excluded - it is where the ORF sits, not a neighbour.
 THE UNIT IS THE LINEAGE
 
 Clonal copies of one plasmid are one observation. A family's conservation of a term is the
-fraction of the Stage 6 lineages it occurs in where at least one occurrence has the term.
+fraction of the plasmid lineages (plasmid_lineage.tsv) it occurs in where at least one
+occurrence has the term.
 Below two lineages there is nothing to conserve across: the row has status
 TOO_FEW_LINEAGES and no conservation.
 """
@@ -124,8 +126,8 @@ def family_term_rows(family_id, occurrences, family_of_orf, lineage_of):
 
     `occurrences` holds (orf_id, sources, covers) for every ORF of the family's members,
     with sources from orf_term_sources and covers from window_covers_plasmid. orf_id is
-    '<plasmid_id>|<ordinal>'. A plasmid missing from `lineage_of` raises KeyError: Stage 6
-    assigns every analysed plasmid a lineage, so a gap is an input mismatch.
+    '<plasmid_id>|<ordinal>'. A plasmid missing from `lineage_of` raises KeyError: rule
+    plasmid_lineage assigns every analysed plasmid a lineage, so a gap is an input mismatch.
 
     conservation is counted over lineages, and is empty under TOO_FEW_LINEAGES;
     window_covers_plasmid_fraction is the fraction of the family's occurrences (ORFs)
@@ -137,8 +139,8 @@ def family_term_rows(family_id, occurrences, family_of_orf, lineage_of):
     for orf_id, sources, covers in occurrences:
         plasmid_id = orf_id.rsplit("|", 1)[0]
         if plasmid_id not in lineage_of:
-            raise KeyError(f"plasmid {plasmid_id} of family {family_id} has no Stage 6 "
-                           "lineage")
+            raise KeyError(f"plasmid {plasmid_id} of family {family_id} has no "
+                           "plasmid lineage")
         lineage = lineage_of[plasmid_id]
         lineages.add(lineage)
         n_covers += bool(covers)

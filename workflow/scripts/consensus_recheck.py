@@ -1,4 +1,4 @@
-"""S7c: is the family collectively novel, or only individually unmatched?
+"""Rule consensus_recheck: is the family collectively novel, or only individually unmatched?
 
 A protein can miss every per-sequence threshold while its family is collectively
 recognisable: the shared signal is spread across members and none carries enough of it
