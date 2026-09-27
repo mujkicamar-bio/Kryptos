@@ -6,6 +6,7 @@ from plasmidann.network import (
     edges_from_hits,
     member_brightness,
     node_brightness,
+    weight,
 )
 
 RULE = {"max_out": 4, "min_cov": 0.5, "max_evalue": 1e-4}
@@ -58,6 +59,18 @@ def test_brightness_is_what_the_best_member_reaches():
     rows = [{"functional_class": "NONE", "explained_fraction": "0.0"},
             {"functional_class": "DOMAIN_ONLY", "explained_fraction": "0.3"}]
     assert node_brightness(rows) == 0.3
+
+
+def test_a_cluster_with_no_searched_member_has_no_brightness():
+    """AntiFam-flagged and unselected proteins were never searched: unknown, not dark."""
+    assert node_brightness([{"functional_class": "NOT_SEARCHED"}, {}]) is None
+    assert node_brightness([{"functional_class": "NOT_SEARCHED"},
+                            {"functional_class": "NONE", "explained_fraction": "0.0"}]) == 0.0
+
+
+def test_edge_weight_is_minus_log10_evalue_and_300_at_zero():
+    assert weight(1e-20) == 20.0
+    assert weight(0.0) == 300.0
 
 
 def test_an_unmeasured_functional_protein_is_bright_not_dark():

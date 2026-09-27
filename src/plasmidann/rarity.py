@@ -4,9 +4,9 @@ Every label describes breadth; sequence conservation is not measured here. RARE,
 LINEAGE_SPECIFIC and WIDELY_CONSERVED count independent Stage 6 lineages
 (independent_plasmid_cluster_count), never plasmid records, so a family on four hundred
 redeposits of one plasmid is one observation. The MOB labels count MOB-suite clusters and
-the host labels observed host species and genera. The labels are descriptive and nothing selects on them. The thresholds are configuration
-(config/targets.yaml, `rarity`); the two lineage thresholds are recorded on every output
-row.
+the host labels observed host species and genera. The labels are descriptive and nothing
+selects on them. The thresholds are configuration (config/targets.yaml, `rarity`); the two
+lineage thresholds are recorded on every output row.
 
 The rarefaction curve counts dark families discovered against plasmids sampled, averaged
 over random orderings. saturation() compares the final slope with the initial slope, in

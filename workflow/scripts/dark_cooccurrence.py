@@ -1,12 +1,8 @@
-"""S8g: dark families that travel together, per lineage.
+"""S8g: dark families that travel together, per Mash lineage (plasmidann.cooccurrence).
 
-Together = both families have a member ORF on the same plasmid; unit = the Stage 6 lineage;
-family = the dark family at the primary resolution, through its dark members. The test,
-its minimum and the multiple-testing correction are in plasmidann.cooccurrence.
-
-Output dark_cooccurrence.tsv, one row per TESTED pair (family_a < family_b), sorted by
-p-value. Pairs together in fewer than min_lineages_together lineages are not written: they
-were not tested, and every other pair of families is in no lineage together at all.
+Inputs: dark_families.tsv (the primary-resolution dark families and their dark members),
+the protein map and plasmid_lineage.tsv. Output dark_cooccurrence.tsv, one row per pair
+together in >= min_lineages_together lineages (family_a < family_b), sorted by p-value.
 """
 import collections
 import csv
@@ -51,6 +47,6 @@ per_plasmid = collections.Counter(len(f) for f in plasmid_families.values())
 n_pairs_on_plasmids = sum(n * m * (m - 1) // 2 for m, n in per_plasmid.items())
 print(f"dark families {len(set(family_of_seq.values()))} on {len(plasmid_families)} "
       f"plasmids in {n_lineages} lineages; family pairs sharing a plasmid, counted per "
-      f"plasmid: {n_pairs_on_plasmids}; tested (together in >= "
+      f"plasmid: {n_pairs_on_plasmids}; reported (together in >= "
       f"{cfg['min_lineages_together']} lineages): {len(rows)}; "
       f"q <= {cfg['fdr']}: {sum(r['q_value'] <= cfg['fdr'] for r in rows)}")

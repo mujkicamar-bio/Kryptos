@@ -6,8 +6,9 @@ import pytest
 from conftest import FakeSnakemake, read_tsv, requires, run_script, write_fasta, write_tsv
 
 
-def _recurrence_fixture(fixture_dir, lineage_rows):
-    """One family on three plasmids; the caller decides how independent those are."""
+def _recurrence_fixture(fixture_dir, lineage_rows, mob="MOB_A"):
+    """One family on three plasmids, all in MOB cluster `mob`; the caller decides how
+    independent those are."""
     families = fixture_dir / "protein_families.tsv"
     write_tsv(families, ["family_id", "family_resolution", "representative", "members"],
               [["broad:s1", "broad", "s1", "s1,s2"]])
@@ -17,11 +18,11 @@ def _recurrence_fixture(fixture_dir, lineage_rows):
     registry = fixture_dir / "clonal_registry.tsv"
     write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "genus",
                          "predicted_host_range", "topology", "size_bp", "hab_top"],
-              [["pl1", "MOB_A", "Escherichia coli", "Escherichia", "Enterobacterales",
+              [["pl1", mob, "Escherichia coli", "Escherichia", "Enterobacterales",
                 "circular", 100, "Host-associated"],
-               ["pl2", "MOB_A", "Escherichia coli", "Escherichia", "Enterobacterales",
+               ["pl2", mob, "Escherichia coli", "Escherichia", "Enterobacterales",
                 "circular", 100, "Host-associated"],
-               ["pl3", "MOB_A", "", "", "Actinomycetota,Pseudomonadota", "circular", 100,
+               ["pl3", mob, "", "", "Actinomycetota,Pseudomonadota", "circular", 100,
                 "Host-associated"]])
     lineage = fixture_dir / "plasmid_lineage.tsv"
     write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"], lineage_rows)
@@ -58,6 +59,13 @@ def test_independent_lineages_are_counted_apart_from_mob_clusters(fixture_dir):
 
     assert row["independent_plasmid_cluster_count"] == "3"
     assert row["MOB_count"] == "1"
+
+
+def test_plasmids_without_a_mob_cluster_give_no_mob_count(fixture_dir):
+    """The registry leaves mob_cluster empty when MOB-suite assigned none, so a family on
+    untyped plasmids has MOB_count 0 and carries neither MOB label."""
+    row = _recurrence_fixture(fixture_dir, [["pl1", "L1"]], mob="")
+    assert row["MOB_count"] == "0"
 
 
 def test_host_counts_say_how_many_plasmids_had_a_host(fixture_dir):
@@ -116,7 +124,8 @@ def test_clonal_registry_takes_the_host_from_three_sources(fixture_dir):
     assert rows["d"]["genus"] == "" and rows["d"]["host_source"] == ""
     # MOB-suite's predicted range is its own column, never the host.
     assert rows["d"]["predicted_host_range"] == "Bacteroides"
-    assert rows["b"]["lifestyle"] == "metagenomic"
+    # MOB-suite assigned b no cluster: the column stays empty, so no count treats it as one.
+    assert rows["b"]["mob_cluster"] == "" and rows["a"]["mob_cluster"] == "M1"
 
 
 @requires("mash")
@@ -164,9 +173,10 @@ def test_database_sources_are_provenance_not_biology(fixture_dir):
 
 @requires("mmseqs")
 def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_dir):
-    """Two 50%-identity clusters of related sequences, one annotated and one dark, and an
-    unrelated dark protein. The network must link the first two, mark only the unrelated
-    one as unconnected, and say so in the summary."""
+    """Two 50%-identity clusters of related sequences, one annotated and one dark, an
+    unrelated dark protein and an unsearched one. The network must link the first two,
+    mark the unrelated dark one as unconnected, leave the unsearched one neither dark nor
+    bright, and say so in the summary."""
     import random
     rng = random.Random(3)
     aa = "ACDEFGHIKLMNPQRSTVWY"
@@ -175,20 +185,24 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
     # separate cluster, but still a significant full-length alignment.
     relative = "".join(c if rng.random() > 0.55 else rng.choice(aa) for c in base)
     loner = "".join(rng.choice(aa) for _ in range(180))
+    # unsearched is an AntiFam-flagged protein the cascade never searched: its brightness
+    # is unknown, so it is neither dark nor bright.
+    unsearched = "".join(rng.choice(aa) for _ in range(180))
     # refonly is a cluster of large-plasmid proteins alone: in MMseqs2's files but not in
     # the family table, so it must not become a node.
     reps = fixture_dir / "reps.fasta"
     write_fasta(reps, [("known", base), ("darkrel", relative), ("loner", loner),
-                       ("refonly", relative[::-1])])
+                       ("unsearched", unsearched), ("refonly", relative[::-1])])
     clusters = fixture_dir / "clusters.tsv"
     clusters.write_text("known\tknown\ndarkrel\tdarkrel\nloner\tloner\n"
-                        "refonly\trefonly\n")
+                        "unsearched\tunsearched\nrefonly\trefonly\n")
     prot = fixture_dir / "protein_annotation.tsv"
     write_tsv(prot, ["seq_id", "functional_class", "annot_label", "explained_fraction",
                      "annot_completeness"],
               [["known", "FUNCTIONAL", "Relaxase", 0.95, "FULL"],
                ["darkrel", "NONE", "", 0.0, "NONE"],
-               ["loner", "NONE", "", 0.0, "NONE"]])
+               ["loner", "NONE", "", 0.0, "NONE"],
+               ["unsearched", "NOT_SEARCHED", "", "", ""]])
     dark_ids = fixture_dir / "dark_ids.txt"
     dark_ids.write_text("darkrel\nloner\n")
     fams = fixture_dir / "protein_families.tsv"
@@ -198,9 +212,10 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
                for res in ("broad", "intermediate")
                for m, scope in (("known", "small_only_known"),
                                 ("darkrel", "mixed_unknown"),
-                                ("loner", "small_only_unknown"))])
+                                ("loner", "small_only_unknown"),
+                                ("unsearched", "small_only_unknown"))])
     pmap = fixture_dir / "map.tsv"
-    pmap.write_text("known\tp1|1\ndarkrel\tp2|1\nloner\tp3|1\n")
+    pmap.write_text("known\tp1|1\ndarkrel\tp2|1\nloner\tp3|1\nunsearched\tp4|1\n")
     out = {k: str(fixture_dir / f"network_{k}.tsv") for k in ("nodes", "edges", "summary")}
 
     run_script("family_network.py", FakeSnakemake(
@@ -213,7 +228,8 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
         threads=2))
 
     nodes = {r["node_id"]: r for r in read_tsv(out["nodes"])}
-    assert set(nodes) == {"known", "darkrel", "loner"}
+    assert set(nodes) == {"known", "darkrel", "loner", "unsearched"}
+    assert (nodes["unsearched"]["brightness"], nodes["unsearched"]["dark"]) == ("", "")
     assert nodes["darkrel"]["scope"] == "mixed_unknown"
     assert nodes["known"]["dark"] == "0" and nodes["known"]["label"] == "Relaxase"
     assert nodes["known"]["family_id"] == "intermediate:known"
@@ -221,6 +237,7 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
     assert nodes["darkrel"]["dark"] == "1" and nodes["darkrel"]["label"] == ""
     assert nodes["darkrel"]["degree"] == "1" and nodes["loner"]["degree"] == "0"
     summary = {r["metric"]: r["value"] for r in read_tsv(out["summary"])}
+    assert (summary["dark_nodes"], summary["nodes_not_measured"]) == ("2", "1")
     assert summary["dark_nodes_connected"] == "1"
     assert summary["dark_connected_to_bright"] == "1"
     assert summary["dark_family_singletons"] == "2"
@@ -295,6 +312,15 @@ def test_rarefaction_samples_every_small_plasmid(fixture_dir):
 
     assert final["n_plasmids"] == "4"
     assert final["mean_families"] == "1.0"
+
+
+def test_family_rarity_writes_the_labels_and_the_thresholds_behind_them(fixture_dir):
+    """broad:d is in two lineages: RARE (at most 3), not LINEAGE_SPECIFIC (exactly 1)."""
+    _run_rarity(fixture_dir, ["S1"])
+    (row,) = read_tsv(fixture_dir / "rarity.tsv")
+    assert (row["family_id"], row["rarity_labels"],
+            row["independent_plasmid_cluster_count"]) == ("broad:d", "RARE", "2")
+    assert (row["rare_max_lineages"], row["widely_conserved_min_lineages"]) == ("3", "50")
 
 
 def test_an_undefined_saturation_is_not_reported_as_flattened(fixture_dir, capsys):

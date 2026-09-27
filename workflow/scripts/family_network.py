@@ -1,33 +1,15 @@
 """Stage 5b: the family network - 50%-identity clusters linked by sequence similarity.
 
-Method and its source are in src/plasmidann/network.py (Durairaj et al., Nature 2023).
-The outputs are two flat tables that Cosmograph and Cytoscape both read directly, plus a
-summary written in the terms of the paper, so the numbers can be set side by side:
-
-  network_nodes.tsv    one row per 50%-identity cluster, with its annotation state
-  network_edges.tsv    source, target, evalue, weight
-  network_summary.tsv  metric, value
-
-Nodes are the clusters that hold at least one small-plasmid protein - the clusters
-protein_families.tsv reports at this resolution. Clusters of large-plasmid proteins alone
-are left out. `scope` is the family's small-only/mixed and known/unknown call from
-protein_families.tsv.
-
-The shares in the summary are measured over this node set and may differ in either
-direction on the full set: a dark cluster whose bright relative sits only on large plasmids
-has no edge to it here, and with at most `max_out_edges` outbound edges per node, adding
-the large-only clusters could also displace an existing edge. The large-only clusters are
-left out because the cascade annotates only families holding a small-plasmid protein, so
-most of them were never searched and their brightness is unknown. Durairaj et al. also
-built their network over a subset (UniRef50 clusters with pLDDT > 90), and the summary
-states the node scope beside the numbers.
-
-MMseqs2 runs at its own default search sensitivity: Durairaj et al. do not state theirs,
-and a value we chose would be a parameter with no source.
+Inputs: protein_families.tsv, the node-resolution clusters and representatives,
+protein_annotation.tsv, the dark ids and the protein map. Outputs network_nodes.tsv,
+network_edges.tsv and network_summary.tsv (the metrics of Durairaj et al., Nature 2023;
+method in plasmidann.network). Nodes are the clusters holding a small-plasmid protein, so
+the shares may differ on the full set; a node with no searched member has no brightness
+and is counted apart. MMseqs2 runs at its default sensitivity because Durairaj et al.
+state none.
 """
 import collections
 import csv
-import math
 import pathlib
 import subprocess
 
@@ -36,7 +18,7 @@ import _ctx  # noqa: F401
 from plasmidann import scratch
 from plasmidann.cascade import is_informative
 from plasmidann.fasta import iter_fasta
-from plasmidann.network import communities, edges_from_hits, node_brightness
+from plasmidann.network import communities, edges_from_hits, node_brightness, weight
 
 cfg = snakemake.params.network
 out_nodes = pathlib.Path(snakemake.output.nodes)
@@ -111,8 +93,8 @@ for rep, mem in members.items():
         "n_members": len(mem),
         "n_orfs": sum(n_orfs[m] for m in mem),
         "n_plasmids": len(set().union(*(plasmids[m] for m in mem))),
-        "brightness": round(bright, 4),
-        "dark": int(bright <= cfg["dark_brightness"]),
+        "brightness": "" if bright is None else round(bright, 4),
+        "dark": "" if bright is None else int(bright <= cfg["dark_brightness"]),
         "dark_fraction": round(sum(m in dark for m in mem) / len(mem), 4),
         "family_id": family_of.get(rep, ""),
         "scope": node_family[rep]["scope"],
@@ -130,13 +112,14 @@ with open(snakemake.output.edges, "w", newline="") as fh:
     w = csv.writer(fh, delimiter="\t")
     w.writerow(["source", "target", "evalue", "weight"])
     for (a, b), ev in sorted(edges.items()):
-        w.writerow([a, b, ev, round(-math.log10(ev), 3) if ev > 0 else 300.0])
+        w.writerow([a, b, ev, round(weight(ev), 3)])
 
 # ---- summary, in the paper's terms ---------------------------------------------------
-dark_nodes = [n for n, r in node_rows.items() if r["dark"]]
+dark_nodes = [n for n, r in node_rows.items() if r["dark"] == 1]
+not_measured = [n for n, r in node_rows.items() if r["dark"] == ""]
 dark_connected = [n for n in dark_nodes if neighbours[n]]
 dark_to_bright = [n for n in dark_connected
-                  if any(not node_rows[m]["dark"] for m in neighbours[n])]
+                  if any(node_rows[m]["dark"] == 0 for m in neighbours[n])]
 # Dark single-member clusters at the node resolution: is the protein alone because nothing
 # resembles it, or because the clustering thresholds were not met?
 dark_singletons = [rep for rep, r in node_family.items()
@@ -155,6 +138,7 @@ summary = [
     ("nodes", len(node_rows)),
     ("edges", len(edges)),
     ("communities_2plus", sum(1 for c in n_comm.values() if c >= 2)),
+    ("nodes_not_measured", len(not_measured)),
     ("dark_nodes", len(dark_nodes)),
     ("dark_nodes_connected", len(dark_connected)),
     ("share_dark_nodes_connected", share(dark_connected, dark_nodes)),
@@ -173,5 +157,5 @@ with open(snakemake.output.summary, "w", newline="") as fh:
     w.writerow(["metric", "value"])
     w.writerows(summary)
 
-print("family_network: " + " ".join(f"{k}={v}" for k, v in summary[1:11]))
+print("family_network: " + " ".join(f"{k}={v}" for k, v in summary[1:12]))
 scratch.release(work)
