@@ -108,7 +108,7 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python -m pytest -q -m "not slow"
 ```
 
-The linter reports the workflow is in good condition, and 556 tests pass (3 slow tool integration tests are deselected; 559 in all, measured 2026-09-25). This verifies
+The linter reports the workflow is in good condition, and 577 tests pass (2 slow tool integration tests are deselected; 579 in all, measured 2026-09-27). This verifies
 the checkout is complete and internally consistent, which is as far as anyone can get
 without the reference data.
 
