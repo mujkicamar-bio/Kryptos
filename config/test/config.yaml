@@ -30,7 +30,6 @@ input:
 outdir: results_test
 orf:
   min_call_length_aa: 20
-  meta_mode: true
   # A circular record whose first and last bases repeat for at least this many bp carries
   # the assembler's overlap; S0 removes one copy (rule analysis_set). 20 bp is CheckV's
   # direct-terminal-repeat criterion (Nayfach et al. 2021, Nat. Biotechnol. 39:578).
@@ -44,7 +43,6 @@ references:
   swissprot_version: '2025-03-03'
   nr_version: '2025-03-03'
   eggnog_version: 5.0.2
-  plasmidscope_version: "2026-09-23"
   # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
   # covers the phage families (PHROG v4 table), CARD and VFDB together.
   pharokka_db_version: "1.8.0"
@@ -60,9 +58,6 @@ amrfinder:
   required: true
 qc:
   max_opposite_strand_overlap_fraction: 0.6
-  antifam:
-    db: data/refs/antifam/AntiFam.hmm
-    threshold: cut_ga
 controls:
   positive:
     raw_faa: data/refs/control/raw.faa
