@@ -3,8 +3,9 @@
 Inputs: one cluster file per configured resolution (close, intermediate and broad in
 config/targets.yaml), written by protein_clustering.py over every unique protein, annotated
 or not; protein_annotation.tsv, the dark ids, small_plasmids.txt, the protein map, the
-clonal registry and the Stage 6 lineages. A family is a sequence cluster and nothing else: size and distribution are
-attributes, never filters, and a cluster of one is kept and labelled ORPHAN.
+clonal registry and the Stage 6 lineages. A family is a sequence cluster and nothing else:
+size and distribution are attributes, never filters, and a cluster of one is kept and
+labelled ORPHAN.
 family_id = <resolution>:<representative>, so an id does not depend on cluster order.
 
 protein_families.tsv has one row per family holding at least one small-plasmid protein;
@@ -17,9 +18,10 @@ members:
                                 (functional_class other than NONE, UNCHARACTERIZED_HOMOLOG
                                 and NOT_SEARCHED); a family is as bright as its brightest
                                 member (Durairaj et al., Nature 2023, 622:646)
-  n_unnamed_excluded            unnamed members the dark set excludes (artefact,
-                                partial-only)
-  n_not_searched                members the cascade did not search (cascade_selection)
+  n_unnamed_excluded            searched members named by nothing that the dark set
+                                excludes (low-complexity flag, partial-only)
+  n_not_searched                members the cascade did not search (cascade_selection),
+                                AntiFam artefacts among them
   percentage_dark_in_family, dark_only (a dark member and no named member), family_class
   family_*_count                plasmid records, host species, genera, MOB clusters, Stage 6
                                 lineages, habitats and small plasmids of the members
@@ -84,7 +86,6 @@ with open(snakemake.input.lineage, newline="") as fh:
 COLS = [
     "family_id", "family_resolution", "representative",
     "family_size", "n_orfs", "dark_member_count", "annotated_member_count",
-    # unnamed members the dark set excludes (artefact, partial-only): neither dark nor named
     "n_unnamed_excluded",
     "percentage_dark_in_family", "family_class", "dark_only",
     "family_plasmid_count", "family_host_count",
@@ -144,8 +145,8 @@ with open(snakemake.output.families, "w", newline="") as out:
             lineages = {lineage_of[p] for p in plasmids if p in lineage_of}
 
             n_dark = sum(1 for m in mem if m in dark)
-            # An unnamed protein the dark set excludes (an artefact, a partial-only protein)
-            # is neither dark nor annotated, and is counted apart.
+            # A searched, unnamed protein the dark set excludes (low-complexity flag,
+            # partial-only) is neither dark nor annotated, and is counted apart.
             n_annotated = len(named)
             n_unnamed_excluded = len(mem) - n_dark - n_annotated - n_not_searched
             pct_dark = round(100.0 * n_dark / len(mem), 2)

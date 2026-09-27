@@ -1,9 +1,9 @@
 """Dark families that travel together (S8g), counted over Mash lineages.
 
 Two dark families are together in a lineage (plasmid_lineage.tsv) when one of its plasmids
-carries a member ORF of each, so redeposited copies of one plasmid are one observation. Each pair is tested by
-the hypergeometric upper tail P(X >= k) over lineages: N lineages, K carry family A, n
-carry family B, and k are lineages where A and B share a plasmid.
+carries a member ORF of each, so redeposited copies of one plasmid are one observation.
+Each pair is tested by the hypergeometric upper tail P(X >= k) over lineages: N lineages,
+K carry family A, n carry family B, and k are lineages where A and B share a plasmid.
 
 Every pair of families that are each in at least `min_lineages_together` lineages and
 share a plasmid enters the Benjamini-Hochberg correction (Benjamini & Hochberg 1995, J R

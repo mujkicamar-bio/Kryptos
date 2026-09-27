@@ -314,6 +314,15 @@ def test_rarefaction_samples_every_small_plasmid(fixture_dir):
     assert final["mean_families"] == "1.0"
 
 
+def test_family_rarity_writes_the_labels_and_the_thresholds_behind_them(fixture_dir):
+    """broad:d is in two lineages: RARE (at most 3), not LINEAGE_SPECIFIC (exactly 1)."""
+    _run_rarity(fixture_dir, ["S1"])
+    (row,) = read_tsv(fixture_dir / "rarity.tsv")
+    assert (row["family_id"], row["rarity_labels"],
+            row["independent_plasmid_cluster_count"]) == ("broad:d", "RARE", "2")
+    assert (row["rare_max_lineages"], row["widely_conserved_min_lineages"]) == ("3", "50")
+
+
 def test_an_undefined_saturation_is_not_reported_as_flattened(fixture_dir, capsys):
     """Two small plasmids give two curve points, too few for a saturation value."""
     assert len(_run_rarity(fixture_dir, ["S1", "S2"])) == 2
