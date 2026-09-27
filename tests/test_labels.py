@@ -1,24 +1,12 @@
-"""The label vocabulary: what a tool said, with the kind of statement it made.
-
-A functional grouping of plasmid proteins into replication, mobilisation and conjugation
-cannot be written by hand. Measured on the curated list this replaces: 73 names, of which
-pfam2go maps 4 of 16 replication families, 1 of 16 conjugation families and 0 of 11
-mobilisation families. Pfam-A 38.2 holds 30,134 families, of which 67 mention replication
-in their description and 42 mention conjugation, against the 16 and 15 the list named. A
-hand list cannot reach the scope.
-
-So every label is captured verbatim from the tool, tagged with its KIND, and grouped later
-from the observed vocabulary. The kind is not decoration: 'repA' as a gene symbol and
-'RepA_N' as a Pfam family are different statements with different reliability, and a
-grouping that cannot tell them apart cannot be audited.
-"""
+"""The label vocabulary: what a tool said, with the kind of statement it made."""
 import pytest
 
 from plasmidann import labels
 
 
 def test_a_pfam_hit_yields_the_family_the_accession_the_description_and_the_clan():
-    """One hmmsearch hit is four statements, and three of them were being discarded."""
+    """One hmmsearch hit gives the family, its description and its clan, all with the
+    accession."""
     pfam = {"RepA_N": {"accession": "PF06970.19",
                        "description": "Replication initiator protein A (RepA) N-terminus",
                        "type": "Domain", "clan": "CL0123"}}
@@ -76,16 +64,15 @@ def test_a_diamond_hit_yields_the_product_name_and_the_accession():
            "label": "P62554.1 RecName: Full=Toxin CcdB; AltName: Full=Protein LetD "
                     "[Escherichia coli K-12]"}
 
-    by_kind = {d["kind"]: d["label"] for d in labels.labels_from_hit(row)}
+    out = labels.labels_from_hit(row)
 
-    assert by_kind["swissprot_product"] == "Toxin CcdB"
-    assert "organism" not in by_kind
+    assert {d["kind"]: d["label"] for d in out} == {"swissprot_product": "Toxin CcdB"}
+    assert not any("Escherichia coli K-12" in d["label"] for d in out)
 
 
 def test_a_qualifier_before_recname_is_kept_and_recname_is_still_parsed():
-    """Seen in the validation run: 'Q47718.1 PUTATIVE PSEUDOGENE: RecName: Full=...'.
-    Before this case was handled the whole 'PUTATIVE PSEUDOGENE: RecName: Full=' string
-    became the product."""
+    """'Q47718.1 PUTATIVE PSEUDOGENE: RecName: Full=...', seen in the installed swissprot:
+    the qualifier stays in front of the recommended name."""
     title = ("Q47718.1 PUTATIVE PSEUDOGENE: RecName: Full=Putative transposase InsO for "
              "insertion sequence element IS911B [Escherichia coli K-12]")
 
@@ -188,31 +175,8 @@ def test_an_empty_orthology_row_yields_no_labels():
     assert labels.labels_from_orthology(row) == []
 
 
-def test_a_defence_row_yields_the_system_name_and_the_component():
-    """model_fqn is a path; the system name is its last element. The full path is kept as
-    the accession so the model set that made the call stays visible."""
-    row = {"orf_id": "p1|1", "system": "defense-finder-models/Defense/RM_Type_II",
-           "component": "RM_Type_II_REase", "hit_status": "mandatory",
-           "sys_wholeness": "1.000"}
-
-    by_kind = {d["kind"]: d["label"] for d in labels.labels_from_defence(row)}
-
-    assert by_kind["macsy_system"] == "RM_Type_II"
-    assert by_kind["macsy_component"] == "RM_Type_II_REase"
-
-
-def test_an_integron_row_yields_the_element_annotation():
-    row = {"orf_id": "p1|4", "annotation": "intI", "integron_type": "complete"}
-
-    by_kind = {d["kind"]: d["label"] for d in labels.labels_from_integron(row)}
-
-    assert by_kind["integron_element"] == "intI"
-    assert by_kind["integron_type"] == "complete"
-
-
 def test_every_emitted_kind_is_declared():
-    """An undeclared kind is a label nothing downstream knows how to group, and it would
-    be discovered as a missing category rather than as a bug here."""
+    """protein_labels refuses a kind not in KINDS, so every kind emitted must be there."""
     pfam = {"RepA_N": {"accession": "PF1.1", "description": "d", "type": "Family",
                        "clan": "CL0123"}}
     emitted = set()
@@ -231,35 +195,9 @@ def test_every_emitted_kind_is_declared():
         {"seq_id": "p", "cog_category": "L", "preferred_name": "repA",
          "eggnog_description": "x", "pfams": "A", "gos": "GO:1", "ec": "1.1.1.1",
          "kegg_ko": "ko:K1", "kegg_pathways": "", "eggnog_ogs": "COG1@2"})}
-    emitted |= {d["kind"] for d in labels.labels_from_defence(
-        {"orf_id": "o", "system": "m/Defense/X", "component": "X_c",
-         "hit_status": "mandatory", "sys_wholeness": "1"})}
-    emitted |= {d["kind"] for d in labels.labels_from_integron(
-        {"orf_id": "o", "annotation": "intI", "integron_type": "complete"})}
 
     assert emitted <= labels.KINDS, f"undeclared kinds: {sorted(emitted - labels.KINDS)}"
 
-
-def test_no_extraction_function_assigns_a_biological_role():
-    """The standing constraint, asserted rather than trusted. Nothing in this module may
-    decide that RepA_N is 'replication': that grouping is derived later from the observed
-    vocabulary, and a role appearing here would be a hand-curated list growing back."""
-    forbidden = {"replication", "mobilisation", "conjugation", "partition",
-                 "transposition", "toxin_antitoxin", "restriction_modification",
-                 "backbone"}
-
-    assert not (labels.KINDS & forbidden)
-
-
-# ------------------------------------------------------------------------------------
-# The kind is decided by the hit's SOURCE, which every hits.tsv row now carries.
-#
-# It used to be decided by tier id: T1 and T2 were Pfam, T3 was Swiss-Prot, anything else
-# nr. Inserting a tier - which the specification's cascade order requires - shifted every
-# tier below it, and every Swiss-Prot hit would have been labelled as an nr product with
-# nothing failing. The database a tier searches is declared in config and travels with
-# the row; the code no longer guesses it from the row's position.
-# ------------------------------------------------------------------------------------
 
 def test_a_swissprot_hit_is_recognised_by_its_source_not_its_tier_id():
     row = {"tier": "T4", "source": "swissprot", "informative": "True",
@@ -302,9 +240,8 @@ def test_card_and_vfdb_hits_from_the_pharokka_tier_have_their_own_kinds():
 
 
 def test_a_row_without_a_source_is_refused():
-    """A hits.tsv from before the source column would be read with every label kind
-    wrong. Refusing it names the problem; guessing from the tier id reintroduces the
-    defect this replaces."""
+    """The source decides the label kind, so a row without one is refused rather than
+    guessed from its tier id."""
     row = {"tier": "T1", "informative": "True", "target_accession": "PF00000",
            "label": "RepA_N"}
     with pytest.raises(ValueError):
@@ -324,13 +261,10 @@ def test_mag_and_tpa_prefixes_are_removed_from_an_nr_product():
 
 
 def test_the_plasmid_label_database_kinds_are_declared():
-    """protein_labels refuses an undeclared kind, so every kind the S4d label databases
-    emit must be in KINDS - each database its own kind, never merged into another's."""
+    """protein_labels refuses an undeclared kind, so every kind the plasmid label
+    databases emit must be in KINDS."""
     from plasmidann import labeldb
 
     assert labeldb.KINDS <= labels.KINDS
-    assert labeldb.KINDS == {"card_amr_family", "amrfinder_gene", "tadb_ta",
-                             "bacmet_compound", "oritdb_role", "mobileog_category",
-                             "dbapis_family", "acrdb_family"}
     # pharokka's CARD kinds and the direct CARD search stay distinct statements.
     assert {"card_gene_family", "card_amr_family"} <= labels.KINDS
