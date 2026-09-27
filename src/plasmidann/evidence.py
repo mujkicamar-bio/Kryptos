@@ -5,8 +5,8 @@ This module describes evidence and does not select on it: no score, rank or shor
   reality_lines     Independent lines of evidence that a family is a real protein rather
                     than a gene-calling artefact, counted AND named, so that a reader sees
                     which line is missing. Absence of evidence never counts against a
-                    family: a dN/dS status of NO_DIVERGENCE fails to fire a line and is
-                    not read as neutral evolution.
+                    family: a dN/dS status other than MEASURED, such as TOO_SHORT, fails
+                    to fire a line and is not read as neutral evolution.
 
   darkness_state    Whether the fold of a dark family is recognisable, as a named state.
 """

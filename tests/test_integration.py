@@ -29,7 +29,7 @@ def test_a_dimension_is_present_when_measured_not_when_positive():
     """A search that ran and found nothing is a measurement, and it is exactly the
     measurement a dark protein is made of. Requiring a positive result would make the dark
     set look evidence-free by construction."""
-    record = {"dnds_status": "NO_DIVERGENCE", "rnacode_status": "TOO_FEW_MEMBERS"}
+    record = {"dnds_status": "TOO_SHORT", "rnacode_status": "TOO_FEW_MEMBERS"}
 
     assert "EVOLUTIONARY_CONSERVATION" in integration.dimensions_present(record)
 

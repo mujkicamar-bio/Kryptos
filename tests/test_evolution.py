@@ -1,104 +1,81 @@
-"""S7: Nei-Gojobori dN/dS with Jukes-Cantor correction, codon projection and consensus."""
+"""S7: yn00 dN/dS, codon projection, consensus and RNAcode."""
 import pytest
+from conftest import requires
 
-from plasmidann.evolution import (
-    back_translate,
-    codon_differences,
-    consensus,
-    dnds_detail,
-    synonymous_sites,
-)
+from plasmidann.evolution import back_translate, consensus, parse_yn00, yn00
 from plasmidann.evolution_worker import rnacode
 
-# --- site counting -------------------------------------------------------------------
+# --- yn00 -----------------------------------------------------------------------------
 
-def test_a_fourfold_degenerate_codon_has_one_synonymous_site():
-    """GCx all encode alanine, and nothing else does, so exactly the third position is
-    synonymous."""
-    s, n = synonymous_sites("GCT")
-    assert s == pytest.approx(1.0)
-    assert s + n == pytest.approx(3.0)
+# The lines of a yn00 4.10.7 output file that parse_yn00 reads.
+YN00_OUT = """YN00         aln.phy
 
+ns =   3\tls =   9
 
-def test_leucine_has_more_than_one_synonymous_site():
-    """Leucine spans two codon families (CTx and TTA/TTG), so CTA is also synonymous at
-    the FIRST position: CTA -> TTA is silent. Counting only the third position would
-    understate synonymous sites and inflate dN/dS."""
-    s, _ = synonymous_sites("CTA")
-    assert s == pytest.approx(4 / 3)
+(B) Yang & Nielsen (2000) method
+
+seq. seq.     S       N        t   kappa   omega     dN +- SE    dS +- SE
+
+   2    1     8.2    18.8   0.2686  4.6000  0.0000 -0.0000 +- 0.0000  0.2938 +- 0.2212
+   3    1     5.1    21.9   0.1152  4.6000 99.0000 0.0473 +- 0.0480 -0.0000 +- 0.0000
+   3    2    -nan    -nan     -nan  4.6000    -nan   -nan +-   -nan    -nan +-   -nan
 
 
-def test_methionine_has_no_synonymous_sites():
-    """ATG is the only codon for methionine: every change alters the amino acid."""
-    s, n = synonymous_sites("ATG")
-    assert s == pytest.approx(0.0)
-    assert n == pytest.approx(3.0)
+(C) LWL85, LPB93 & LWLm methods
+
+LWL85:  dS =  0.5748 dN =  0.0000 w = 0.0000 S =    7.0 N =   20.0
+"""
 
 
-# --- pairwise differences ------------------------------------------------------------
-
-def test_a_silent_third_position_change_is_synonymous():
-    sd, nd = codon_differences("CTA", "CTG")   # Leu -> Leu
-    assert (sd, nd) == (1, 0)
-
-
-def test_an_amino_acid_change_is_nonsynonymous():
-    sd, nd = codon_differences("ATG", "ATA")   # Met -> Ile
-    assert (sd, nd) == (0, 1)
-
-
-def test_identical_codons_differ_in_nothing():
-    assert codon_differences("ATG", "ATG") == (0, 0)
+def test_yn00_pairs_are_read_as_yn00_printed_them():
+    """dS = 0 gives omega 99.0000 and an inestimable pair gives nan; both are kept."""
+    codons, pairs = parse_yn00(YN00_OUT, ["a", "b", "c"])
+    assert codons == 9
+    assert pairs[0] == {"seq1": "b", "seq2": "a", "S": "8.2", "N": "18.8", "t": "0.2686",
+                        "kappa": "4.6000", "omega": "0.0000", "dN": "-0.0000",
+                        "dN_SE": "0.0000", "dS": "0.2938", "dS_SE": "0.2212"}
+    assert (pairs[1]["omega"], pairs[1]["dN"], pairs[1]["dS"]) == ("99.0000", "0.0473",
+                                                                   "-0.0000")
+    assert pairs[2]["omega"] == "-nan"
 
 
-# --- the ratio -----------------------------------------------------------------------
-
-def test_identical_sequences_give_no_signal():
-    """Zero divergence carries no information about selection, and must not be reported as
-    dN/dS = 0, which would look like maximal purifying selection."""
-    seq = "ATGCTAGCTAGCAAA"
-    assert dnds_detail(seq, seq)[0] is None
+def test_yn00_output_without_the_yang_nielsen_table_is_no_result():
+    assert parse_yn00("ns =   2\tls =   9\n", ["a", "b"]) is None
 
 
-def test_only_silent_changes_indicate_strong_purifying_selection():
-    """Divergence is kept well below the Jukes-Cantor saturation point (pS = 0.75); at or
-    beyond it the correction has no domain and the estimate is meaningless."""
-    a = "CTA" * 10
-    b = "CTA" * 7 + "CTG" + "CTT" + "CTC"    # 3 silent changes in 10 Leu codons
-    assert dnds_detail(a, b)[0] == 0.0
+ALN4 = {"m0": "ATGCTAGCTAGCAAACTAGCTAGCAAACTA",
+        "m1": "ATGCTGGCTAGCAAACTAGCTAGCAAACTG",
+        "m2": "ATGATAGCTAGCAAACTAGCTAGCAAACTA",
+        "m3": "ATGCTAGCTAGC---CTAGCTAGCAAACTA"}
 
 
-def test_only_replacement_changes_give_a_ratio_above_one():
-    a = "ATGATGATGATGATG"          # Met x5
-    b = "ATAATAATAATAATA"          # Ile x5
-    assert dnds_detail(a, b) == (float("inf"), "MEASURED")
+@requires("yn00")
+def test_yn00_runs_every_pair_in_one_call(tmp_path):
+    """Four members give six pairs; yn00 drops the gapped codon column from all of them."""
+    codons, pairs = yn00(ALN4, tmp_path)
+    assert codons == 9
+    assert {(p["seq1"], p["seq2"]) for p in pairs} == {
+        ("m1", "m0"), ("m2", "m0"), ("m2", "m1"), ("m3", "m0"), ("m3", "m1"), ("m3", "m2")}
+    by = {(p["seq1"], p["seq2"]): p for p in pairs}
+    assert by[("m1", "m0")]["dS"] == "0.2938"
+    # m3 equals m0 once the gap column is dropped: yn00 reports omega 99 at dS = 0.
+    assert by[("m3", "m0")]["omega"] == "99.0000"
 
 
-def test_sequences_of_unequal_length_are_refused():
-    with pytest.raises(ValueError):
-        dnds_detail("ATGATG", "ATG")
+@requires("yn00")
+def test_a_table_4_gene_with_an_inner_tga_is_run_under_the_table_4_code(tmp_path):
+    """Under the standard code yn00 exits with an error on the inner TGA."""
+    aln = dict(ALN4, m1="ATGCTGGCTAGCAAATGAGCTAGCAAACTG")
+    assert yn00(aln, tmp_path) is not None
 
 
-def test_a_sequence_that_is_not_a_whole_number_of_codons_is_refused():
-    with pytest.raises(ValueError):
-        dnds_detail("ATGAT", "ATGAT")
-
-
-def test_gapped_and_ambiguous_codons_are_skipped_not_counted():
-    """Alignment gaps are missing data, not evidence of conservation. Counting a gapped
-    column as identical would inflate apparent purifying selection precisely where the
-    alignment is least trustworthy."""
-    a = "CTA" * 4 + "---" + "CTA" * 5
-    b = "CTA" * 2 + "CTG" + "CTT" + "---" + "CTA" * 5
-    assert dnds_detail(a, b)[0] == 0.0
-
-
-def test_sequences_too_diverged_to_correct_return_no_estimate():
-    """Beyond pS = 0.75 the Jukes-Cantor correction has no domain. Returning a number
-    there would be inventing one."""
-    a = "CTA" * 5
-    b = "CTG" * 3 + "CTT" + "CTC"     # every codon changed: saturated
-    assert dnds_detail(a, b)[0] is None
+def test_a_failing_yn00_is_no_result(tmp_path, monkeypatch):
+    exe = tmp_path / "bin" / "yn00"
+    exe.parent.mkdir()
+    exe.write_text("#!/bin/sh\nexit 255\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:/usr/bin:/bin")
+    assert yn00(ALN4, tmp_path / "w") is None
 
 
 # --- codon alignment from a protein alignment ----------------------------------------
@@ -112,54 +89,6 @@ def test_back_translation_places_gaps_on_codon_boundaries():
 def test_back_translation_refuses_a_cds_that_is_too_short():
     with pytest.raises(ValueError):
         back_translate("MKV", "ATGAAA")
-
-
-# --- distinguishing WHY there is no estimate -----------------------------------------
-
-def test_no_divergence_is_reported_separately_from_a_failed_estimate():
-    """A family of identical sequences has no divergence to measure, which is not the same
-    as a family measured and found neutral."""
-    value, status = dnds_detail("ATGCTAGCTAGCAAA", "ATGCTAGCTAGCAAA")
-    assert value is None
-    assert status == "NO_DIVERGENCE"
-
-
-def test_saturation_is_reported_as_its_own_status():
-    value, status = dnds_detail("CTA" * 5, "CTG" * 3 + "CTT" + "CTC")
-    assert value is None and status == "SATURATED"
-
-
-def test_a_successful_estimate_is_reported_as_measured():
-    value, status = dnds_detail("CTA" * 10, "CTA" * 7 + "CTG" + "CTT" + "CTC")
-    assert value == 0.0 and status == "MEASURED"
-
-
-def test_too_little_usable_alignment_is_reported_as_its_own_status():
-    value, status = dnds_detail("CTA---", "CTG---")
-    assert value is None and status == "TOO_SHORT"
-
-
-# --- min_codons ----------------------------------------------------------------------
-
-def test_a_pair_with_too_few_usable_codons_reports_no_estimate():
-    """Eight codons is above the arithmetic floor of 3 and below min_codons = 20."""
-    a = "ATGAAAGTGCTGGCGACCACCCTG"          # 8 codons
-    b = "ATGAAAGTACTGGCGACCACCCTA"          # same protein, two silent changes
-    assert len(a) == len(b) == 24
-
-    value, status = dnds_detail(a, b, min_codons=20)
-    assert value is None
-    assert status == "TOO_SHORT"
-
-
-def test_the_same_pair_is_measurable_when_the_floor_allows_it():
-    """The floor has to be the reason, not the alignment: at the default floor this pair
-    yields an estimate, so the test above is measuring min_codons and nothing else."""
-    a = "ATGAAAGTGCTGGCGACCACCCTG"
-    b = "ATGAAAGTACTGGCGACCACCCTA"
-    value, status = dnds_detail(a, b, min_codons=3)
-    assert status == "MEASURED"
-    assert value is not None
 
 
 # --- the family-consensus re-check ----------------------------------------------------

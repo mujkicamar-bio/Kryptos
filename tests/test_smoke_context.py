@@ -2,6 +2,8 @@
 
 Each test runs one workflow script against a small fixture.
 """
+import csv
+import gzip
 import os
 import pathlib
 import sys
@@ -18,16 +20,12 @@ from conftest import (
 )
 
 
-@requires("mafft")
-def test_family_evolution_runs_and_reports_a_dnds_status(fixture_dir):
-    """An alignable, divergent family reaches a dN/dS status; the small-plasmid member set
-    is measured on its own."""
+def _evolution_fixture(fixture_dir):
+    """Three alignable members of one family of 21 codons, divergent only at silent sites;
+    two of them are on small plasmids."""
     faa = fixture_dir / "dark.faa"
     cds = fixture_dir / "dark.fna"
     fams = fixture_dir / "families.tsv"
-    out = fixture_dir / "family_evolution.tsv"
-
-    # Three real, alignable members of one family, divergent only at silent sites.
     prot = "MKVLATTLLGAAFAASSALAQ"
     codons = {"M": "ATG", "K": "AAA", "V": "GTG", "L": "CTG", "A": "GCG", "T": "ACC",
               "G": "GGC", "F": "TTT", "S": "AGC", "Q": "CAG"}
@@ -37,31 +35,54 @@ def test_family_evolution_runs_and_reports_a_dnds_status(fixture_dir):
                    for i, a in enumerate(prot))
     var2 = "".join(alt.get(a, codons[a]) if i % 5 == 0 else codons[a]
                    for i, a in enumerate(prot))
-
     write_fasta(faa, [("m1", prot), ("m2", prot), ("m3", prot)])
     write_fasta(cds, [("m1", base), ("m2", var1), ("m3", var2)])
     write_tsv(fams, ["family_id", "representative", "n_members", "n_plasmids",
                      "n_mob_clusters", "family_class", "members", "small_members"],
               [["F0000001", "m1", 3, 3, 2, "FAMILY", "m1,m2,m3", "m1,m2"]])
+    return {"families": str(fams), "faa": str(faa), "cds": str(cds)}
 
+
+def _run_evolution(fixture_dir, min_codons):
+    out = fixture_dir / "family_evolution.tsv"
+    pairs = fixture_dir / "family_yn00_pairs.tsv.gz"
     run_script("family_evolution.py", FakeSnakemake(
-        input={"families": str(fams), "faa": str(faa), "cds": str(cds)},
-        output={"tsv": str(out), "consensus": str(out.parent / "consensus.faa")},
-        params={"evolution": {"min_codons": 20, "min_members_for_dnds": 3,
+        input=_evolution_fixture(fixture_dir),
+        output={"tsv": str(out), "consensus": str(fixture_dir / "consensus.faa"),
+                "pairs": str(pairs)},
+        params={"evolution": {"min_codons": min_codons, "min_members_for_dnds": 3,
                               "dnds_purifying_max": 0.5, "rnacode_max_p": 0.05,
                               "max_members_aligned": 50}},
         threads=2))
+    with gzip.open(pairs, "rt") as fh:
+        pair_rows = list(csv.DictReader(fh, delimiter="\t"))
+    return read_tsv(out), pair_rows
 
-    rows = read_tsv(out)
+
+@requires("mafft", "yn00")
+def test_family_evolution_summarises_the_yn00_pairs(fixture_dir):
+    """The family median is the median yn00 omega over its three pairs, every pair row is
+    written, and the small-plasmid member set is measured on its own."""
+    rows, pairs = _run_evolution(fixture_dir, min_codons=20)
     assert len(rows) == 1
-    # The small-plasmid members are measured on their own: two are too few for dN/dS.
+    assert rows[0]["dnds_status"] == "MEASURED"
+    assert rows[0]["n_pairs"] == "3"
+    omegas = sorted(float(p["omega"]) for p in pairs)
+    assert [p["member_set"] for p in pairs] == ["all"] * 3
+    assert float(rows[0]["dnds_median"]) == pytest.approx(omegas[1], abs=1e-4)
+    assert float(rows[0]["dnds_min"]) == pytest.approx(omegas[0], abs=1e-4)
+    # Two small-plasmid members are too few for dN/dS.
     assert rows[0]["small_dnds_status"] == "TOO_FEW_MEMBERS"
     assert rows[0]["small_n_aligned"] == "0"
-    # The family is alignable and divergent, so a status must have been reached. An empty
-    # status means the script fell through an error branch and reported success.
-    assert rows[0]["dnds_status"], "no dnds_status - the script took a silent error branch"
-    assert rows[0]["dnds_status"] != "ALIGNMENT_FAILED", (
-        "alignment failed with mafft available - the tool is not being invoked correctly")
+
+
+@requires("mafft", "yn00")
+def test_an_alignment_shorter_than_min_codons_is_too_short(fixture_dir):
+    """min_codons applies to the 21 codons yn00 used; the pairs are still written."""
+    rows, pairs = _run_evolution(fixture_dir, min_codons=22)
+    assert rows[0]["dnds_status"] == "TOO_SHORT"
+    assert rows[0]["dnds_median"] == ""
+    assert len(pairs) == 3
 
 
 def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear",
@@ -216,7 +237,8 @@ def test_family_evolution_reports_coding_potential(fixture_dir):
 
     run_script("family_evolution.py", FakeSnakemake(
         input={"families": str(fams), "faa": str(faa), "cds": str(cds)},
-        output={"tsv": str(out), "consensus": str(out.parent / "consensus.faa")},
+        output={"tsv": str(out), "consensus": str(out.parent / "consensus.faa"),
+                "pairs": str(out.parent / "pairs.tsv.gz")},
         params={"evolution": {"min_codons": 20, "min_members_for_dnds": 3,
                               "dnds_purifying_max": 0.5, "rnacode_max_p": 0.05,
                               "max_members_aligned": 50}},
@@ -275,7 +297,8 @@ def test_family_evolution_writes_a_consensus_per_family(fixture_dir):
 
     run_script("family_evolution.py", FakeSnakemake(
         input={"families": str(fams), "faa": str(faa), "cds": str(cds)},
-        output={"tsv": str(out), "consensus": str(cons)},
+        output={"tsv": str(out), "consensus": str(cons),
+                "pairs": str(out.parent / "pairs.tsv.gz")},
         params={"evolution": {"min_codons": 20, "min_members_for_dnds": 3,
                               "dnds_purifying_max": 0.5, "rnacode_max_p": 0.05,
                               "max_members_aligned": 50}},

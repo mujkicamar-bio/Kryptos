@@ -4,12 +4,12 @@ A process pool can only run a function it can import by name, and a Snakemake sc
 not importable - hence this module, with the same configure()-per-worker pattern as
 darkorf.genecall. See the script's docstring for what is measured and why.
 """
-import collections
-import itertools
+import math
+import shutil
 import statistics
 import subprocess
 
-from plasmidann.evolution import back_translate, consensus, dnds_detail
+from plasmidann.evolution import back_translate, consensus, yn00
 
 COLS = ["family_id", "n_aligned", "dnds_median", "dnds_min", "n_pairs",
         "under_purifying_selection", "dnds_status", "rnacode_p", "rnacode_p_antisense",
@@ -76,7 +76,11 @@ def rnacode(alignment, path):
 
 
 def measure(job):
-    """(family_id, member_set, members) -> (row, consensus or None). One family, one set."""
+    """(family_id, member_set, members) -> (row, consensus or None, yn00 pairs).
+
+    One family, one member set. The pairs are yn00's rows, each with family_id and
+    member_set added.
+    """
     fid, label, members = job
     row = dict.fromkeys(COLS, "")
     row.update(family_id=fid, n_aligned=0, n_pairs=0)
@@ -88,7 +92,7 @@ def measure(job):
         row["evidence_note"] = "too_few_members"
         row["dnds_status"] = "TOO_FEW_MEMBERS"
         row["rnacode_status"] = "TOO_FEW_MEMBERS"
-        return row, None
+        return row, None, []
 
     # Alignment cost grows faster than linearly, so at most evolution.max_members_aligned
     # members are aligned, in file order.
@@ -109,7 +113,7 @@ def measure(job):
         row["evidence_note"] = "alignment_failed"
         row["dnds_status"] = "ALIGNMENT_FAILED"
         row["rnacode_status"] = "ALIGNMENT_FAILED"
-        return row, None
+        return row, None, []
 
     aligned = {}
     name, buf = None, []
@@ -133,16 +137,12 @@ def measure(job):
     # raises only when the CDS and protein inputs disagree.
     codon_aln = {m: back_translate(ap, _cds[m]) for m, ap in aligned.items()}
 
-    # The status of every pair is counted as well as the values: a family of identical
-    # sequences (NO_DIVERGENCE) is not a family measured and found neutral. A pair with
-    # dN/dS = inf (dS = 0, dN > 0) is counted in the statuses but not in the median.
-    ratios, statuses = [], collections.Counter()
-    for a, b in itertools.combinations(sorted(codon_aln), 2):
-        r, status = dnds_detail(codon_aln[a], codon_aln[b],
-                                min_codons=_cfg["min_codons"])
-        statuses[status] += 1
-        if r is not None and r != float("inf"):
-            ratios.append(r)
+    # yn00 writes several files into its working directory, so each call gets its own
+    # directory, removed once read.
+    ydir = f"{_tmpdir}/{fid}.{label}.yn00"
+    result = yn00(codon_aln, ydir)
+    shutil.rmtree(ydir, ignore_errors=True)
+    pairs = [{"family_id": fid, "member_set": label, **p} for p in result[1]] if result else []
 
     # Coding potential, independent of the gene caller and of dN/dS. Both strands: for
     # a shadow ORF the antisense signal is expected to be the stronger one.
@@ -154,15 +154,20 @@ def measure(job):
     if p_anti is not None:
         row["rnacode_p_antisense"] = p_anti
 
-    row["n_pairs"] = len(ratios)
-    if ratios:
-        row["dnds_median"] = round(statistics.median(ratios), 4)
-        row["dnds_min"] = round(min(ratios), 4)
+    # The family summary is the median and minimum of the omega values yn00 reports,
+    # including its 99.0000 for a pair with dS = 0; a pair yn00 reports as nan has no
+    # value. evolution.min_codons applies to the alignment length yn00 used.
+    omegas = [float(p["omega"]) for p in pairs if not math.isnan(float(p["omega"]))]
+    if result is None:
+        row["dnds_status"] = "YN00_FAILED"
+    elif result[0] < _cfg["min_codons"]:
+        row["dnds_status"] = "TOO_SHORT"
+    elif not omegas:
+        row["dnds_status"] = "NO_ESTIMATE"
+    else:
+        row["n_pairs"] = len(omegas)
+        row["dnds_median"] = round(statistics.median(omegas), 4)
+        row["dnds_min"] = round(min(omegas), 4)
         row["under_purifying_selection"] = int(row["dnds_median"] < _cfg["dnds_purifying_max"])
         row["dnds_status"] = "MEASURED"
-    else:
-        row["evidence_note"] = "no_informative_pairs"
-        # The commonest status across the pairs says which kind of absence this is.
-        row["dnds_status"] = (statuses.most_common(1)[0][0] if statuses
-                              else "NO_INFORMATIVE_PAIRS")
-    return row, family_consensus
+    return row, family_consensus, pairs

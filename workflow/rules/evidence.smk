@@ -358,6 +358,8 @@ rule family_evolution:
         # S7c re-searches it: a family can be collectively recognisable while every member
         # individually misses the cut, and Pavlopoulos removed 6.5% of clusters that way.
         consensus=f"{OUT}/11_distribution_and_evolution/family_consensus.faa",
+        # Every yn00 pair row, as yn00 reported it.
+        pairs=f"{OUT}/11_distribution_and_evolution/family_yn00_pairs.tsv.gz",
     params:
         evolution=targets["evolution"],
     threads: 16

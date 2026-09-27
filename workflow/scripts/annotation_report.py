@@ -37,7 +37,7 @@ NOTHING IS FILTERED AND NOTHING IS RANKED HERE
 
 Every ORF appears, including artefact-flagged ones. Every dark family appears, including
 ORPHANs and families that failed every test. Absence of evidence is written as an explicit
-status - TOO_FEW_MEMBERS, NO_DIVERGENCE, NO_SIGNAL - never as a blank that reads as a failed
+status - TOO_FEW_MEMBERS, TOO_SHORT, NO_SIGNAL - never as a blank that reads as a failed
 test. Choosing what to do with all that is the report's job, and the report is you.
 
 There is no score, rank or candidate column. evidence_dimension_count counts the distinct

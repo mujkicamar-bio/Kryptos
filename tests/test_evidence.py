@@ -35,7 +35,7 @@ def test_purifying_selection_fires_only_on_a_measured_dnds_below_the_threshold()
 
     assert fires({"dnds_status": "MEASURED", "dnds_median": "0.2"})
     assert not fires({"dnds_status": "MEASURED", "dnds_median": "0.5"})
-    assert not fires({"dnds_status": "NO_DIVERGENCE", "dnds_median": ""})
+    assert not fires({"dnds_status": "YN00_FAILED", "dnds_median": ""})
     assert not fires({"dnds_status": "TOO_SHORT", "dnds_median": "0.1"})
 
 
