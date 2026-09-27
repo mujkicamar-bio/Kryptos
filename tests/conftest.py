@@ -1,15 +1,8 @@
-"""Test harness for the Snakemake script layer.
-
-WHY THIS EXISTS
-
-172 unit tests covered src/plasmidann/ and not one line of workflow/scripts/. Five
-independent reviews then found that essentially every serious defect lived in that
-untested layer - including four stages that produced no output while reporting success,
-and a NameError that had never fired because a missing tool masked it.
+"""Test harness for the workflow scripts.
 
 The scripts are not importable modules: Snakemake injects a global named `snakemake` and
-executes them. This harness supplies that global, so a script can be run against a ten-row
-fixture in milliseconds. That is the whole trick, and it is what was missing.
+executes them. This harness supplies that global, so a script can be run against a small
+fixture in milliseconds.
 """
 import os
 import pathlib
@@ -19,6 +12,8 @@ import tempfile
 from types import SimpleNamespace
 
 import pytest
+
+from plasmidann import labeldb
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "workflow" / "scripts"
@@ -81,8 +76,7 @@ def _as_namedlist(spec):
 class FakeSnakemake:
     """The object Snakemake injects into a script's global namespace."""
 
-    def __init__(self, input=None, output=None, params=None, log=None,
-                 threads=1, wildcards=None, resources=None):
+    def __init__(self, input=None, output=None, params=None, log=None, threads=1):
         # Rules declare inputs and outputs either positionally or by name, and scripts
         # access them the same way, so the harness has to accept both forms.
         self.input = _as_namedlist(input)
@@ -90,13 +84,10 @@ class FakeSnakemake:
         self.params = _as_namedlist(params)
         self.log = NamedList(*(log or []))
         self.threads = threads
-        self.wildcards = SimpleNamespace(**(wildcards or {}))
-        # Snakemake always injects `resources`, and always defines resources.tmpdir even
-        # when a rule declares no resources of its own. A harness that omitted it let a
-        # script reach the cluster with an attribute error the tests could not see.
-        res = dict(resources or {})
-        res.setdefault("tmpdir", tempfile.gettempdir())
-        self.resources = SimpleNamespace(**res)
+        self.wildcards = SimpleNamespace()
+        # Snakemake always defines resources.tmpdir, even for a rule that declares no
+        # resources of its own.
+        self.resources = SimpleNamespace(tmpdir=tempfile.gettempdir())
 
 
 def run_script(name, snake):
@@ -150,10 +141,7 @@ def project_tools_on_path():
     """Tools live in the project environment, not on the default PATH.
 
     Session-scoped and autouse so it also covers fixtures that build test data with a tool
-    (a three-sequence DIAMOND database, for instance) before any script runs. Putting the
-    real binaries on PATH means a missing tool fails the test rather than silently routing
-    a script down an error branch that exits 0 - which is precisely how the collections
-    NameError in family_evolution.py hid through five reviews."""
+    (a three-sequence DIAMOND database, for instance) before any script runs."""
     os.environ["PATH"] = f"{TOOLBIN}{os.pathsep}{os.environ['PATH']}"
 
 
@@ -196,7 +184,5 @@ def _is_table(fixture_dir, rows=()):
     return str(path)
 
 
-# protein_labels_plasmid.tsv as label_databases writes it (plasmidann.labeldb.COLUMNS).
-PLASMID_LABEL_COLS = ["seq_id", "source", "label_kind", "label", "sub_label", "tier",
-                      "cut_off", "pident", "qcov", "scov", "bitscore", "subject",
-                      "database_version"]
+# protein_labels_plasmid.tsv as label_databases writes it.
+PLASMID_LABEL_COLS = labeldb.COLUMNS
