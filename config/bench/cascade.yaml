@@ -1,27 +1,18 @@
-# Cost-measurement cascade: production tiers, test-set thresholds.
+# Cost-measurement cascade: five tiers, as in production, at test scale. Unlike
+# config/test/cascade.yaml it has a T5, because T5 dominates the cost.
 #
-# Differs from config/cascade.yaml in exactly one way, forced by the set size:
+# Differs from config/cascade.yaml in two ways:
 #
-#   hmmer_z  5504: all 5,304 unique proteins, searched or not, plus the 100 spiked
-#            positive controls and the 100 decoys this configuration asks for. hmmsearch reports
-#            E = (sequences searched) x P(score | null), so a -Z pinned to the production
-#            value would rescale every E-value in the run.
-#            plasmidann.cascade.check_hmmer_z refuses the mismatch at load time.
+#   hmmer_z  5504, as in config/test/cascade.yaml: every unique protein of the test set
+#            plus the 100 + 100 controls. Rule check_hmmer_z accepts a 2% difference.
 #
-# Unlike config/test/cascade.yaml, the nr tier IS present. The point of this run is to
-# measure what production costs, and nr is the tier that dominates it.
+#   T5       full NCBI nr without skip_if_named_by, not ClusteredNR with it, so its cost
+#            describes a full-nr cascade. -b 16 -c 1, as in production: with DIAMOND's
+#            defaults (-b 2 -c 4) 2,000 queries did not finish against nr in 12 hours
+#            (job 6823981); with -b 16 -c 1 the same pass took 45-69 minutes on a full
+#            node (job 6928733).
 #
-# T5 CARRIES BLOCK-SIZE FLAGS THAT PRODUCTION DOES NOT YET CARRY.
-#
-# config/cascade.yaml declares T5 args as "--very-sensitive" alone, which leaves DIAMOND
-# on its defaults of -b 2 -c 4. Measured, job 6823981: those defaults did not finish
-# 2,000 queries against nr in 12 hours, because nr becomes ~137 blocks indexed four times
-# each per seed shape - a fixed cost paid whatever the query count. With -b 16 -c 1
-# (~17 blocks, one index pass each) the same pass takes 45-69 minutes on a full node
-# (job 6928733). Production needs this change too; see the note in
-# workflow/bench_pipeline.sbatch.
-#
-# Every other threshold is identical to production, deliberately.
+# Every other threshold is identical to production.
 narrow_at: 0.7
 min_explained: 0.5
 min_coverage: 0.5
