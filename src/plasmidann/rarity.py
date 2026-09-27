@@ -1,30 +1,42 @@
-"""Stage 14: rarity labels per family, and the dark-family rarefaction curve.
+"""Rarity labels per family, and the dark-family rarefaction curve.
 
 Every label describes breadth; sequence conservation is not measured here. RARE,
-LINEAGE_SPECIFIC and WIDELY_CONSERVED count independent Stage 6 lineages
+LINEAGE_SPECIFIC and WIDESPREAD count independent lineages (plasmid_lineage.tsv)
 (independent_plasmid_cluster_count), never plasmid records, so a family on four hundred
 redeposits of one plasmid is one observation. The MOB labels count MOB-suite clusters and
 the host labels observed host species and genera. The labels are descriptive and nothing
-selects on them. The thresholds are configuration (config/targets.yaml, `rarity`); the two
-lineage thresholds are recorded on every output row.
+selects on them. The thresholds are configuration (config/targets.yaml, `rarity`), except
+the WIDESPREAD threshold, which is measured on the run: the configured percentile of the
+lineage counts of the families at that resolution (widespread_threshold). The two lineage
+thresholds are recorded on every output row.
 
-The rarefaction curve counts dark families discovered against plasmids sampled, averaged
-over random orderings. saturation() compares the final slope with the initial slope, in
-families gained per plasmid added.
+The rarefaction curve counts dark families discovered against lineages sampled,
+averaged over random orderings: a lineage is one observation, so redeposited copies of one
+plasmid do not flatten the curve. saturation() compares the final slope with the initial
+slope, in families gained per lineage added.
 """
+import math
 import random
 
-# Bumped when a label's definition changes, so two runs' labels cannot be silently compared.
-RARITY_VERSION = "2"
+
+def widespread_threshold(lineage_counts, percentile):
+    """The lineage count at the given percentile (nearest-rank method) of the counts above
+    0; None when no count is above 0. A count of 0 means independence was not measured."""
+    measured = sorted(c for c in lineage_counts if c > 0)
+    if not measured:
+        return None
+    return measured[math.ceil(percentile * len(measured) / 100) - 1]
 
 
 def rarity_labels(family, thresholds):
     """Every label that applies to one family, from RARE, LINEAGE_SPECIFIC,
-    WIDELY_CONSERVED, SINGLE_MOB, CROSS_MOB, SINGLE_HOST, CROSS_HOST and CROSS_TAXON.
+    WIDESPREAD, SINGLE_MOB, CROSS_MOB, SINGLE_HOST, CROSS_HOST and CROSS_TAXON.
 
-    `family` holds the Stage 7 distribution counts: independent_plasmid_cluster_count,
+    `family` holds the distribution counts of recurrence.tsv: independent_plasmid_cluster_count,
     MOB_count, host_count, genus_count, n_plasmids_with_species, unique_plasmid_count.
-    The labels describe different axes, so a family may carry several.
+    `thresholds` holds the rarity configuration and widespread_min_lineages, the measured
+    WIDESPREAD threshold (None when no family was measured). The labels describe different
+    axes, so a family may carry several.
     """
     def count(name):
         try:
@@ -39,8 +51,8 @@ def rarity_labels(family, thresholds):
         labels.append("RARE")
     if lineages == 1:
         labels.append("LINEAGE_SPECIFIC")
-    if lineages >= thresholds["widely_conserved_min_lineages"]:
-        labels.append("WIDELY_CONSERVED")
+    if lineages and lineages >= thresholds["widespread_min_lineages"]:
+        labels.append("WIDESPREAD")
 
     # MOB-suite clusters are reported as a label only, never as a lineage count: MOB-suite
     # assigns the nearest reference's cluster however distant, so it is no measure of
@@ -63,22 +75,22 @@ def rarity_labels(family, thresholds):
     return labels
 
 
-def rarefaction(plasmid_families, sample_sizes=None, n_replicates=20, seed=0):
-    """Dark families discovered against plasmids sampled.
+def rarefaction(lineage_families, sample_sizes=None, n_replicates=20, seed=0):
+    """Dark families discovered against lineages sampled.
 
-    `plasmid_families` maps plasmid_id to the set of dark family ids on it. Returns a list
-    of dicts: n_plasmids, mean_families, min_families, max_families, n_replicates. Each
+    `lineage_families` maps lineage id to the set of dark family ids on it. Returns a list
+    of dicts: n_lineages, mean_families, min_families, max_families, n_replicates. Each
     point is the mean over `n_replicates` random samples, because one ordering gives one
     arbitrary curve; the replicate range shows how stable the curve is.
     """
-    plasmids = sorted(plasmid_families)
-    if not plasmids:
+    lineages = sorted(lineage_families)
+    if not lineages:
         return []
 
     if sample_sizes is None:
-        # Ten steps ending on the full set, equal to within one plasmid, so the final slope
-        # is measured over as many plasmids as every other.
-        n = len(plasmids)
+        # Ten steps ending on the full set, equal to within one lineage, so the final slope
+        # is measured over as many lineages as every other.
+        n = len(lineages)
         sample_sizes = sorted({n * i // 10 for i in range(1, 11)} - {0})
 
     rng = random.Random(seed)
@@ -86,13 +98,13 @@ def rarefaction(plasmid_families, sample_sizes=None, n_replicates=20, seed=0):
     for size in sample_sizes:
         counts = []
         for _ in range(n_replicates):
-            sample = rng.sample(plasmids, size)
+            sample = rng.sample(lineages, size)
             seen = set()
-            for plasmid in sample:
-                seen |= plasmid_families[plasmid]
+            for lineage in sample:
+                seen |= lineage_families[lineage]
             counts.append(len(seen))
         curve.append({
-            "n_plasmids": size,
+            "n_lineages": size,
             "mean_families": round(sum(counts) / len(counts), 2),
             "min_families": min(counts),
             "max_families": max(counts),
@@ -102,7 +114,7 @@ def rarefaction(plasmid_families, sample_sizes=None, n_replicates=20, seed=0):
 
 
 def saturation(curve):
-    """Final slope / initial slope, each in families gained per plasmid added.
+    """Final slope / initial slope, each in families gained per lineage added.
 
     Near 0 the curve has flattened; near 1 discovery is as fast at the end as at the start,
     so the dark family count is a lower bound. "" when undefined: fewer than three points,
@@ -112,7 +124,7 @@ def saturation(curve):
         return ""
 
     def slope(a, b):
-        span = b["n_plasmids"] - a["n_plasmids"]
+        span = b["n_lineages"] - a["n_lineages"]
         return (b["mean_families"] - a["mean_families"]) / span if span else 0.0
 
     initial = slope(curve[0], curve[1])

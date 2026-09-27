@@ -62,7 +62,7 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | S5 | `09_target_eligibility` | target eligibility: unnamed, searched, not artefact-flagged |
 | S6 | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
 | S7 | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
-| S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, dark family co-occurrence (`dark_cooccurrence.tsv`: pairs of dark families sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
+| S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, dark sequence co-occurrence (`dark_cooccurrence.tsv`: pairs of unique dark protein sequences sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
 | S9a | `13_synteny` | gene-order conservation counted over lineages, at the gene (close) and family (intermediate) level |
 | S9b | `14_rarity` | family rarity labels and the saturation curve |
 | final | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family (the family table includes each family's co-occurring partners) |

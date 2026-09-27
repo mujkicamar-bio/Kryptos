@@ -97,7 +97,7 @@ properties:
         uniqueItems: true
         items: {type: string}
       min_lineages: {type: integer, minimum: 2}
-  # S8g: dark family co-occurrence - the lineage minimum for a tested pair, and the FDR.
+  # S8g: dark sequence co-occurrence - the lineage minimum for a reported pair, and the FDR.
   cooccurrence:
     type: object
     required: [min_lineages_together, fdr]
@@ -170,7 +170,7 @@ properties:
     type: object
     required:
     - rare_max_lineages
-    - widely_conserved_min_lineages
+    - widespread_percentile
     - cross_min_hosts
     - cross_min_genera
     - rarefaction_replicates
@@ -178,9 +178,10 @@ properties:
       rare_max_lineages:
         type: integer
         minimum: 1
-      widely_conserved_min_lineages:
-        type: integer
-        minimum: 1
+      widespread_percentile:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 100
       cross_min_hosts:
         type: integer
         minimum: 1

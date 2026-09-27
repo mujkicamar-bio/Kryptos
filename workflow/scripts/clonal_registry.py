@@ -1,4 +1,4 @@
-"""S0b: the clonal registry, one row per analysis-set plasmid.
+"""The clonal registry, one row per analysis-set plasmid.
 
 Records per plasmid its MOB-suite cluster (empty when MOB-suite assigned none), the
 observed host and the source that named it, MOB-suite's predicted host range, topology and
@@ -8,7 +8,9 @@ CROSS_MOB labels.
 
 The host comes from three sources in order of preference (plasmidann.hosts): PLSDB species,
 PlasmidScope's per-record host (which carries IMG/PR's) and the GenBank/RefSeq source
-organism.
+organism. The organism is not used for a metagenomic record (working set lifestyle
+"metagenomic"): there it names the sampled host or environment, not the plasmid's
+bacterial host (123 mMGE records give Homo sapiens).
 
 predicted_host_range is MOB-suite's predicted host range (master table mob_host_range): the
 taxa in which plasmids with the same replicon and relaxase types have been seen, at
@@ -30,9 +32,14 @@ with open(snakemake.input.ps_hosts, newline="") as fh:
         if r["plasmid_id"] in keep:
             ps_host[r["plasmid_id"]] = r.get("host", "")
 organism = {}
+n_metagenomic = 0
 with open(snakemake.input.working_set, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
-        if r["plasmid_id"] in keep:
+        if r["plasmid_id"] not in keep:
+            continue
+        if r["lifestyle"] == "metagenomic":
+            n_metagenomic += 1
+        else:
             organism[r["plasmid_id"]] = r.get("organism", "")
 
 n, n_missing, n_host = 0, 0, 0
@@ -62,5 +69,6 @@ with open(snakemake.input.master, newline="") as fh, \
         n += 1
 
 print(f"registry: {n} plasmids, {n_missing} without a MOB cluster, "
-      f"{n_host} with a host")
+      f"{n_host} with a host; the organism field is not used for {n_metagenomic} "
+      "metagenomic records")
 assert n == len(keep), f"registry has {n} rows for {len(keep)} analysis-set plasmids"

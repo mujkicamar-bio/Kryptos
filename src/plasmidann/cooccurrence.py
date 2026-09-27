@@ -1,20 +1,24 @@
-"""Dark families that travel together (S8g), counted over Mash lineages.
+"""Dark protein sequences that travel together, counted over Mash lineages.
 
-Two dark families are together in a lineage (plasmid_lineage.tsv) when one of its plasmids
-carries a member ORF of each, so redeposited copies of one plasmid are one observation.
-Each pair is tested by the hypergeometric upper tail P(X >= k) over lineages: N lineages,
-K carry family A, n carry family B, and k are lineages where A and B share a plasmid.
+The unit is the unique dark protein sequence (seq_id), not the family. Two sequences are
+together in a lineage (plasmid_lineage.tsv) when one of its plasmids carries an ORF of
+each, so redeposited copies of one plasmid are one observation.
 
-Every pair of families that are each in at least `min_lineages_together` lineages and
-share a plasmid enters the Benjamini-Hochberg correction (Benjamini & Hochberg 1995, J R
-Stat Soc B 57:289). Only pairs with k >= min_lineages_together are reported: one lineage
-is one observation, and two families seen once each would get p = 1/N from it. The cut on
-k is applied after the correction because k is the test statistic, and filtering on it
-first would shrink the q-values (Bourgon et al. 2010, PNAS 107:9546).
+Null model: the K lineages carrying sequence A and the n lineages carrying B are
+independent, uniformly random subsets of the N lineages. Each pair is tested by the
+hypergeometric upper tail P(X >= k), where k is the number of lineages in which A and B
+share a plasmid. Every lineage is taken as equally likely to carry a sequence, although
+lineages differ in gene content, so two sequences confined to large plasmids share
+lineages more often than this null predicts.
 
-The null treats every lineage as equally likely to carry a family, although lineages
-differ in gene content, so two families confined to large plasmids share lineages more
-often than the null predicts.
+Only sequences in at least `min_lineages_together` lineages enter the enumeration: a pair
+needs k >= min_lineages_together to be reported, and k cannot exceed either sequence's
+lineage count. This keeps the pair count bounded at full scale, where most of the unique
+proteins are in one lineage. Every pair of such sequences that shares a plasmid enters the
+Benjamini-Hochberg correction (Benjamini & Hochberg 1995, J R Stat Soc B 57:289); only pairs
+with k >= min_lineages_together are reported. The cut on k is applied after the correction
+because k is the test statistic, and filtering on it first would shrink the q-values
+(Bourgon et al. 2010, PNAS 107:9546).
 
 Computed in log space with math.lgamma: the tails fall below the smallest double, and scipy
 is not a dependency of the pipeline environment.
@@ -22,8 +26,6 @@ is not a dependency of the pipeline environment.
 import collections
 import itertools
 import math
-
-from darkorf import status
 
 
 def _log_comb(a, b):
@@ -82,78 +84,88 @@ def benjamini_hochberg(pvalues):
     return q
 
 
-def cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together):
-    """The pairs of families together in >= min_lineages_together lineages, tested.
+def cooccurrence(plasmid_seqs, lineage_of, n_lineages, min_lineages_together):
+    """The pairs of sequences together in >= min_lineages_together lineages, tested.
 
-    plasmid_families  {plasmid_id: {family_id, ...}} - the dark families with a member ORF
-                      on each plasmid
-    lineage_of        {plasmid_id: lineage}; every plasmid above must have one
-    n_lineages        N, the lineages in the analysis set
+    plasmid_seqs  {plasmid_id: {seq_id, ...}} - the dark sequences with an ORF on each
+                  plasmid
+    lineage_of    {plasmid_id: lineage}; every plasmid above must have one
+    n_lineages    N, the lineages in the analysis set
 
-    Returns one dict per reported pair (family_a < family_b), sorted by p-value.
+    Returns (rows, stats): one dict per reported pair (seq_a < seq_b), sorted by p-value;
+    stats counts the sequences enumerated, the pair occurrences on plasmids (an upper
+    bound on the pairs held in memory) and the pairs tested.
     """
-    missing = sorted(p for p in plasmid_families if p not in lineage_of)
+    missing = sorted(p for p in plasmid_seqs if p not in lineage_of)
     if missing:
-        raise ValueError(f"{len(missing)} plasmid(s) carrying a dark family have no "
+        raise ValueError(f"{len(missing)} plasmid(s) carrying a dark sequence have no "
                          f"lineage, e.g. {missing[:3]}")
 
     by_lineage = collections.defaultdict(list)
-    for plasmid, fams in plasmid_families.items():
-        if fams:
-            by_lineage[lineage_of[plasmid]].append(fams)
-    lineages_of_family = collections.Counter()
+    for plasmid, seqs in plasmid_seqs.items():
+        if seqs:
+            by_lineage[lineage_of[plasmid]].append(seqs)
+    lineages_of_seq = collections.Counter()
     for plasmids in by_lineage.values():
-        lineages_of_family.update(set().union(*plasmids))
+        lineages_of_seq.update(set().union(*plasmids))
 
-    # A family in fewer lineages than the minimum can never be reported. It is left out of
-    # the enumeration and the correction: the filter uses its marginal count only, and it
-    # keeps the pair count bounded, because most dark families are in one lineage.
-    eligible = {f for f, c in lineages_of_family.items() if c >= min_lineages_together}
+    eligible = {s for s, c in lineages_of_seq.items() if c >= min_lineages_together}
     together = collections.Counter()
+    n_occurrences = 0
     for plasmids in by_lineage.values():
         pairs = set()
-        for fams in plasmids:
-            present = sorted(fams & eligible)
+        for seqs in plasmids:
+            present = sorted(seqs & eligible)
+            n_occurrences += len(present) * (len(present) - 1) // 2
             pairs.update(itertools.combinations(present, 2))
         together.update(pairs)
 
     # Every counted pair enters the correction, but a row is built only for a reported
     # pair, so an unreported pair costs one p-value and one q-value in memory.
     counted = list(together.items())
-    pvalues = [hypergeom_sf(k, n_lineages, lineages_of_family[a], lineages_of_family[b])
+    pvalues = [hypergeom_sf(k, n_lineages, lineages_of_seq[a], lineages_of_seq[b])
                for (a, b), k in counted]
     rows = []
     for ((a, b), k), p, q in zip(counted, pvalues, benjamini_hochberg(pvalues)):
         if k < min_lineages_together:
             continue
-        K, n = lineages_of_family[a], lineages_of_family[b]
+        K, n = lineages_of_seq[a], lineages_of_seq[b]
         rows.append({
-            "family_a": a, "family_b": b,
+            "seq_a": a, "seq_b": b,
             "n_lineages_a": K, "n_lineages_b": n,
             "n_lineages_together": k, "n_lineages_total": n_lineages,
             "fraction_of_a": round(k / K, 4), "fraction_of_b": round(k / n, 4),
             "expected_together": round(K * n / n_lineages, 4),
-            "p_value": p, "q_value": q, "status": status.SUCCESS,
+            "p_value": p, "q_value": q,
         })
-    rows.sort(key=lambda r: (r["p_value"], r["family_a"], r["family_b"]))
-    return rows
+    rows.sort(key=lambda r: (r["p_value"], r["seq_a"], r["seq_b"]))
+    stats = {"n_sequences": len(lineages_of_seq), "n_enumerated": len(eligible),
+             "n_pair_occurrences": n_occurrences, "n_tested": len(counted)}
+    return rows, stats
 
 
-def family_partners(rows, fdr):
-    """Per family: how many partners co-occur at q <= fdr, and the best partner.
+def family_partners(rows, fdr, family_of_seq):
+    """Per family: the partner sequences its members co-occur with at q <= fdr, and the
+    best partner.
 
+    n_cooccurring_partners counts distinct partner sequences over all the family's members.
     The best partner is the one with the lowest q (then lowest p, then most lineages
-    together), named whether or not it is significant, with the fraction of THIS family's
+    together), named whether or not it is significant, with the fraction of the MEMBER's
     lineages in which the partner shares a plasmid.
     """
-    best, n_sig = {}, collections.Counter()
+    best, significant = {}, collections.defaultdict(set)
     for r in rows:
-        for focal, partner, fraction in ((r["family_a"], r["family_b"], r["fraction_of_a"]),
-                                         (r["family_b"], r["family_a"], r["fraction_of_b"])):
-            n_sig[focal] += r["q_value"] <= fdr
+        for focal, partner, fraction in ((r["seq_a"], r["seq_b"], r["fraction_of_a"]),
+                                         (r["seq_b"], r["seq_a"], r["fraction_of_b"])):
+            family = family_of_seq.get(focal)
+            if family is None:
+                continue
+            if r["q_value"] <= fdr:
+                significant[family].add(partner)
             key = (r["q_value"], r["p_value"], -r["n_lineages_together"], partner)
-            if focal not in best or key < best[focal][0]:
-                best[focal] = (key, partner, r["q_value"], fraction)
-    return {f: {"n_cooccurring_partners": n_sig[f], "top_cooccurring_partner": partner,
+            if family not in best or key < best[family][0]:
+                best[family] = (key, partner, r["q_value"], fraction)
+    return {f: {"n_cooccurring_partners": len(significant[f]),
+                "top_cooccurring_partner": partner,
                 "top_cooccurring_partner_q": q, "top_cooccurring_partner_fraction": fraction}
             for f, (_, partner, q, fraction) in best.items()}

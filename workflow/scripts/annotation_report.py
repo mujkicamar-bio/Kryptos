@@ -18,8 +18,8 @@ Two files, because there are two natural units:
   dark_families_complete.csv  one row per dark family. The selection surface: every piece
                               of evidence the run produced, side by side - annotation,
                               evolution, context, structure, distribution (Stage 7),
-                              synteny (Stage 9), the dark families it travels with
-                              (S8g), rarity (Stage 14) and the Stage 15 evidence
+                              synteny (Stage 9), the dark sequences its members travel
+                              with (S8g), rarity (Stage 14) and the Stage 15 evidence
                               dimensions.
 
 WHAT CONTEXT HOLDS is not a column here: 12_context_and_structure/family_context_terms.tsv
@@ -27,7 +27,7 @@ is the long table of context terms per family (amr:, metal:, defence:, conj: ...
 over lineages. It carries no top term and no confidence, because the thresholds that would
 make a term a prediction are calibrated after the run (tools/calibrate_context.py); the
 family table carries the descriptive rates (cons_*) only, beside the S8g co-occurrence
-partners, which are pairs of dark families rather than context terms.
+partners, which are pairs of dark protein sequences rather than context terms.
 
 CSV, not TSV, because these are the files that get opened in a spreadsheet. Every field is
 quoted by csv.writer where it needs to be, which matters: a DIAMOND stitle is free text and
@@ -90,16 +90,16 @@ recurrence = index(snakemake.input.recurrence, "family_id")
 synteny = index(snakemake.input.synteny, "family_id")
 rarity = index(snakemake.input.rarity, "family_id")
 
-# S8g: per dark family, the partners it shares a plasmid with in more lineages than chance
-# predicts. The pair table holds the tested pairs only; a family in none of them had no
-# partner together in cooccurrence.min_lineages_together lineages.
+# S8g: pairs of dark sequences that share a plasmid in more lineages than chance predicts.
+# The pair table holds the reported pairs only; a family none of whose members is in one
+# had no member together with another sequence in cooccurrence.min_lineages_together
+# lineages.
 with open(snakemake.input.cooccurrence, newline="") as fh:
     pairs = [{**r, "p_value": float(r["p_value"]), "q_value": float(r["q_value"]),
               "n_lineages_together": int(r["n_lineages_together"]),
               "fraction_of_a": float(r["fraction_of_a"]),
               "fraction_of_b": float(r["fraction_of_b"])}
              for r in csv.DictReader(fh, delimiter="\t")]
-partners = family_partners(pairs, cooc_cfg["fdr"])
 
 # Which unique protein each ORF is, and which family each unique protein belongs to.
 seq_of_orf = {}
@@ -113,6 +113,7 @@ family_of_seq = {}
 for fid, fam in families.items():
     for member in fam["members"].split(","):
         family_of_seq[member] = fid
+partners = family_partners(pairs, cooc_cfg["fdr"], family_of_seq)
 
 # ------------------------------------------------------------------------------------
 # The family table: the selection surface.
@@ -163,17 +164,18 @@ FAMILY_COLS = [
     "small_lineage_right_conservation", "small_lineage_neighborhood_conservation",
     "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
     "small_modal_left", "small_modal_right", "small_modal_synteny", "small_synteny_status",
-    # S8g: the dark families this one travels with. A partner counts when it shares a
-    # plasmid with this family in more lineages than chance predicts (q <= fdr); the best
-    # partner (lowest q) is named whether significant or not, with its q and the fraction of
-    # THIS family's lineages in which the two share a plasmid. TOO_FEW_LINEAGES: no partner
-    # shared a plasmid with it in min_lineages lineages, so no pair was tested.
+    # S8g: the dark sequences this family's dark members travel with. A partner sequence
+    # counts when it shares a plasmid with a member in more lineages than chance predicts
+    # (q <= fdr); the best partner (lowest q) is named whether significant or not, with its
+    # q and the fraction of the member's lineages in which the two share a plasmid.
+    # TOO_FEW_LINEAGES: no member shared a plasmid with another sequence in min_lineages
+    # lineages, so no pair of it was reported.
     "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
     "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
     "cooccurrence_fdr", "cooccurrence_min_lineages",
     # Stage 14: descriptors, not a ranking. RARE is not better than
-    # WIDELY_CONSERVED. The version travels because a label's definition can change.
-    "rarity_labels", "rarity_version",
+    # WIDESPREAD.
+    "rarity_labels",
     # Stage 15: dimensions counted, never scored.
     "evidence_dimensions_present", "evidence_dimension_count",
     "supporting_observations_count", "supporting_observations_are_not_independent",
@@ -183,7 +185,7 @@ FAMILY_COLS = [
 # The report takes them from Stage 7, which is where they are computed; taking rarity's
 # copies as well would put the same number in the row twice under one name, and whichever
 # was merged last would win silently if the two ever disagreed.
-RARITY_COLS = ("rarity_labels", "rarity_version")
+RARITY_COLS = ("rarity_labels",)
 
 # S9 writes a bare `status`. Every stage does, which is exactly why it cannot be merged
 # under that name: the family row already carries dnds_status and independent_cluster_status

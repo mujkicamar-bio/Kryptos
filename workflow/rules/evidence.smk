@@ -12,8 +12,8 @@
 # =====================================================================================
 
 rule clonal_registry:
-    """S0b: per plasmid, its MOB-suite cluster, topology, observed host and predicted host
-    range. Independent occurrences are counted over Stage 6 lineages (plasmid_lineage),
+    """Per plasmid, its MOB-suite cluster, topology, observed host and predicted host
+    range. Independent occurrences are counted over the lineages of plasmid_lineage.tsv,
     not over these clusters."""
     input:
         master=config["input"]["master_table"],
@@ -82,7 +82,7 @@ rule dark_set:
 
 
 rule plasmid_lineage:
-    """Stage 6: cluster plasmids by sequence similarity into independent lineages.
+    """Cluster plasmids by sequence similarity into independent lineages.
 
     Separate from MOB class: MOB typing describes the relaxase a plasmid carries and says
     nothing about whether two records are the same molecule sequenced twice.
@@ -108,10 +108,11 @@ rule plasmid_lineage:
 
 
 rule protein_families:
-    """Stage 5: the family table for every unique protein, not only the dark set.
+    """The family table for every unique protein, not only the dark set.
 
-    The clusters are made before the cascade (S2f); this adds the annotation, the
-    distribution and the small/large scope. dark_member_count, annotated_member_count,
+    The clusters are made before the cascade (rule protein_clustering); this adds the
+    annotation and the small/large scope. The distribution counts are in recurrence.tsv
+    (rule recurrence). dark_member_count, annotated_member_count,
     percentage_dark_in_family and the dark-only family (100% dark) need the annotated
     members present.
 
@@ -119,7 +120,7 @@ rule protein_families:
     dark-family subset at the primary resolution that the dark stages read.
     """
     input:
-        # Made before the cascade (S2f, protein_clustering); annotation is added here.
+        # Made before the cascade (rule protein_clustering); annotation is added here.
         clusters=expand(f"{OUT}/10_clustering/families_{{res}}_cluster.tsv",
                         res=targets["clustering"]["resolutions"]),
         prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
@@ -127,7 +128,6 @@ rule protein_families:
         dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
-        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     output:
         families=f"{OUT}/10_clustering/protein_families.tsv",
         dark_families=f"{OUT}/10_clustering/dark_families.tsv",
@@ -147,10 +147,10 @@ rule protein_families:
 
 
 rule family_network:
-    """Stage 5b: 50%-identity clusters linked by sequence similarity (Durairaj et al.
-    2023), with communities and an annotation state per node - a map of where the dark
-    plasmidome sits relative to the known. Reads the intermediate clustering Stage 5
-    already made; changes no family and no dark call.
+    """50%-identity clusters linked by sequence similarity (Durairaj et al. 2023), with
+    communities and an annotation state per node - a map of where the dark plasmidome
+    sits relative to the known. Reads the intermediate clustering rule protein_clustering
+    made; changes no family and no dark call.
     """
     input:
         families=f"{OUT}/10_clustering/protein_families.tsv",
@@ -183,9 +183,9 @@ rule family_network:
 
 
 rule rarity:
-    """Stage 14: rarity labels per family, and the dark-family rarefaction curve.
+    """Rarity labels per family, and the dark-family rarefaction curve.
 
-    The curve answers whether the collection has saturated - whether more plasmids would
+    The curve answers whether the collection has saturated - whether more lineages would
     keep revealing new dark families - which is what says if the dark count is a lower
     bound.
     """
@@ -193,8 +193,10 @@ rule rarity:
         recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
         dark_families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
-        # The rarefaction axis: every small plasmid, with a dark family or without.
+        # The rarefaction axis: every lineage holding a small plasmid, with a dark family
+        # or without.
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
+        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     output:
         rarity=f"{OUT}/14_rarity/family_rarity.tsv",
         rarefaction=f"{OUT}/15_report/dark_family_rarefaction.tsv",
@@ -259,15 +261,17 @@ rule synteny:
 
 
 rule dark_cooccurrence:
-    """S8g: do two dark families travel together more often than chance predicts?
+    """Do two unique dark protein sequences travel together more often than chance
+    predicts?
 
-    Together = a member ORF of each on the same plasmid; counted once per Stage 6 lineage;
-    tested by the hypergeometric upper tail over lineages, with Benjamini-Hochberg across
-    the pairs together in at least cooccurrence.min_lineages_together lineages. Only those
-    tested pairs are written. See plasmidann.cooccurrence.
+    Together = an ORF of each on the same plasmid; counted once per lineage
+    (plasmid_lineage.tsv); only sequences in at least cooccurrence.min_lineages_together
+    lineages are enumerated; tested by the hypergeometric upper tail over lineages, with
+    Benjamini-Hochberg across the enumerated pairs. Pairs together in at least that many
+    lineages are written. See plasmidann.cooccurrence.
     """
     input:
-        # The primary-resolution dark families and their dark members.
+        # The dark sequences: the dark members of the primary-resolution dark families.
         families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
@@ -276,16 +280,14 @@ rule dark_cooccurrence:
     params:
         cooccurrence=targets["cooccurrence"],
     resources:
-        # Memory is ~100 B per distinct family pair sharing a plasmid (measured, a Counter
-        # of tuple keys) plus ~1 KB per tested pair. results_test (job 6985208, 100
-        # plasmids): 533 pair occurrences, 8.8 per small plasmid and 0.15 per large one,
-        # 25 MB peak, under 1 s. Scaled to 82,261 small and 61,242 large plasmids that is
-        # ~0.73 M pair occurrences (< 1 GB). The ceiling, if large plasmids carried as many
-        # dark families as when every dark protein made a family (results_bench, 2,631
-        # pairs per large plasmid), is ~162 M (~16 GB for the counts). 64 GB is a
-        # scheduling figure above that ceiling, not a measurement at full scale.
+        # Upper bound measured at full scale on a proxy (2026-09-27): the 8.75 M PlasmidScope
+        # ORFs of the analysis set, every protein PlasmidScope does not annotate counted as
+        # dark (1.08 M sequences), each plasmid its own lineage. Lineages only merge
+        # plasmids, so the real run enumerates fewer sequences and tests fewer pairs. The
+        # proxy enumerated 277,340 sequences in >= 2 plasmids, with 80.8 M pair occurrences,
+        # 20.9 M pairs tested and 15.5 M reported: 14.5 GB peak, 201 s. A distinct pair
+        # costs ~110 B in the counter (measured); the reported rows dominate the peak.
         mem_mb=64000,
-        # Each tested pair's tail takes 2-25 us (measured); ten million pairs take minutes.
         runtime=120,
     benchmark:
         f"{OUT}/benchmarks/dark_cooccurrence.tsv"
@@ -298,7 +300,7 @@ rule dark_cooccurrence:
 
 
 rule recurrence:
-    """Stage 7: distribution and recurrence, counted over independent units.
+    """Distribution and recurrence, counted over independent units.
 
     Seven counts per family, never collapsed, because database record counts are not
     independent biological observations.
