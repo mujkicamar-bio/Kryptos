@@ -334,7 +334,7 @@ def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir
     """A mandatory component of a complete system and a neutral component of a fragment
     are different evidence; MacSyFinder's hit_status and sys_wholeness say which."""
     out = fixture_dir / "defence_systems.tsv"
-    phase2 = out.parent / "phase2" / "run"
+    phase2 = out.parent / "phase2" / "RM"
     phase2.mkdir(parents=True)
     write_tsv(phase2 / "best_solution.tsv",
               ["replicon", "hit_id", "gene_name", "hit_pos", "model_fqn", "sys_id",
@@ -452,12 +452,15 @@ def test_defence_halts_when_the_models_are_required_and_absent(fixture_dir):
             threads=1))
 
 
-# Stand-in for foldseek: records its arguments and writes one hit per query.
+# Stand-in for foldseek: records its arguments and query beside itself, since the query and
+# output lie in the stage's scratch directory, and writes one hit per query.
 FAKE_FOLDSEEK = """#!{python}
-import pathlib, sys
+import pathlib, shutil, sys
 args = sys.argv[1:]
 query, out = args[1], args[3]
-pathlib.Path(out).parent.joinpath("foldseek_argv.txt").write_text("\\n".join(args))
+here = pathlib.Path(sys.argv[0]).parent
+here.joinpath("foldseek_argv.txt").write_text("\\n".join(args))
+shutil.copy(query, here / "query.faa")
 names = [l[1:].split()[0] for l in open(query) if l.startswith(">")]
 with open(out, "w") as fh:
     for n in names:
@@ -497,16 +500,20 @@ def test_structure_search_restricts_to_family_representatives(fixture_dir, monke
     """The default scope searches one sequence per dark family, not every dark protein."""
     out = _structure(fixture_dir, monkeypatch)
 
-    query = fixture_dir / "structure_query.faa"
-    names = {l[1:].split()[0] for l in query.read_text().splitlines() if l.startswith(">")}
+    query = (fixture_dir / "bin" / "query.faa").read_text()
+    names = {l[1:].split()[0] for l in query.splitlines() if l.startswith(">")}
     assert names == {"rep_a", "rep_b"}
-    argv = (fixture_dir / "foldseek_argv.txt").read_text().split("\n")
-    assert argv[:2] == ["easy-search", str(query)]
+    argv = (fixture_dir / "bin" / "foldseek_argv.txt").read_text().split("\n")
+    assert argv[0] == "easy-search"
     assert argv[argv.index("--prostt5-model") + 1] == str(fixture_dir / "prostt5")
     rows = read_tsv(out)
     assert {r["seq_id"] for r in rows} == {"rep_a", "rep_b"}
     assert {(r["target_description"], r["status"]) for r in rows} == {
         ("A SYNTHETASE", "SUCCESS")}
+    # The query and Foldseek's raw table are intermediates, removed with the scratch
+    # directory on success.
+    assert sorted(p.name for p in fixture_dir.iterdir() if p.is_file()) == [
+        "dark_families.tsv", "dark_proteins.faa", "pdb", "structure_hits.tsv"]
 
 
 def test_structure_search_records_not_run_when_optional_and_absent(fixture_dir, monkeypatch):
@@ -517,7 +524,7 @@ def test_structure_search_records_not_run_when_optional_and_absent(fixture_dir, 
     assert done.value.code == 0
     rows = read_tsv(fixture_dir / "structure_hits.tsv")
     assert [(r["seq_id"], r["status"]) for r in rows] == [("", "NOT_RUN")]
-    assert not (fixture_dir / "foldseek_argv.txt").exists()
+    assert not (fixture_dir / "bin" / "foldseek_argv.txt").exists()
 
 
 def test_an_operon_across_the_origin_of_a_circular_plasmid_counts(fixture_dir):

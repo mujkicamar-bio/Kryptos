@@ -11,13 +11,15 @@ not overridden.
 MacSyFinder writes no best_solution.tsv in unordered mode, and defense-finder's
 post-treatment step opens that file unconditionally and exits 1 after a complete search.
 The exit code therefore cannot decide success: the search succeeded when MacSyFinder wrote
-its all_systems.tsv tables, which are what this stage reads, and failed when it wrote none.
+the all_systems.tsv table of each model family (DefenseFinder, RM, CasFinder), which are
+what this stage reads, and failed when any is missing.
 
 Output: defence_components.tsv, one row per component hit, status SUCCESS; or one row with
 status NOT_RUN and no seq_id when the models are absent and defence.required is false.
 """
 import csv
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -52,21 +54,26 @@ if not (models_dir.is_dir() and any(models_dir.iterdir())):
     write_table([{"status": status.NOT_RUN}])
     sys.exit(0)
 
+# defense-finder runs MacSyFinder once per model family, in turn, and stops at the first
+# failure; each run writes its all_systems.tsv under the preserved raw output. The raw
+# output directory is emptied first, so that only tables written by this search are read.
+raw = outdir / "defense-finder-tmp"
+shutil.rmtree(raw, ignore_errors=True)
 completed = subprocess.run(
     f"defense-finder run --db-type unordered --out-dir {outdir} "
     f"--workers {snakemake.threads} --preserve-raw {snakemake.input.faa}",
     shell=True)
 
-# MacSyFinder writes one all_systems.tsv per model family under the preserved raw output.
-system_tables = sorted(outdir.rglob("all_systems.tsv"))
-if not system_tables:
+system_tables = [raw / family / "all_systems.tsv" for family in ("DefenseFinder", "RM", "Cas")]
+missing = [t.parent.name for t in system_tables if not t.is_file()]
+if missing:
     sys.exit(
         f"S8a: defense-finder exited {completed.returncode} and wrote no all_systems.tsv "
-        f"under {outdir}: the search itself failed.")
+        f"for the {', '.join(missing)} models under {raw}: the search itself failed.")
 
 if completed.returncode != 0:
     print(f"S8a: defense-finder exited {completed.returncode} after MacSyFinder wrote "
-          f"{len(system_tables)} all_systems.tsv tables: the search completed, and the "
+          "every all_systems.tsv table: the search completed, and the "
           "failure is the post-treatment step that opens a best_solution.tsv "
           "--db-type unordered never writes.")
 

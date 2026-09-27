@@ -1,13 +1,8 @@
-"""S8b: locate integron cassette arrays with IntegronFinder.
+"""S8b: integron elements per plasmid, with IntegronFinder (--local-max --circ).
 
-THE STRONGEST PLASMID-SPECIFIC SIGNAL AVAILABLE, and one neither Nature study could use,
-because both worked on genomes and metagenomes.
-
-An integron captures gene cassettes, and a large fraction of cassettes are of unknown
-function. A dark ORF in a cassette array is a real gene BY CONSTRUCTION: it carries an attC
-recombination site, and it has been physically excised, mobilised and re-integrated - and
-then retained. That is direct physical evidence of both existence and selection, obtained
-without any homology at all.
+Input: the analysis-set FASTA, split into one chunk per core. Output: integrons.tsv, one
+row per IntegronFinder element (integrase, attC site, promoter, attI or cassette protein)
+with its integron's type (complete, In0 or CALIN).
 """
 import concurrent.futures
 import csv

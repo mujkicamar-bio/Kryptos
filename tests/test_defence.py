@@ -162,6 +162,7 @@ def test_a_model_family_that_found_nothing_contributes_no_rows(tmp_path):
 
 # Stand-in for macsyfinder that reproduces the dependence under test: a planned hit is
 # kept when p-value x (sequences in --sequence-db) < 0.001, as HMMER and MacSyFinder do.
+# The planned hits are DefenseFinder systems, so only that family's run reports them.
 FAKE_MACSYFINDER = r'''#!{python}
 import csv, pathlib, sys
 args = sys.argv[1:]
@@ -171,6 +172,8 @@ out.mkdir(parents=True)
 (out / "argv.txt").write_text("\n".join(args))
 ids = [l[1:].split()[0] for l in open(opt("--sequence-db")) if l.startswith(">")]
 plan = {r["hit_id"]: r for r in csv.DictReader(open({plan!r}), delimiter="\t")}
+if opt("--models") != "defense-finder-models/DefenseFinder":
+    plan = {}
 header = ["replicon", "hit_id", "gene_name", "hit_pos", "model_fqn", "sys_id",
           "sys_wholeness", "sys_score", "hit_gene_ref", "hit_status", "hit_i_eval",
           "hit_profile_cov"]
@@ -231,12 +234,33 @@ def test_phase2_calls_do_not_depend_on_the_core_count(tmp_path, monkeypatch):
     assert one == many, "the defence calls changed with the number of threads"
     assert [r["orf_id"] for r in one] == ["p0|3"]
 
-    # One MacSyFinder process over every candidate replicon, the cores to --worker.
-    runs = [p for p in (many_path.parent / "phase2").iterdir() if p.is_dir()]
-    assert [p.name for p in runs] == ["run"]
-    argv = (runs[0] / "argv.txt").read_text().split("\n")
-    assert argv[argv.index("--worker") + 1] == "4"
-    assert argv[argv.index("--replicon-topology") + 1] == "circular"
+
+
+def test_phase2_searches_the_model_families_of_defense_finder(tmp_path, monkeypatch):
+    """`defense-finder run` (DefenseFinder 3.0.0) runs one MacSyFinder process per family:
+    DefenseFinder and RM with --coverage-profile 0.4 and --exchangeable-weight 1, CasFinder
+    without options (its package configuration applies), and the AntiDefenseFinder models only on request. Each
+    process covers every candidate replicon, as circular molecules, with all cores."""
+    phase2 = _phase2(tmp_path, monkeypatch, threads=4).parent / "phase2"
+    calls = {}
+    for run in phase2.iterdir():
+        argv = (run / "argv.txt").read_text().split("\n")
+        opt = {k: argv[argv.index(k) + 1] if k in argv else None
+               for k in ("--models", "--coverage-profile", "--exchangeable-weight",
+                         "--worker", "--replicon-topology")}
+        assert argv[argv.index("--models") + 2] == "all"
+        calls[run.name] = opt
+    assert calls == {
+        "DefenseFinder": {"--models": "defense-finder-models/DefenseFinder",
+                          "--coverage-profile": "0.4", "--exchangeable-weight": "1",
+                          "--worker": "4", "--replicon-topology": "circular"},
+        "RM": {"--models": "defense-finder-models/RM",
+               "--coverage-profile": "0.4", "--exchangeable-weight": "1",
+               "--worker": "4", "--replicon-topology": "circular"},
+        "Cas": {"--models": "CasFinder",
+                "--coverage-profile": None, "--exchangeable-weight": None,
+                "--worker": "4", "--replicon-topology": "circular"},
+    }
 
 
 # --- gembase records ------------------------------------------------------------------
@@ -263,3 +287,51 @@ def test_an_index_not_grouped_by_plasmid_is_refused():
     with pytest.raises(ValueError, match="occurs twice"):
         list(gembase_records([_index_row("a|1", 1), _index_row("b|1", 1),
                               _index_row("a|2", 9)]))
+
+
+# --- phase 1 needs the tables of every model family ------------------------------------
+
+# Stand-in for defense-finder: writes all_systems.tsv for the families in FAMILIES, where
+# MacSyFinder's raw output lies under --preserve-raw, and exits 1 as the real wrapper does
+# after an unordered search.
+FAKE_DEFENSE_FINDER = r'''#!{python}
+import pathlib, sys
+args = sys.argv[1:]
+raw = pathlib.Path(args[args.index("--out-dir") + 1]) / "defense-finder-tmp"
+for family in {families!r}:
+    (raw / family).mkdir(parents=True)
+    (raw / family / "all_systems.tsv").write_text({table!r})
+sys.exit(1)
+'''
+
+
+def _phase1(tmp_path, monkeypatch, families):
+    exe = tmp_path / "bin" / "defense-finder"
+    exe.parent.mkdir()
+    exe.write_text(FAKE_DEFENSE_FINDER.replace("{python}", sys.executable)
+                   .replace("{families!r}", repr(families))
+                   .replace("{table!r}", repr(ALL_SYSTEMS)))
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
+    models = tmp_path / "models"
+    (models / "defense-finder-models").mkdir(parents=True)
+    faa, out = tmp_path / "unique.faa", tmp_path / "defence_components.tsv"
+    write_fasta(faa, [("2171fc6c", "MKV")])
+    run_script("defence_search.py", FakeSnakemake(
+        input={"faa": str(faa)}, output={"tsv": str(out)},
+        params={"models_dir": str(models), "required": True}, threads=1))
+    return out
+
+
+def test_phase1_reads_every_family_despite_the_wrappers_exit_code(tmp_path, monkeypatch):
+    out = _phase1(tmp_path, monkeypatch, ["DefenseFinder", "RM", "Cas"])
+    rows = read_tsv(out)
+    assert len(rows) == 6
+    assert {r["status"] for r in rows} == {"SUCCESS"}
+
+
+def test_phase1_fails_when_a_model_family_wrote_no_table(tmp_path, monkeypatch):
+    """defense-finder runs the families in turn and stops at the first failure, so a crash
+    in the CasFinder run leaves the DefenseFinder and RM tables behind."""
+    with pytest.raises(SystemExit, match="Cas"):
+        _phase1(tmp_path, monkeypatch, ["DefenseFinder", "RM"])

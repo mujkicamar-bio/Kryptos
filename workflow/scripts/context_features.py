@@ -22,7 +22,7 @@ THE UNIT IS THE PLASMID
 
 Not the family member. Members of a family are homologs on plasmids that are frequently
 near-identical, so counting members makes sequencing effort look like evidence. Clonal
-redundancy between distinct plasmids remains uncorrected; see docs/PARAMETER_PROVENANCE.md.
+redundancy between distinct plasmids is not corrected in these rates.
 
 CONTEXT TERMS (family_context_terms.tsv)
 

@@ -21,8 +21,7 @@ title states how many of how many are shown.
 
 Usage:
   python tools/draw_neighbourhoods.py --run results_test_ps --family intermediate:<seq_id> \
-      [--family ...] [--families-file ids.txt] [--window 3] [--max-rows 30] [--out DIR] \
-      [--master data/plasmidscope_primary/analysis_set.tsv]
+      [--family ...] [--families-file ids.txt] [--window 3] [--max-rows 30] [--out DIR]
 """
 import argparse
 import collections
@@ -52,7 +51,7 @@ def read_tsv(path):
         return list(csv.DictReader(fh, delimiter="\t"))
 
 
-def load(run, families, master):
+def load(run, families):
     """Everything needed for the requested families, reading the large tables once."""
     dark_families = {r["family_id"] for r in read_tsv(run / "10_clustering/dark_families.tsv")}
     missing = set(families) - dark_families
@@ -91,15 +90,12 @@ def load(run, families, master):
                 {"name": "is_element", "start": int(r["start"]), "end": int(r["end"])})
     defence_orfs = {r["orf_id"] for r in read_tsv(ctx / "defence_systems.tsv")
                     if r.get("orf_id")}
-    master_rows = [r for r in read_tsv(master) if r["plasmid_id"] in plasmids]
-    size = {r["plasmid_id"]: int(r["size_bp"]) for r in master_rows}
-    circular = {r["plasmid_id"] for r in master_rows if is_circular(r.get("topology"))}
-    # S0 removed a terminal repeat from some circular records; their genes wrap at the
-    # molecule's length, not at size_bp.
-    repeats = run / "01_analysis_set/terminal_repeats.tsv"
-    if repeats.exists():
-        size.update({r["plasmid_id"]: int(r["molecule_bp"]) for r in read_tsv(repeats)
-                     if r["plasmid_id"] in plasmids})
+    # The molecule length and topology the pipeline itself used, for genes across the origin.
+    size = {r["plasmid_id"]: int(r["length_bp"])
+            for r in read_tsv(run / "01_analysis_set/plasmid_lengths.tsv")
+            if r["plasmid_id"] in plasmids}
+    circular = {r["plasmid_id"] for r in read_tsv(run / "01_analysis_set/clonal_registry.tsv")
+                if r["plasmid_id"] in plasmids and is_circular(r["topology"])}
     return fam_members, orfs_of, genes, islands, defence_orfs, size, circular
 
 
@@ -221,9 +217,6 @@ def main():
     ap.add_argument("--window", type=int, default=3)
     ap.add_argument("--max-rows", type=int, default=30)
     ap.add_argument("--out", type=pathlib.Path)
-    ap.add_argument("--master", type=pathlib.Path,
-                    default=pathlib.Path("data/plasmidscope_primary/analysis_set.tsv"),
-                    help="plasmid sizes and topology, for genes across the origin")
     a = ap.parse_args()
     families = list(a.family)
     if a.families_file:
@@ -233,7 +226,7 @@ def main():
     out = a.out or a.run / "15_report/figures/neighbourhoods"
     out.mkdir(parents=True, exist_ok=True)
     fam_members, orfs_of, genes, islands, defence_orfs, size, circular = load(
-        a.run, set(families), a.master)
+        a.run, set(families))
     for fid in families:
         print(draw_family(fid, fam_members[fid], orfs_of, genes, islands, defence_orfs,
                           size, circular, a.window, a.max_rows, out))

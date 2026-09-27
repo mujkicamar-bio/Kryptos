@@ -1,48 +1,14 @@
-"""Stage 9: synteny and context conservation across a cluster's lineages.
+"""Stage 9: synteny and context conservation (plasmidann.synteny) per cluster.
 
-See src/plasmidann/synteny.py for what the measurements are, why they are kept apart, and
-why they are counted over plasmid lineages (Stage 6) rather than occurrences. This script
-builds each cluster's occurrence list from the annotation table and the protein map, tags
-every occurrence with its plasmid's lineage, then measures.
-
-It reads the SAME neighbourhood definition as Stage 8 - plasmidann.context.directons and
-flanks - rather than restating it. Two definitions of "neighbour" in one pipeline would
-diverge the moment one window changed, and the two stages' numbers would stop being
-comparable without anything saying so.
-
-TWO LEVELS (synteny.levels)
-
-    close         a gene is its close cluster (90% identity); neighbours are named by
-                  their close cluster: "the same gene"
-    intermediate  a gene is its protein family (clustering.primary); neighbours are named
-                  by their family: "the same family"
-
-Each level gives one row per cluster holding a dark small-plasmid member - the rule
-protein_families.py uses for dark_families.tsv, applied at that level's resolution - and
-the occurrences measured are those of the cluster's DARK members. At the primary level the
-derived set must equal dark_families.tsv, so the two definitions cannot drift silently.
-Neighbour identity at the close level is strict, so close-level conservation is expected to
-be at most the family-level value for the same arrangement. MMseqs2 clusterings at
-different thresholds are not nested, so a close row lists the primary families of its dark
-members in intermediate_family_ids.
-
-A NEIGHBOUR IS IDENTIFIED BY ITS CLUSTER, NOT ITS LABEL
-
-Every gene has one, dark genes included, and it means the same on small and large
-plasmids, whose genes were not all annotated alike.
-modal_left, modal_right and modal_synteny therefore hold cluster ids, and left and right
-are upstream and downstream on the gene's own strand. operon_like still asks for a
-FUNCTIONAL partner, as Stage 8 does: an uncharacterised partner says nothing about what the
-arrangement is for.
-
-TWO SETS OF OCCURRENCES
-
-Every measurement is reported over all occurrences of the cluster's dark members, and again
-with the prefix small_ over the occurrences on small plasmids alone. On a small plasmid the
-+-3 window often reaches every other gene of the molecule (a quarter of small-plasmid ORFs
-on the test set), so small_lineage_neighborhood_conservation there measures conservation of
-gene content rather than of local order; the immediate-neighbour measurements do not depend
-on the window.
+Inputs: the annotation table, the protein map, the Stage 6 lineages and one cluster file
+per level in synteny.levels. Each level (close: 90% identity; intermediate: the protein
+family) gives one row per cluster holding a dark small-plasmid member, measured over the
+occurrences of its dark members; at clustering.primary these clusters must equal
+dark_families.tsv. Neighbours come from the Stage 8 definition (plasmidann.context), are
+named by their cluster at the same level, and left and right are taken on the gene's own
+strand. Every measurement is given over all occurrences and, prefixed small_, over those on
+small plasmids. MMseqs2 clusterings are not nested, so a close row lists the families of
+its dark members in intermediate_family_ids. Output: synteny.tsv.
 """
 import collections
 import csv
