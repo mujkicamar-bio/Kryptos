@@ -1,38 +1,19 @@
-"""The phage tier: pharokka in protein mode (spec section 18).
+"""The phage tier: parsing pharokka's protein-mode output.
 
-WHY PHAROKKA
+pharokka distributes the prokaryotic virus protein families (PHROGs) as an MMseqs2
+profile database and as HMMER3 profiles, and names and categorises every family. Its
+`*_full_merged_output.tsv` has one row per input protein, whether or not anything hit it,
+with the family, its annotation and category and the statistics of both searches, plus
+hits against CARD and VFDB, which it searches in the same run.
 
-The prokaryotic virus protein families are distributed as HH-suite HHM profiles, which
-nothing in this pipeline can search without the HMM-HMM tooling spec section 79 excludes.
-Two conversions of those profiles were implemented and abandoned. pharokka redistributes
-the same families as a MMseqs2 profile database - searched with the PROFILES AS QUERY,
-which is the orientation that works - and as HMMER3 profiles searched with pyhmmer, and
-carries a functional category for every family. It is a tool used as its authors ship it.
+The output carries no alignment coordinates: pharokka deletes its raw alignment tables on
+exit. A hit therefore has no start and no end, and the cascade reports its completeness as
+NOT_MEASURED. Read from pharokka 1.10.1 output on 200 test-set proteins:
 
-WHAT THE OUTPUT IS, AND IS NOT
-
-One row per input protein, whether or not anything hit it. A row carries the family, its
-annotation and category, and the statistics of whichever of the two searches found it.
-Alongside it, hits against CARD (antimicrobial resistance) and VFDB (virulence factors),
-which pharokka searches in the same run.
-
-It does NOT carry alignment coordinates. pharokka deletes its raw alignment tables on exit,
-unconditionally, so no span survives. The parser reports that honestly: a hit has no start
-and no end, and the cascade treats it as a family-level assignment - the families are
-whole-protein clusters, not domains - whose completeness is NOT_MEASURED rather than
-invented.
-
-TWO THINGS THE REAL OUTPUT DOES THAT THE DOCUMENTATION DOES NOT SAY
-
-Built against pharokka 1.10.1 on 200 proteins from the test set.
-
-  * A protein with no hit carries 'No_MMseqs' in the `phrog` column, not 'No_PHROG': the
-    null-fill runs in column order and mmseqs_phrog is filled first. So "has a family" is
-    tested as "the column is an integer", which is what a family identifier is, rather
-    than against any sentinel string.
-  * 90 of 92 hits were found by BOTH searches, each with its own E-value. The tier reports
-    the stronger, because that is the evidence the assignment rests on, and the cascade
-    ranks hits by E-value.
+  * A protein with no hit carries 'No_MMseqs' in the `phrog` column, not 'No_PHROG', so a
+    family hit is recognised by an integer in that column, not by a sentinel string.
+  * 90 of 92 hits were found by both searches, each with its own E-value; the stronger
+    one is reported, because that is the evidence the assignment rests on.
 """
 import csv
 import io
@@ -55,21 +36,16 @@ def parse_merged(text):
     """Hits from pharokka's `*_full_merged_output.tsv`, as a list of dicts.
 
     Each dict has: query, source ('pharokka', 'card' or 'vfdb'), family_id, label,
-    category, evalue, found_by, query_length. No coordinates - see the module docstring.
+    category, evalue, query_length. No coordinates - see the module docstring.
     """
     hits = []
     for row in csv.DictReader(io.StringIO(text), delimiter="\t"):
         query = row["ID"]
-        try:
-            length = int(row.get("length") or 0)
-        except ValueError:
-            length = 0
+        length = int(row["length"])
 
         # --- the phage family --------------------------------------------------------
         phrog = (row.get("phrog") or "").strip()
         if phrog.isdigit():
-            mm = _present(row.get("mmseqs_eVal"))
-            hm = _present(row.get("pyhmmer_evalue"))
             hits.append({
                 "query": query,
                 "source": "pharokka",
@@ -77,7 +53,6 @@ def parse_merged(text):
                 "label": (row.get("annot") or "").strip(),
                 "category": (row.get("category") or "").strip(),
                 "evalue": _strongest(row.get("mmseqs_eVal"), row.get("pyhmmer_evalue")),
-                "found_by": "+".join(n for n, p in (("mmseqs", mm), ("pyhmmer", hm)) if p),
                 "query_length": length,
             })
 
@@ -91,7 +66,6 @@ def parse_merged(text):
                           or "").strip(),
                 "category": (row.get("Resistance_Mechanism") or "").strip(),
                 "evalue": (row.get("CARD_eVal") or "").strip(),
-                "found_by": "mmseqs",
                 "query_length": length,
             })
 
@@ -105,7 +79,6 @@ def parse_merged(text):
                           or "").strip(),
                 "category": "",
                 "evalue": (row.get("vfdb_eVal") or "").strip(),
-                "found_by": "mmseqs",
                 "query_length": length,
             })
     return hits

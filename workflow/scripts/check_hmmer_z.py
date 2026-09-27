@@ -5,10 +5,8 @@ decoys. Change the ORF set - S1 origin repair and S0 terminal-repeat trimming bo
 the count moves. A stale -Z silently rescales every E-value in the run, which is precisely
 the failure -Z was introduced to prevent.
 
-This check used to run in sweep_cohort, after protein clustering and the cascade selection:
-hours into a production run, and after the artefact screen had already searched with the
-stale value. It now runs directly after dereplication, and the artefact screen and every
-tier depend on it, so nothing searches with a -Z that was not confirmed.
+The check runs directly after dereplication, and the artefact screen and every tier depend
+on it, so nothing searches with a -Z that was not confirmed.
 
 -Z counts EVERY unique protein, including those PlasmidScope annotated and those the
 selection does not search: an E-value then means what it would if the whole collection had
