@@ -176,3 +176,27 @@ def test_a_circular_neighbourhood_wraps_across_the_origin():
     assert flanks(genes, window=2)["a"] == ([], ["b", "c"])
     two = genes[:2]
     assert flanks(two, window=3, circular=True)["a"] == (["b"], ["b"])
+
+
+# --- the neighbourhood diagram tool draws the pipeline's neighbourhood --------------------
+
+def test_the_diagram_row_wraps_across_the_origin_of_a_circular_plasmid():
+    """The focal gene a is first on a 1,000 bp circle; its left neighbours z and y are the
+    record's last genes, drawn to its left, as context.flanks counts them."""
+    import importlib.util
+    import pathlib
+    pytest.importorskip("matplotlib")
+    tool = pathlib.Path(__file__).resolve().parents[1] / "tools" / "draw_neighbourhoods.py"
+    spec = importlib.util.spec_from_file_location("draw_neighbourhoods", tool)
+    draw = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(draw)
+    genes = [{"orf_id": o, "start": str(s), "end": str(e), "strand": st}
+             for o, s, e, st in (("a", 11, 100, "1"), ("b", 201, 300, "1"),
+                                 ("y", 701, 800, "1"), ("z", 951, 5, "-1"))]
+
+    circle = draw.row_layout(genes, "a", 2, True, 1000)
+    assert [(r["orf_id"], x0, x1, fwd) for r, x0, x1, fwd in circle] == [
+        ("y", -310, -211, True), ("z", -60, -6, False), ("a", 0, 89, True),
+        ("b", 190, 289, True), ("y", 690, 789, True)]
+    linear = draw.row_layout(genes, "a", 2, False, 1000)
+    assert [r["orf_id"] for r, *_ in linear] == ["a", "b", "y"]

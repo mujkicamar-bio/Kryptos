@@ -1,12 +1,13 @@
 """Gene-neighbourhood diagrams for dark families.
 
 For each requested family, every occurrence of a member (dark or annotated) is drawn as
-one row: the family's gene in the centre, turned so that it points right, with the genes around it drawn as arrows.
-Rows are placed one above the other so that a conserved neighbourhood shows as a column
-pattern.
+one row: the family's gene in the centre, turned so that it points right, with the
++-window genes around it as arrows - the neighbourhood the pipeline uses
+(plasmidann.context.flanks), wrapping across the origin of a circular plasmid. Rows are
+placed one above the other so that a conserved neighbourhood shows as a column pattern.
 
 Colours use only evidence that needs no text matching:
-    the family's own gene      the focal dark gene
+    this family                any member of the family, dark or annotated
     dark                       NONE or UNCHARACTERIZED_HOMOLOG
     annotated                  any other class; the arrow carries its annot_label
     defence / integron / IS    the gene lies in a DefenseFinder system, an IntegronFinder
@@ -36,7 +37,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import FancyArrow, Rectangle  # noqa: E402
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
-from plasmidann.context import overlapping_islands  # noqa: E402
+from darkorf.circular import is_circular  # noqa: E402
+from plasmidann.context import flanks, overlapping_islands  # noqa: E402
 from plasmidann.labels import parse_ncbi_title  # noqa: E402
 
 COLOURS = {"focal": "#D55E00", "dark": "#444444", "annotated": "#88CCEE",
@@ -76,8 +78,6 @@ def load(run, families, master):
         for r in csv.DictReader(fh, delimiter="\t"):
             if r["plasmid_id"] in plasmids:
                 genes[r["plasmid_id"]].append(r)
-    for g in genes.values():
-        g.sort(key=lambda r: int(r["start"]))
 
     islands = collections.defaultdict(list)
     ctx = run / "12_context_and_structure"
@@ -91,15 +91,48 @@ def load(run, families, master):
                 {"name": "is_element", "start": int(r["start"]), "end": int(r["end"])})
     defence_orfs = {r["orf_id"] for r in read_tsv(ctx / "defence_systems.tsv")
                     if r.get("orf_id")}
-    size = {r["plasmid_id"]: int(r["size_bp"]) for r in read_tsv(master)
-            if r["plasmid_id"] in plasmids}
+    master_rows = [r for r in read_tsv(master) if r["plasmid_id"] in plasmids]
+    size = {r["plasmid_id"]: int(r["size_bp"]) for r in master_rows}
+    circular = {r["plasmid_id"] for r in master_rows if is_circular(r.get("topology"))}
     # S0 removed a terminal repeat from some circular records; their genes wrap at the
     # molecule's length, not at size_bp.
     repeats = run / "01_analysis_set/terminal_repeats.tsv"
     if repeats.exists():
         size.update({r["plasmid_id"]: int(r["molecule_bp"]) for r in read_tsv(repeats)
                      if r["plasmid_id"] in plasmids})
-    return fam_members, orfs_of, genes, islands, defence_orfs, size
+    return fam_members, orfs_of, genes, islands, defence_orfs, size, circular
+
+
+def row_layout(genes, focal, window, circular, size):
+    """(gene row, x0, x1, forward) for the focal gene and its flanking genes, in drawing
+    order. x is in bp from the start of the focal gene, turned so that the focal gene
+    points right. On a circular plasmid a neighbour reached across the origin is placed on
+    the side of the focal gene where the molecule has it.
+    """
+    by_id = {r["orf_id"]: r for r in genes}
+    left, right = flanks([{"orf_id": r["orf_id"], "start": int(r["start"]),
+                           "end": int(r["end"])} for r in genes], window, circular)[focal]
+
+    def span(r):
+        s, e = int(r["start"]), int(r["end"])
+        return s, (e - s) % size      # an origin-spanning gene (e < s) ends past the length
+
+    fs, flen = span(by_id[focal])
+    flip = by_id[focal]["strand"] in ("-1", "-")
+    out = []
+    for side, oid in [(-1, o) for o in reversed(left)] + [(0, focal)] + [(1, o) for o in right]:
+        r = by_id[oid]
+        s, length = span(r)
+        d = s - fs
+        if side < 0 and d > 0:
+            d -= size
+        elif side > 0 and d < 0:
+            d += size
+        x0, x1 = d, d + length
+        if flip:
+            x0, x1 = flen - x1, flen - x0
+        out.append((r, x0, x1, (r["strand"] in ("1", "+")) != flip))
+    return out
 
 
 def occurrences(members, orfs_of, max_rows):
@@ -112,8 +145,8 @@ def occurrences(members, orfs_of, max_rows):
     return picked[:max_rows], len(picked)
 
 
-def draw_family(fid, members, orfs_of, genes, islands, defence_orfs, size, window,
-                max_rows, out):
+def draw_family(fid, members, orfs_of, genes, islands, defence_orfs, size, circular,
+                window, max_rows, out):
     focal_orfs, n_total = occurrences(members, orfs_of, max_rows)
     fig_h = 0.55 * len(focal_orfs) + 1.2
     fig, ax = plt.subplots(figsize=(13, fig_h))
@@ -122,24 +155,11 @@ def draw_family(fid, members, orfs_of, genes, islands, defence_orfs, size, windo
 
     for row, focal in enumerate(focal_orfs):
         pid = focal.rsplit("|", 1)[0]
-        g = genes[pid]
-        i = next(k for k, r in enumerate(g) if r["orf_id"] == focal)
-        f = g[i]
-        # Turn the row so the focal gene points right; x is bp from the focal start. A
-        # focal gene across the origin ends past the molecule's length, as below.
-        flip = f["strand"] in ("-1", "-")
-        fs, fe = int(f["start"]), int(f["end"])
-        if fe < fs:
-            fe += size[pid]
-        anchor = fe if flip else fs
         y = -row
-        for r in g[max(0, i - window): i + window + 1]:
-            s, e = int(r["start"]), int(r["end"])
-            if e < s:                      # origin-spanning: continue past the end
-                e += size[pid]
-            x0, x1 = ((anchor - e, anchor - s) if flip else (s - anchor, e - anchor))
-            forward = (r["strand"] in ("1", "+")) != flip
-            gene = {"start": s, "end": e}
+        for r, x0, x1, forward in row_layout(genes[pid], focal, window, pid in circular,
+                                             size[pid]):
+            # The islands are matched on the gene's own coordinates.
+            gene = {"start": int(r["start"]), "end": int(r["end"])}
             for isl in overlapping_islands(gene, islands.get(pid, [])):
                 ax.add_patch(Rectangle((x0, y - 0.32), x1 - x0, 0.64,
                                        color=COLOURS[isl["name"]], alpha=0.35, lw=0))
@@ -203,7 +223,7 @@ def main():
     ap.add_argument("--out", type=pathlib.Path)
     ap.add_argument("--master", type=pathlib.Path,
                     default=pathlib.Path("data/plasmidscope_primary/analysis_set.tsv"),
-                    help="plasmid sizes, for genes that span the origin")
+                    help="plasmid sizes and topology, for genes across the origin")
     a = ap.parse_args()
     families = list(a.family)
     if a.families_file:
@@ -212,11 +232,11 @@ def main():
         ap.error("give at least one --family or --families-file")
     out = a.out or a.run / "15_report/figures/neighbourhoods"
     out.mkdir(parents=True, exist_ok=True)
-    fam_members, orfs_of, genes, islands, defence_orfs, size = load(
+    fam_members, orfs_of, genes, islands, defence_orfs, size, circular = load(
         a.run, set(families), a.master)
     for fid in families:
         print(draw_family(fid, fam_members[fid], orfs_of, genes, islands, defence_orfs,
-                          size, a.window, a.max_rows, out))
+                          size, circular, a.window, a.max_rows, out))
 
 
 if __name__ == "__main__":
