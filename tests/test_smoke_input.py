@@ -375,33 +375,6 @@ def test_plasmidscope_import_keeps_only_our_proteins(fixture_dir):
     assert rows[0]["ps_class"] == "ANNOTATED" and rows[0]["pfams"] == "RHH_1"
 
 
-def test_prepare_control_leaves_plasmidscope_annotated_proteins_out(fixture_dir):
-    """Annotated by PlasmidScope: not searched. Dark in PlasmidScope: searched. The
-    controls and decoys still enter, so the gate measures the cascade that actually ran."""
-    raw = fixture_dir / "raw.faa"
-    body = "MKVLATTLLGAAFAASSALAQ" * 4
-    write_fasta(raw, [("sp|P00001|A_ECOLI Beta-lactamase TEM OS=Escherichia coli", body)])
-    faa = fixture_dir / "unique.faa"
-    write_fasta(faa, [("known", body), ("dark", body), ("absent", body)])
-    decoys = fixture_dir / "negative_control.faa"
-    write_fasta(decoys, [("DECOY_shuf_00000", "M" * 60)])
-    ps = _ps_table(fixture_dir, [["known", "ANNOTATED", "", "", "", "", "RHH_1", "", "",
-                                  "Prodigal:2.6", 1],
-                                 ["dark", "NONE", "S", "", "", "", "", "", "",
-                                  "Prodigal:2.6", 1]])
-    spiked = fixture_dir / "cascade_input.faa"
-
-    run_script("prepare_control.py", FakeSnakemake(
-        input={"faa": str(faa), "raw": str(raw), "decoys": str(decoys), "ps": ps},
-        output={"control": str(fixture_dir / "control.faa"), "spiked": str(spiked)},
-        params={"n_controls": 1, "min_controls": 1, "seed": 1}))
-
-    ids = [l[1:].strip() for l in open(spiked) if l.startswith(">")]
-    assert "known" not in ids, "a PlasmidScope-annotated protein was sent to the cascade"
-    assert {"dark", "absent"} <= set(ids)
-    assert any(i.startswith("CTRL_") for i in ids) and "DECOY_shuf_00000" in ids
-
-
 def test_make_test_set_refuses_a_master_without_hab_top(fixture_dir):
     """Without the column the locked exclusion cannot be applied, so the tool must fail
     rather than sample simulated records."""

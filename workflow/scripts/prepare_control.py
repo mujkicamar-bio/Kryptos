@@ -28,7 +28,6 @@ be spiked at the same point and into the same file, because the property that ma
 control a control is that it traverses the identical code path - the same narrowing, the
 same thresholds - as a real protein.
 """
-import csv
 import random
 
 import _ctx  # noqa: F401
@@ -86,18 +85,12 @@ with open(snakemake.output.control, "w") as out:
         acc = header.split("|")[1] if "|" in header else f"u{i}"
         out.write(f">{CONTROL_PREFIX}{i:05d}_{acc}\n{seq}\n")
 
-# The spiked file is what the cascade actually searches: the unique proteins PlasmidScope
-# does not annotate (S2p), the positive controls, and the negative controls from S2d.
-with open(snakemake.input.ps, newline="") as fh:
-    ps_annotated = {r["seq_id"] for r in csv.DictReader(fh, delimiter="\t")
-                    if r["ps_class"] == "ANNOTATED"}
-
-n_real = n_decoys = n_skipped = 0
+# The spiked file is what the cascade actually searches: the search representatives (S2s),
+# which already exclude PlasmidScope-annotated proteins, the positive controls, and the
+# negative controls from S2d.
+n_real = n_decoys = 0
 with open(snakemake.output.spiked, "w") as out:
     for sid, seq in iter_fasta([snakemake.input.faa]):
-        if sid in ps_annotated:
-            n_skipped += 1
-            continue
         out.write(f">{sid}\n{seq}\n")
         n_real += 1
     for i, (header, seq) in enumerate(records, start=1):
@@ -108,8 +101,7 @@ with open(snakemake.output.spiked, "w") as out:
         n_decoys += line[0] == ">"
 
 print(f"controls={len(records)} decoys={n_decoys} spiked into {n_real} proteins "
-      f"(total {n_real + len(records) + n_decoys}); "
-      f"{n_skipped} PlasmidScope-annotated proteins left out")
+      f"(total {n_real + len(records) + n_decoys})")
 # Enough controls to measure recall at the resolution the gate demands: at
 # min_control_recall = 0.99, fewer than 100 makes a single failure a 1% swing.
 # From config/targets.yaml, not a literal here: this governs a run-halting gate.

@@ -1,6 +1,6 @@
 """Build a small, representative plasmid set for exercising the pipeline end to end.
 
-WHY A FIXED SAMPLE RATHER THAN THE FIRST N RECORDS
+WHY A SEEDED STRATIFIED SAMPLE RATHER THAN THE FIRST N RECORDS
 
 The first N records of the working set are whatever order the FASTA happens to be in,
 which is neither representative nor stable. This selects a STRATIFIED sample so that the
