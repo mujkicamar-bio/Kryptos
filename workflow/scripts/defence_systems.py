@@ -75,7 +75,7 @@ if not snakemake.params.get("skip_run", False):
     with open(snakemake.input.map, newline="") as fh:
         plasmids = {r["plasmid_id"] for r in csv.DictReader(fh, delimiter="\t")}
     # MacSyFinder 2.1.4 reads one "<replicon>: <topology>" per line (macsypy.database);
-    # the gembase replicon name is the plasmid id with '_' replaced by '-'.
+    # the gembase replicon name is the plasmid id with each '_' written as '-'.
     topology_file = outdir / "topology.txt"
     topology_file.write_text("".join(
         f"{p.replace('_', '-')}: {'circular' if p in circular else 'linear'}\n"
