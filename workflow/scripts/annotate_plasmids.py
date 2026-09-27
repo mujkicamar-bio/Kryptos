@@ -1,23 +1,11 @@
-"""S4: the primary deliverable - every ORF on every plasmid, with its annotation.
+"""Every ORF on every plasmid, with the annotation of its unique protein.
 
-This is a join, not a decision: nothing is classified or filtered here. It expands the
-per-unique-protein annotation from S3 back out over every ORF that shares that sequence,
-and attaches the S2b artefact flags.
-
-Three things travel with each row that did not exist in v1:
-
-  spans_origin          the ORF was reconstructed across the cut point of a circular
-                        plasmid, so it runs start..plasmid_length then 1..end. A naive
-                        end - start is negative for these and is a bug.
-  artefact_flag         AntiFam or low-complexity evidence that this is not a protein.
-                        Flagged, never removed (P5) - the exclusion happens at target
-                        selection and stays countable.
-  dark_covered_fraction how much of the protein uninformative hits cover, which is the
-                        axis that discriminates within the dark set where
-                        annot_completeness is constant NONE by construction.
-
-Every row also carries the thresholds that produced its classification, so any downstream
-table can be traced back to the numbers that made it (design principle P4).
+A join, not a decision: nothing is classified or filtered here. The per-protein cascade
+annotation and the ORF QC artefact flags are expanded over every ORF that shares the
+protein sequence; the ORF index supplies position, strand, partial and spans_origin (an ORF
+reconstructed across the origin runs start..plasmid length, then 1..end). Artefact-flagged
+proteins are kept and flagged. Each row carries the coverage, explained-fraction and
+narrow-hit thresholds of its classification.
 """
 import csv
 
@@ -25,11 +13,15 @@ import _ctx  # noqa: F401
 
 # Per-unique-protein annotation from the cascade.
 with open(snakemake.input.prot, newline="") as fh:
-    annot = {r["seq_id"]: r for r in csv.DictReader(fh, delimiter="\t")}
+    reader = csv.DictReader(fh, delimiter="\t")
+    annot = {r["seq_id"]: r for r in reader}
+    known = set(reader.fieldnames)
 
-# Artefact flags from S2b, keyed the same way.
+# Artefact flags from ORF QC, keyed the same way.
 with open(snakemake.input.artefact, newline="") as fh:
-    artefact = {r["seq_id"]: r for r in csv.DictReader(fh, delimiter="\t")}
+    reader = csv.DictReader(fh, delimiter="\t")
+    artefact = {r["seq_id"]: r for r in reader}
+    known |= set(reader.fieldnames)
 
 # orf_id -> seq_id. One unique protein may correspond to many ORFs; dereplication is a
 # compute optimisation and every ORF must reappear here.
@@ -42,7 +34,7 @@ for line in open(snakemake.input.map):
 cols = [
     # where the ORF is
     "orf_id", "plasmid_id", "start", "end", "strand", "partial", "spans_origin",
-    # 11, or 4 where meta mode chose the Mycoplasma code - an open issue, see the spec
+    # 11, or 4 where pyrodigal's meta mode chose the Mycoplasma code
     "translation_table",
     # what it is, and where that came from (self, representative, plasmidscope,
     # not_searched, artefact_antifam; see cascade_resolve.py)
@@ -63,9 +55,14 @@ cols = [
 n = n_missing = 0
 with open(snakemake.input.index, newline="") as fh, \
         open(snakemake.output[0], "w", newline="") as out:
+    reader = csv.DictReader(fh, delimiter="\t")
+    # A column no input carries would otherwise be written empty on every row.
+    missing = [c for c in cols if c not in known | set(reader.fieldnames)]
+    if missing:
+        raise SystemExit(f"annotate_plasmids: no input carries the columns {missing}")
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
     w.writeheader()
-    for r in csv.DictReader(fh, delimiter="\t"):
+    for r in reader:
         seq_id = orf_to_seq.get(r["orf_id"])
         if seq_id is None:
             # Dereplication is asserted lossless upstream, so this cannot happen; if it
@@ -80,7 +77,7 @@ with open(snakemake.input.index, newline="") as fh, \
         n += 1
 
 assert n_missing == 0, f"{n_missing} ORFs had no protein mapping - index and map disagree"
-assert n > 0, "no ORFs written - check that S1 and S2 produced output"
+assert n > 0, "no ORFs written - check that ORF calling and dereplication produced output"
 
 with open(snakemake.log[0], "w") as log:
     log.write(f"annotated {n} ORFs across {len(annot)} unique proteins\n")

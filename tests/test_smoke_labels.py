@@ -547,3 +547,82 @@ def test_orthology_takes_plasmidscope_terms_without_running_emapper(fixture_dir)
     query = fixture_dir / "emapper" / "named.faa"
     sent = [l[1:].strip() for l in open(query) if l.startswith(">")]
     assert sent == ["named1"], f"eggNOG-mapper would re-annotate PlasmidScope's proteins: {sent}"
+
+
+ANNOTATION_COLS = [
+    "seq_id", "annot_source", "annot_representative", "annot_tier", "annot_label",
+    "functional_class", "homology_depth", "annot_qcov", "annot_tcov", "annot_evalue",
+    "n_informative_hits", "explained_fraction", "annot_completeness", "meets_min_explained",
+    "dark_covered_fraction", "dark_completeness", "dark_evidence", "n_dark_databases",
+    "uninformative_labels", "uninformative_tiers", "thr_min_coverage", "thr_min_explained",
+    "thr_narrow_at"]
+
+
+def _annotate(fixture_dir, protein_map, annotation_cols=ANNOTATION_COLS):
+    """Run annotate_plasmids.py on two ORFs and one unique protein; return the rows."""
+    prot = fixture_dir / "protein_annotation.tsv"
+    write_tsv(prot, annotation_cols,
+              [["s1"] + ["FUNCTIONAL" if c == "functional_class" else ""
+                         for c in annotation_cols[1:]]])
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                      "spans_origin", "translation_table", "seq"],
+              [["p1|1", "p1", 1, 90, "+", 0, 0, 11, "M"],
+               ["p2|1", "p2", 480, 30, "-", 0, 1, 11, "M"]])
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text(protein_map)
+    artefact = fixture_dir / "artefact_flags.tsv"
+    write_tsv(artefact, ["seq_id", "artefact_flag", "antifam_family", "antifam_ievalue",
+                         "low_complexity_fraction", "artefact_reason"],
+              [["s1", 1, "", "", "0.6", "low_complexity"]])
+    out = fixture_dir / "plasmid_annotation.tsv"
+    run_script("annotate_plasmids.py", FakeSnakemake(
+        input={"prot": str(prot), "index": str(index), "map": str(pmap),
+               "artefact": str(artefact)},
+        output=[str(out)], log=[str(fixture_dir / "annotate.log")]))
+    return read_tsv(out)
+
+
+def test_annotate_plasmids_expands_a_protein_over_every_orf(fixture_dir):
+    rows = {r["orf_id"]: r for r in _annotate(fixture_dir, "s1\tp1|1,p2|1\n")}
+    assert set(rows) == {"p1|1", "p2|1"}
+    for r in rows.values():
+        assert (r["functional_class"], r["artefact_flag"]) == ("FUNCTIONAL", "1")
+    # ORF-level columns come from the ORF index, not the protein.
+    assert (rows["p2|1"]["start"], rows["p2|1"]["spans_origin"]) == ("480", "1")
+
+
+def test_annotate_plasmids_fails_on_an_orf_without_a_protein(fixture_dir):
+    with pytest.raises(AssertionError):
+        _annotate(fixture_dir, "s1\tp1|1\n")
+
+
+def test_annotate_plasmids_fails_on_a_missing_input_column(fixture_dir):
+    with pytest.raises(SystemExit, match="thr_narrow_at"):
+        _annotate(fixture_dir, "s1\tp1|1,p2|1\n", ANNOTATION_COLS[:-1])
+
+
+def test_dark_set_drops_a_protein_seen_only_as_partial_orfs(fixture_dir):
+    flags = fixture_dir / "eligibility.tsv"
+    write_tsv(flags, ["seq_id", "is_artefact", "target_eligible", "exclusion_reason"],
+              [["whole", 0, 1, ""], ["fragment", 0, 1, ""], ["named", 0, 0, "annotated"]])
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                      "spans_origin", "translation_table", "seq"],
+              [["p1|1", "p1", 1, 90, "+", "1", 0, 11, "M"],
+               ["p2|1", "p2", 1, 90, "+", "0", 0, 11, "M"],
+               ["p1|2", "p1", 100, 190, "+", "1", 0, 11, "M"],
+               ["p1|3", "p1", 200, 290, "+", "0", 0, 11, "M"]])
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("whole\tp1|1,p2|1\nfragment\tp1|2\nnamed\tp1|3\n")
+    faa = fixture_dir / "unique.faa"
+    write_fasta(faa, [(n, "MKVLATT") for n in ("whole", "fragment", "named")])
+    out_faa = fixture_dir / "dark.faa"
+    ids = fixture_dir / "dark_ids.txt"
+    run_script("dark_set.py", FakeSnakemake(
+        input={"flags": str(flags), "index": str(index), "map": str(pmap), "faa": str(faa)},
+        output={"faa": str(out_faa), "ids": str(ids)}))
+
+    # A protein with one complete ORF is kept even if another ORF of it is partial.
+    assert ids.read_text().split() == ["whole"]
+    assert [l[1:].strip() for l in open(out_faa) if l.startswith(">")] == ["whole"]
