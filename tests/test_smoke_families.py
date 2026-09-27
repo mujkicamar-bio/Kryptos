@@ -270,8 +270,7 @@ def test_dark_cooccurrence_writes_the_tested_pairs(fixture_dir):
     rows = read_tsv(out)
     assert list(rows[0]) == ["family_a", "family_b", "n_lineages_a", "n_lineages_b",
                              "n_lineages_together", "n_lineages_total", "fraction_of_a",
-                             "fraction_of_b", "expected_together", "p_value", "q_value",
-                             "status"]
+                             "fraction_of_b", "expected_together", "p_value", "q_value"]
     (row,) = rows
     assert (row["family_a"], row["family_b"], row["n_lineages_a"], row["n_lineages_b"],
             row["n_lineages_together"], row["n_lineages_total"]) == (
@@ -321,6 +320,7 @@ def test_family_rarity_writes_the_labels_and_the_thresholds_behind_them(fixture_
     assert (row["family_id"], row["rarity_labels"],
             row["independent_plasmid_cluster_count"]) == ("broad:d", "RARE", "2")
     assert (row["rare_max_lineages"], row["widespread_min_lineages"]) == ("3", "50")
+    assert "rarity_version" not in row
 
 
 def test_an_undefined_saturation_is_not_reported_as_flattened(fixture_dir, capsys):

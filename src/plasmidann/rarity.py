@@ -14,9 +14,6 @@ families gained per plasmid added.
 """
 import random
 
-# Bumped when a label's definition changes, so two runs' labels cannot be silently compared.
-RARITY_VERSION = "2"
-
 
 def rarity_labels(family, thresholds):
     """Every label that applies to one family, from RARE, LINEAGE_SPECIFIC,

@@ -37,7 +37,7 @@ rows = cooccurrence(plasmid_families, lineage_of, n_lineages, cfg["min_lineages_
 
 COLS = ["family_a", "family_b", "n_lineages_a", "n_lineages_b", "n_lineages_together",
         "n_lineages_total", "fraction_of_a", "fraction_of_b", "expected_together",
-        "p_value", "q_value", "status"]
+        "p_value", "q_value"]
 with open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=COLS, delimiter="\t")
     w.writeheader()

@@ -69,10 +69,10 @@ def _report_fixture(fixture_dir):
     rarity_tsv = fixture_dir / "family_rarity.tsv"
     write_tsv(rarity_tsv, ["family_id", "rarity_labels",
                            "independent_plasmid_cluster_count", "unique_plasmid_count",
-                           "MOB_count", "host_count", "genus_count", "rarity_version",
+                           "MOB_count", "host_count", "genus_count",
                            "rare_max_lineages", "widespread_min_lineages"],
-              [["F1", "RARE,LINEAGE_SPECIFIC", 1, 1, 1, 1, 1, "1", 3, 50],
-               ["F2", "RARE,CROSS_MOB", 2, 9, 3, 3, 2, "1", 3, 50]])
+              [["F1", "RARE,LINEAGE_SPECIFIC", 1, 1, 1, 1, 1, 3, 50],
+               ["F2", "RARE,CROSS_MOB", 2, 9, 3, 3, 2, 3, 50]])
 
     return (ann, pmap, fams, evo, rec, ctx, struct, orth, recur, syn,
             rarity_tsv)
@@ -115,9 +115,9 @@ def _run_report(fixture_dir, *tables):
     cooc = fixture_dir / "dark_cooccurrence.tsv"
     write_tsv(cooc, ["family_a", "family_b", "n_lineages_a", "n_lineages_b",
                      "n_lineages_together", "n_lineages_total", "fraction_of_a",
-                     "fraction_of_b", "expected_together", "p_value", "q_value", "status"],
-              [["F2", "F9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01, "SUCCESS"],
-               ["F2", "F8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3, "SUCCESS"]])
+                     "fraction_of_b", "expected_together", "p_value", "q_value"],
+              [["F2", "F9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01],
+               ["F2", "F8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3]])
     out_ann = fixture_dir / "annotation_complete.csv"
     out_fam = fixture_dir / "dark_families_complete.csv"
     run_script("annotation_report.py", FakeSnakemake(
@@ -214,7 +214,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
         "cooccurrence_fdr", "cooccurrence_min_lineages",
         # Stage 14: descriptors, not a ranking.
-        "rarity_labels", "rarity_version",
+        "rarity_labels",
         # Stage 15: dimensions counted, never scored.
         "evidence_dimensions_present", "evidence_dimension_count",
         "supporting_observations_count", "supporting_observations_are_not_independent",
@@ -291,8 +291,6 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
 
     # --- Stage 14: labels are descriptors -------------------------------------------
     assert fam_rows["F1"]["rarity_labels"] == "RARE,LINEAGE_SPECIFIC"
-    assert fam_rows["F1"]["rarity_version"] == "1", (
-        "a label whose definition can change must travel with the version that made it")
 
     # --- Stage 15: dimensions counted, never scored ----------------------------------
     dims = fam_rows["F2"]["evidence_dimensions_present"].split(",")

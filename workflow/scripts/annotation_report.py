@@ -172,8 +172,8 @@ FAMILY_COLS = [
     "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
     "cooccurrence_fdr", "cooccurrence_min_lineages",
     # Stage 14: descriptors, not a ranking. RARE is not better than
-    # WIDESPREAD. The version travels because a label's definition can change.
-    "rarity_labels", "rarity_version",
+    # WIDESPREAD.
+    "rarity_labels",
     # Stage 15: dimensions counted, never scored.
     "evidence_dimensions_present", "evidence_dimension_count",
     "supporting_observations_count", "supporting_observations_are_not_independent",
@@ -183,7 +183,7 @@ FAMILY_COLS = [
 # The report takes them from Stage 7, which is where they are computed; taking rarity's
 # copies as well would put the same number in the row twice under one name, and whichever
 # was merged last would win silently if the two ever disagreed.
-RARITY_COLS = ("rarity_labels", "rarity_version")
+RARITY_COLS = ("rarity_labels",)
 
 # S9 writes a bare `status`. Every stage does, which is exactly why it cannot be merged
 # under that name: the family row already carries dnds_status and independent_cluster_status

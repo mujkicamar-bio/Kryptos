@@ -15,14 +15,13 @@ import csv
 
 import _ctx  # noqa: F401
 
-from plasmidann.rarity import RARITY_VERSION, rarefaction, rarity_labels, saturation
+from plasmidann.rarity import rarefaction, rarity_labels, saturation
 
 cfg = snakemake.params.rarity
 
 COLS = ["family_id", "rarity_labels", "independent_plasmid_cluster_count",
         "unique_plasmid_count", "MOB_count", "host_count", "genus_count",
-        "n_plasmids_with_species", "rarity_version", "rare_max_lineages",
-        "widespread_min_lineages"]
+        "n_plasmids_with_species", "rare_max_lineages", "widespread_min_lineages"]
 
 counts = collections.Counter()
 n_families = 0
@@ -44,7 +43,6 @@ with open(snakemake.input.recurrence, newline="") as fh, \
             "host_count": family.get("host_count", ""),
             "genus_count": family.get("genus_count", ""),
             "n_plasmids_with_species": family.get("n_plasmids_with_species", ""),
-            "rarity_version": RARITY_VERSION,
             "rare_max_lineages": cfg["rare_max_lineages"],
             "widespread_min_lineages": cfg["widespread_min_lineages"],
         })

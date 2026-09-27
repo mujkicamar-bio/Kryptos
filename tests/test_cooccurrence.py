@@ -102,7 +102,8 @@ def test_always_together_is_significant_and_independent_is_not():
     cd = rows[("C", "D")]
     assert cd["n_lineages_together"] == 10 and cd["expected_together"] == pytest.approx(10)
     assert cd["p_value"] > 0.4 and cd["q_value"] > 0.05
-    assert {r["status"] for r in rows.values()} == {"SUCCESS"}
+    # Every written row is a tested pair, so there is no status column.
+    assert not any("status" in r for r in rows.values())
 
 
 def test_clonal_copies_in_one_lineage_count_once():

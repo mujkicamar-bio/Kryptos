@@ -23,8 +23,6 @@ import collections
 import itertools
 import math
 
-from darkorf import status
-
 
 def _log_comb(a, b):
     return math.lgamma(a + 1) - math.lgamma(b + 1) - math.lgamma(a - b + 1)
@@ -133,7 +131,7 @@ def cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together
             "n_lineages_together": k, "n_lineages_total": n_lineages,
             "fraction_of_a": round(k / K, 4), "fraction_of_b": round(k / n, 4),
             "expected_together": round(K * n / n_lineages, 4),
-            "p_value": p, "q_value": q, "status": status.SUCCESS,
+            "p_value": p, "q_value": q,
         })
     rows.sort(key=lambda r: (r["p_value"], r["family_a"], r["family_b"]))
     return rows
