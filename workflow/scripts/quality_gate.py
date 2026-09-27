@@ -1,4 +1,4 @@
-"""S5: the quality gate. Halts the run if the cascade has a recall problem.
+"""The quality gate. Halts the run if the cascade has a recall problem.
 
 TWO CONTROLS, ONE OF THEM HALTING
 
@@ -9,35 +9,19 @@ number the reader needs in order to interpret the dark set, not a reason to disc
 collection - and a halting negative gate would stop the pipeline over the hardest
 sequences in it.
 
-POSITIVE CONTROL (success criterion SC2)
+POSITIVE CONTROL
     Known plasmid biology is run through the same cascade as everything else and must come
     out FUNCTIONAL. ECLIPSE recovered 99.2-100% of 246 virulence, 42 AMR and 75 essential
     genes this way. Anything KNOWN that emerges dark is a recall failure, and a target list
     built on a broken annotation step is worse than no target list - it costs bench time
     and it is not detectably wrong until the assays fail.
 
-    Its absence from v1 was the single point of unanimous reviewer criticism.
+TARGET ELIGIBILITY
 
-WHY THERE IS NO LONGER A BACKBONE STOP-LIST
-
-An earlier version also excluded any protein carrying a curated plasmid-backbone family
-name, as a second guard behind the classification. It has been removed deliberately.
-
-The pipeline is two steps: annotate everything that can be annotated, then report against
-criteria. If step one works, a complete replication initiator is FUNCTIONAL and is simply
-not dark - it needs no list to keep it out. If step one is broken, a hand-maintained list of
-family names is the wrong repair, and a dangerous one: an exclusion by name removes the
-protein from the record entirely, so its removal is invisible and unauditable. That is not
-theoretical - nine of the seventy-three names on that list did not exist in Pfam-A at all,
-so those rules had never fired, and nobody could tell from any output.
-
-The curated family table is gone. Pfam-A 38.2 holds 30,134 families, of which 67 mention
-replication in their description and 42 mention conjugation; the list named 16 and 15, and
-nine of its 73 names did not exist in Pfam-A at all. Functional labels now come from the
-tools themselves, in results/08_protein_labels/protein_labels.tsv - and they LABEL a
-protein that stays in the table rather than excluding it. Nothing excludes anything by name.
-
-Nothing is deleted here (P5). Proteins are flagged, and the flags are counted.
+A protein is target-eligible when the cascade gave it no informative name
+(UNCHARACTERIZED_HOMOLOG or NONE), it was searched, and it is not artefact-flagged. No
+protein is excluded by family name, and none is deleted: every protein gets a row with its
+exclusion reasons.
 """
 import collections
 import csv
@@ -58,11 +42,8 @@ with open(snakemake.input.prot, newline="") as fh:
 
 # ------------------------------------------------------------------------------------
 # Positive control: reviewed Swiss-Prot proteins of known function, spiked into the query
-# set at S2c and carried through every tier exactly as a real protein is.
-#
-# Independent by construction. An earlier version used proteins the cascade itself had
-# labelled as backbone, which could not detect the failure that matters - a protein the
-# cascade MISSED never enters a self-drawn control set.
+# set and carried through every tier exactly as a real protein is. They are chosen
+# independently of the cascade, so a protein the cascade misses still counts against it.
 # ------------------------------------------------------------------------------------
 CONTROL_PREFIX = "CTRL_"
 control_rows = [r for r in rows if r["seq_id"].startswith(CONTROL_PREFIX)]
@@ -80,21 +61,20 @@ failed = [r["seq_id"] for r in control_rows if r["functional_class"] != "FUNCTIO
 # WHICH TIER resolved each control, not just whether one did.
 #
 # The controls are Swiss-Prot proteins and one tier searches swissprot.dmnd, so they
-# self-hit there at essentially perfect identity. That is a real annotation path and not a bug, but
+# self-hit there at essentially perfect identity. That is a real annotation path, but
 # it makes overall recall a weak test: the gate would pass even if the curated Pfam tiers
 # were completely broken, because the Swiss-Prot tier would rescue every control on its own.
 #
 # Reporting resolution per tier turns a nearly-trivial pass into a diagnostic. If controls
 # only ever resolve at the Swiss-Prot tier, T1 and T2 have a recall problem that overall
-# recall hides. Which tier that is comes from the cascade configuration (T3 in an earlier
-# layout, T4 now), so the report names each tier's database rather than assuming one.
+# recall hides. The report names each tier's database from the cascade configuration.
 by_tier = collections.Counter(r.get("annot_tier") or "UNRESOLVED" for r in control_rows)
 shallow = sum(n for t, n in by_tier.items() if t in ("T1", "T2"))
 shallow_fraction = round(shallow / len(control_rows), 4) if control_rows else 0.0
 
 # ------------------------------------------------------------------------------------
-# Negative control: decoys built at S2d from real plasmid CDS, searched by every tier
-# under the same thresholds as everything else (spec section 58.2).
+# Negative control: decoys built from real plasmid CDS, searched by every tier under the
+# same thresholds as everything else.
 #
 # Expected behaviour is DARK. A decoy classed FUNCTIONAL is a false positive of the
 # annotation cascade - the cascade named something that is not a protein - and since the
@@ -120,7 +100,7 @@ named_by_class = collections.Counter(
 named_by_tier = collections.Counter(r.get("annot_tier") or "" for r in decoy_named)
 
 # ------------------------------------------------------------------------------------
-# Artefact flags from S2b and edge-partial ORFs are the other two exclusions.
+# Artefact flags from the ORF QC stage.
 # ------------------------------------------------------------------------------------
 artefact_ids = set()
 with open(snakemake.input.artefact, newline="") as fh:
@@ -130,7 +110,7 @@ with open(snakemake.input.artefact, newline="") as fh:
 
 cols = ["seq_id", "is_artefact", "target_eligible", "exclusion_reason"]
 n_eligible = 0
-# The dark set under two definitions (spec section 25). Ours counts a protein whose only
+# The dark set under two definitions. Ours counts a protein whose only
 # homologues are themselves unnamed (UNCHARACTERIZED_HOMOLOG) as dark; FESNov
 # (Rodriguez del Rio et al. 2024, Nature 626:377) calls a family unknown only when it has
 # no homologue at all, which here is functional_class NONE. Both counts are reported.
@@ -146,7 +126,7 @@ with open(snakemake.output.flags, "w", newline="") as out:
         if sid in artefact_ids:
             reasons.append("artefact")
         # Only proteins nothing could name are screening candidates at all. A protein the
-        # selection did not search (S2s) is neither named nor dark, and says so.
+        # cascade selection did not search is neither named nor dark, and says so.
         if r["functional_class"] == "NOT_SEARCHED":
             reasons.append("not_searched")
         elif r["functional_class"] not in ("UNCHARACTERIZED_HOMOLOG", "NONE"):
