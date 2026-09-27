@@ -51,7 +51,9 @@ if absent and not cfg["required"]:
     write_table([{"status": status.NOT_RUN}])
     sys.exit(0)
 
+# Foldseek's working files, the query set and Foldseek's raw table are all intermediates.
 tmp = scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent, "foldseek_tmp")
+raw = tmp / "structure_hits.raw.tsv"
 
 # ---- the query set: one sequence per dark family, or every dark protein ----------------
 scope = cfg.get("scope", "representatives")
@@ -66,7 +68,7 @@ if scope == "representatives":
             if row.get("representative"):
                 wanted.add(row["representative"])
 
-    query_faa = str(pathlib.Path(snakemake.output[0]).parent / "structure_query.faa")
+    query_faa = str(tmp / "structure_query.faa")
     n_written = 0
     with open(query_faa, "w") as out:
         emit = False
@@ -94,7 +96,7 @@ gpu_flag = " --gpu 1" if cfg.get("gpu", False) else ""
 
 subprocess.run(
     f"foldseek easy-search {query_faa} {target_db} "
-    f"{snakemake.output[0]}.raw {tmp} --prostt5-model {snakemake.params.prostt5} "
+    f"{raw} {tmp} --prostt5-model {snakemake.params.prostt5} "
     f"-e {cfg['max_evalue']} --threads {snakemake.threads}{gpu_flag} "
     # `prob` is not requested: it is derived from C-alpha coordinates, which a ProstT5
     # query database does not carry, and requesting it makes foldseek exit 1. `theader`
@@ -104,7 +106,6 @@ subprocess.run(
     shell=True, check=True)
 
 rows = []
-raw = pathlib.Path(f"{snakemake.output[0]}.raw")
 if raw.exists():
     best = {}
     for line in open(raw):
