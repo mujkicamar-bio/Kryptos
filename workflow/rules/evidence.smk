@@ -470,12 +470,12 @@ rule defence_systems:
     """S8a phase 2: call systems from gene adjacency.
 
     MacSyFinder is driven directly rather than through `defense-finder run`, because the
-    wrapper does not pass --replicon-topology through and 94% of these plasmids are
-    circular. Under linear topology a system spanning the origin is invisible.
+    wrapper passes no replicon topology; each replicon gets its registry topology.
     """
     input:
         faa=f"{OUT}/12_context_and_structure/defence_candidates.faa",
         map=f"{OUT}/12_context_and_structure/defence_gembase_map.tsv",
+        master=config["input"]["master_table"],
     output:
         tsv=f"{OUT}/12_context_and_structure/defence_systems.tsv",
     params:
@@ -538,10 +538,12 @@ rule integrons:
     """S8b: integron cassette arrays - the strongest plasmid-specific signal available.
 
     IntegronFinder walks the replicons one at a time and threads only its HMM searches,
-    so the analysis set is split into one chunk per core, each run on one thread.
+    so the analysis set is split into one chunk per core, each run on one thread. Each
+    plasmid gets its registry topology.
     """
     input:
         fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
+        master=config["input"]["master_table"],
     output:
         f"{OUT}/12_context_and_structure/integrons.tsv",
     threads: workflow.cores

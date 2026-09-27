@@ -1,6 +1,7 @@
-"""S8b: integron elements per plasmid, with IntegronFinder (--local-max --circ).
+"""S8b: integron elements per plasmid, with IntegronFinder (--local-max).
 
-Input: the analysis-set FASTA, split into one chunk per core. Output: integrons.tsv, one
+Input: the analysis-set FASTA, split into one chunk per core, and each plasmid's registry
+topology (darkorf.circular.is_circular), passed as --topology-file. Output: integrons.tsv, one
 row per IntegronFinder element (integrase, attC site, promoter, attI or cassette protein)
 with its integron's type (complete, In0 or CALIN).
 """
@@ -12,6 +13,7 @@ import subprocess
 
 import _ctx  # noqa: F401
 
+from darkorf.circular import is_circular
 from plasmidann.fasta import split_fasta
 
 fasta = pathlib.Path(snakemake.input.fasta)
@@ -26,15 +28,22 @@ outdir.mkdir(parents=True)
 # one thread; ~0.3 GB per process (measured), ~30 GB at 96.
 chunks = split_fasta(fasta, snakemake.threads, outdir / "chunks")
 
+# One "<replicon> <topology>" per line (integron_finder.topology). An integron spanning the
+# origin of a circular plasmid is found only under circular topology.
+topology_file = outdir / "topology.txt"
+with open(snakemake.input.master, newline="") as fh, open(topology_file, "w") as out:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        out.write(f"{r['plasmid_id']} {'circ' if is_circular(r.get('topology')) else 'lin'}\n")
+
+
 # --local-max is the sensitive mode: it searches for attC sites beyond those adjacent to a
 # detected integrase, which finds CALIN elements - cassette arrays whose integrase has been
-# lost, common on plasmids. `--circ` sets circular topology: 94% of these plasmids are
-# closed, and an integron spanning the origin is not found under linear topology. PDF
-# output (--pdf) and --keep-tmp (one directory per replicon) are not requested.
-# check=True: a tool failure must stop the run rather than produce an empty table.
+# lost, common on plasmids. PDF output (--pdf) and --keep-tmp (one directory per replicon)
+# are not requested. check=True: a tool failure must stop the run rather than produce an
+# empty table.
 def run(chunk):
     subprocess.run(
-        f"integron_finder --local-max --circ --cpu 1 "
+        f"integron_finder --local-max --topology-file {topology_file} --cpu 1 "
         f"--outdir {outdir / chunk.stem} {chunk}",
         shell=True, check=True, stdout=subprocess.DEVNULL)
 

@@ -610,3 +610,44 @@ def test_an_orf_inside_an_is_element_gets_is_element_context(fixture_dir):
         fixture_dir,
         is_rows=[["pl1", "pl1|IS1", "IS3", "IS3_1", 50, 450, "+", 1, "1e-50", ""]])
     assert rows[0]["cons_is_element"] == "1.0"
+
+
+# Stand-in for integron_finder: keeps its topology file beside itself and writes one In0
+# integrase per replicon in the IntegronFinder 2.0.6 column order.
+FAKE_INTEGRON_FINDER = """#!{python}
+import pathlib, shutil, sys
+args = sys.argv[1:]
+here = pathlib.Path(sys.argv[0]).parent
+shutil.copy(args[args.index("--topology-file") + 1], here / "topology.txt")
+out = pathlib.Path(args[args.index("--outdir") + 1])
+out.mkdir(parents=True)
+with open(out / "chunk.integrons", "w") as fh:
+    for line in open(args[-1]):
+        if line.startswith(">"):
+            rep = line[1:].split()[0]
+            fh.write("\\t".join(["integron_01", rep, "intI_1", "10", "900", "1", "1e-50",
+                                 "protein", "intI", "intersection_tyr_intI", "In0", "Yes",
+                                 "NA", "circ"]) + "\\n")
+"""
+
+
+def test_integrons_passes_each_plasmid_its_registry_topology(fixture_dir, monkeypatch):
+    exe = fixture_dir / "bin" / "integron_finder"
+    exe.parent.mkdir()
+    exe.write_text(FAKE_INTEGRON_FINDER.replace("{python}", sys.executable))
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, [("c1", "ACGT" * 10), ("l1", "ACGT" * 10), ("d1", "ACGT" * 10)])
+    master = fixture_dir / "master.tsv"
+    write_tsv(master, ["plasmid_id", "topology"],
+              [["c1", "circular"], ["l1", "linear"], ["d1", "direct terminal repeat"]])
+    out = fixture_dir / "out" / "integrons.tsv"
+    out.parent.mkdir()
+    run_script("integrons.py", FakeSnakemake(
+        input={"fasta": str(fasta), "master": str(master)}, output=[str(out)], threads=1))
+    # The format integron_finder.topology parses: "<replicon> <circ|lin>".
+    assert (exe.parent / "topology.txt").read_text().splitlines() == [
+        "c1 circ", "l1 lin", "d1 circ"]
+    assert {r["plasmid_id"]: r["integron_type"] for r in read_tsv(out)} == {
+        "c1": "In0", "l1": "In0", "d1": "In0"}
