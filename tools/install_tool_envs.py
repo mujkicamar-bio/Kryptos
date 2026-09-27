@@ -1,4 +1,5 @@
-"""Build the CONJScan and AMRFinderPlus environments and install their reference data.
+"""Build the CONJScan, AMRFinderPlus and geNomad environments and install their reference
+data.
 
 WHAT IS INSTALLED
 
@@ -6,15 +7,19 @@ WHAT IS INSTALLED
   data/refs/conjscan    CONJScan 2.1.0 models, `msf_data install` from that environment
   envs/amrfinder        from workflow/envs/amrfinder.yaml (NCBI AMRFinderPlus)
   data/refs/amrfinder   the AMRFinderPlus database, `amrfinder_update` from that environment
+  envs/genomad          from workflow/envs/genomad.yaml (geNomad)
+  data/refs/genomad     the geNomad database, `genomad download-database` from that
+                        environment
 
-Both tools run from their own environment, named by path, as pharokka does, because their
-pins conflict with the main environment (see the comments in the two YAML files).
+Each tool runs from its own environment, named by path, as pharokka does, because its pins
+conflict with the main environment (see the comments in the YAML files).
 
 IDEMPOTENT
 
 An environment is rebuilt only when a pinned package is missing or at another version, the
-models only when metadata.yml does not report 2.1.0, and the database only when no
-AMRProt file is present. A second run therefore installs nothing.
+models only when metadata.yml does not report 2.1.0, the AMRFinderPlus database only when
+no AMRProt file is present, and the geNomad database only when genomad_db/version.txt is
+absent. A second run therefore installs nothing.
 
 The package and repodata caches are a temporary directory inside envs/, removed
 afterwards, so nothing is written to the home directory (which has a file quota) and
@@ -139,6 +144,18 @@ def install_amrfinder_db(root):
     print(f"data/refs/amrfinder: database version {version.read_text().strip()}")
 
 
+def install_genomad_db(root):
+    target = root / "data/refs/genomad"
+    version = target / "genomad_db/version.txt"
+    if not version.is_file():
+        target.mkdir(parents=True, exist_ok=True)
+        subprocess.run([str(root / "envs/genomad/bin/genomad"), "download-database",
+                        str(target)], check=True)
+    if not version.is_file():
+        sys.exit(f"no {version} after download")
+    print(f"data/refs/genomad: database version {version.read_text().strip()}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -148,6 +165,8 @@ def main():
     install_conjscan(root)
     build_env(root, "amrfinder")
     install_amrfinder_db(root)
+    build_env(root, "genomad")
+    install_genomad_db(root)
 
 
 if __name__ == "__main__":

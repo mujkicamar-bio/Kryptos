@@ -54,6 +54,9 @@ amrfinder:
   executable: envs/amrfinder/bin/amrfinder
   database: data/refs/amrfinder/latest
   required: true
+genomad:
+  executable: envs/genomad/bin/genomad
+  database: data/refs/genomad/genomad_db
 qc:
   max_opposite_strand_overlap_fraction: 0.6
 seed: 20260916

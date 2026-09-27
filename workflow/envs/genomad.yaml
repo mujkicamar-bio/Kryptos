@@ -1,0 +1,12 @@
+# geNomad, in its own environment.
+#
+# Classifies each sequence as chromosome, plasmid or virus and annotates virus and plasmid
+# hallmark genes (Camargo et al. 2024, Nat Biotechnol 42:1303). Separate from
+# plasmidann.yaml because it pins TensorFlow and Keras.
+#
+# `envs/genomad` in the project root is a materialised copy of this file, built by
+# tools/install_tool_envs.py, which also installs the database into data/refs/genomad.
+name: genomad
+channels: [conda-forge, bioconda]
+dependencies:
+  - genomad=1.12.0

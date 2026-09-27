@@ -3,7 +3,7 @@
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
 required: [input, outdir, orf, discovery, qc, seed,
-           references, labels, amrfinder, foldseek_db, prostt5_model]
+           references, labels, amrfinder, genomad, foldseek_db, prostt5_model]
 additionalProperties: false
 properties:
   input:
@@ -64,6 +64,13 @@ properties:
       executable: {type: string}
       database: {type: string}
       required: {type: boolean}
+  genomad:
+    type: object
+    required: [executable, database]
+    additionalProperties: false
+    properties:
+      executable: {type: string}
+      database: {type: string}
   qc:
     type: object
     required: [max_opposite_strand_overlap_fraction]

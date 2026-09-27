@@ -111,6 +111,9 @@ def _run_report(fixture_dir, *tables):
                 "2.1.0"]])
     conj_class = fixture_dir / "conjugation_plasmid_class.tsv"
     write_tsv(conj_class, ["plasmid_id", "class"], [["p1", "pMOB"]])
+    phage = fixture_dir / "phage_plasmids.tsv"
+    write_tsv(phage, ["plasmid_id", "genomad_virus", "n_virus_hallmarks", "phage_plasmid"],
+              [["p1", "p1|provirus_10_900", 2, 1]])
     # S8g: F2 travels with F9 (q 0.01) and less clearly with F8; F1 was in no tested pair.
     cooc = fixture_dir / "dark_cooccurrence.tsv"
     write_tsv(cooc, ["family_a", "family_b", "n_lineages_a", "n_lineages_b",
@@ -128,7 +131,8 @@ def _run_report(fixture_dir, *tables):
                "rarity": str(rarity_tsv), "is_elements": is_tsv,
                "registry": str(registry), "clusters_close": str(clusters_close),
                "labels_plasmid": str(labels_plasmid), "conjugation": str(conj),
-               "conjugation_class": str(conj_class), "cooccurrence": str(cooc)},
+               "conjugation_class": str(conj_class), "cooccurrence": str(cooc),
+               "phage_plasmids": str(phage)},
         output={"annotation": str(out_ann), "families": str(out_fam)},
         params={"evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5},
                 "cooccurrence": {"min_lineages_together": 2, "fdr": 0.05}}))
@@ -235,7 +239,8 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     # labels by term type, its CONJScan call, and its close cluster's synteny.
     orf_evidence = ["amr_labels", "metal_labels", "ta_labels", "conj_role_labels",
                     "mge_labels", "antidefence_labels", "conj_system", "conj_component",
-                    "plasmid_conjscan_class", "close_family_id", "close_n_lineages",
+                    "plasmid_conjscan_class", "plasmid_phage_plasmid", "close_family_id",
+                    "close_n_lineages",
                     "close_lineage_synteny_conservation", "close_modal_synteny",
                     "close_synteny_status"]
     carried = set(by_orf["p1|3"]) - annotation_cols - join_and_orthology - set(orf_evidence)
@@ -252,6 +257,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     assert relaxase["metal_labels"] == "", "a VIRULENCE element has no term type"
     assert (relaxase["conj_system"], relaxase["conj_component"]) == ("MOB", "T4SS_MOBP1")
     assert {r["plasmid_conjscan_class"] for r in orfs} == {"pMOB"}
+    assert {r["plasmid_phage_plasmid"] for r in orfs} == {"1"}
     assert by_orf["p1|3"]["conj_system"] == ""
     # S2 and S3 share the close cluster close:S3, which Stage 9 measured; S1's was not.
     for orf in ("p1|2", "p1|3"):
