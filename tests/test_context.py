@@ -1,4 +1,4 @@
-"""S8: genomic context - the stage that decides whether the screen finds anything.
+"""Genomic context (plasmidann.context) - the stage that decides whether the screen finds anything.
 
 Both experimental successes in the FESNov study were selected by genomic context, not by
 any novelty measure: one sat in the canonical che operon, the other beside antibiotic

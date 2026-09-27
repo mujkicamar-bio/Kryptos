@@ -20,10 +20,7 @@ def test_nothing_explained_is_none():
 
 
 def test_narrowing_keeps_searching_until_the_protein_is_essentially_finished():
-    """A 15%-covered protein must keep descending the cascade, not stop at tier 1.
-
-    The threshold passed here is narrow_at, not min_explained: narrowing decides what to
-    keep SEARCHING, reporting decides what to call explained."""
+    """A 15%-covered protein must keep descending the cascade, not stop at tier 1."""
     explained = {"a": 0.95, "b": 0.15, "c": 0.0}
 
     still_open = narrow_by_explained(["a", "b", "c"], explained, 0.9)

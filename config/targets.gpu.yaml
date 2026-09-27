@@ -1,7 +1,7 @@
 # config/targets.yaml with structure.gpu enabled. Regenerate after editing targets.yaml.
 rarity:
   rare_max_lineages: 3
-  widely_conserved_min_lineages: 50
+  widespread_percentile: 99
   cross_min_hosts: 2
   cross_min_genera: 2
   rarefaction_replicates: 20

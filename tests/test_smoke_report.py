@@ -70,10 +70,10 @@ def _report_fixture(fixture_dir):
     rarity_tsv = fixture_dir / "family_rarity.tsv"
     write_tsv(rarity_tsv, ["family_id", "rarity_labels",
                            "independent_plasmid_cluster_count", "unique_plasmid_count",
-                           "MOB_count", "host_count", "genus_count", "rarity_version",
-                           "rare_max_lineages", "widely_conserved_min_lineages"],
-              [["F1", "RARE,LINEAGE_SPECIFIC", 1, 1, 1, 1, 1, "1", 3, 50],
-               ["F2", "RARE,CROSS_MOB", 2, 9, 3, 3, 2, "1", 3, 50]])
+                           "MOB_count", "host_count", "genus_count",
+                           "rare_max_lineages", "widespread_min_lineages"],
+              [["F1", "RARE,LINEAGE_SPECIFIC", 1, 1, 1, 1, 1, 3, 50],
+               ["F2", "RARE,CROSS_MOB", 2, 9, 3, 3, 2, 3, 50]])
 
     return (ann, pmap, fams, evo, rec, ctx, struct, orth, recur, syn,
             rarity_tsv)
@@ -112,13 +112,17 @@ def _run_report(fixture_dir, *tables):
                 "2.1.0"]])
     conj_class = fixture_dir / "conjugation_plasmid_class.tsv"
     write_tsv(conj_class, ["plasmid_id", "class"], [["p1", "pMOB"]])
-    # S8g: F2 travels with F9 (q 0.01) and less clearly with F8; F1 was in no tested pair.
+    phage = fixture_dir / "phage_plasmids.tsv"
+    write_tsv(phage, ["plasmid_id", "genomad_virus", "n_virus_hallmarks", "phage_plasmid"],
+              [["p1", "p1|provirus_10_900", 2, 1]])
+    # F2's member S3 travels with S9 (q 0.01) and less clearly with S8; F1's member S2 was
+    # in no reported pair.
     cooc = fixture_dir / "dark_cooccurrence.tsv"
-    write_tsv(cooc, ["family_a", "family_b", "n_lineages_a", "n_lineages_b",
+    write_tsv(cooc, ["seq_a", "seq_b", "n_lineages_a", "n_lineages_b",
                      "n_lineages_together", "n_lineages_total", "fraction_of_a",
-                     "fraction_of_b", "expected_together", "p_value", "q_value", "status"],
-              [["F2", "F9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01, "SUCCESS"],
-               ["F2", "F8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3, "SUCCESS"]])
+                     "fraction_of_b", "expected_together", "p_value", "q_value"],
+              [["S3", "S9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01],
+               ["S3", "S8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3]])
     # The measured fields of the families: S2 (F1) was not searched by the cascade; S3
     # (F2) was searched and found nothing, and its co-member S4 is named with two
     # informative hits. Every protein went through the artefact screen.
@@ -142,6 +146,7 @@ def _run_report(fixture_dir, *tables):
                "registry": str(registry), "clusters_close": str(clusters_close),
                "labels_plasmid": str(labels_plasmid), "conjugation": str(conj),
                "conjugation_class": str(conj_class), "cooccurrence": str(cooc),
+               "phage_plasmids": str(phage),
                "prot": str(prot), "artefact": str(artefact), "dark_faa": str(dark_faa)},
         output={"annotation": str(out_ann), "families": str(out_fam)},
         params={"evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5},
@@ -223,12 +228,12 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
         "small_modal_left", "small_modal_right", "small_modal_synteny",
         "small_synteny_status",
-        # S8g: dark families it travels with.
+        # S8g: dark sequences its members travel with.
         "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
         "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
         "cooccurrence_fdr", "cooccurrence_min_lineages",
         # Stage 14: descriptors, not a ranking.
-        "rarity_labels", "rarity_version",
+        "rarity_labels",
         # Stage 15: dimensions counted, never scored.
         "evidence_dimensions_present", "evidence_dimension_count",
         "supporting_observations_count", "supporting_observations_are_not_independent",
@@ -249,7 +254,8 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     # labels by term type, its CONJScan call, and its close cluster's synteny.
     orf_evidence = ["amr_labels", "metal_labels", "ta_labels", "conj_role_labels",
                     "mge_labels", "antidefence_labels", "conj_system", "conj_component",
-                    "plasmid_conjscan_class", "close_family_id", "close_n_lineages",
+                    "plasmid_conjscan_class", "plasmid_phage_plasmid", "close_family_id",
+                    "close_n_lineages",
                     "close_lineage_synteny_conservation", "close_modal_synteny",
                     "close_synteny_status"]
     carried = set(by_orf["p1|3"]) - annotation_cols - join_and_orthology - set(orf_evidence)
@@ -266,6 +272,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     assert relaxase["metal_labels"] == "", "a VIRULENCE element has no term type"
     assert (relaxase["conj_system"], relaxase["conj_component"]) == ("MOB", "T4SS_MOBP1")
     assert {r["plasmid_conjscan_class"] for r in orfs} == {"pMOB"}
+    assert {r["plasmid_phage_plasmid"] for r in orfs} == {"1"}
     assert by_orf["p1|3"]["conj_system"] == ""
     # S2 and S3 share the close cluster close:S3, which Stage 9 measured; S1's was not.
     for orf in ("p1|2", "p1|3"):
@@ -298,15 +305,13 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
             f2["top_cooccurring_partner"], f2["top_cooccurring_partner_q"],
             f2["top_cooccurring_partner_fraction"], f2["cooccurrence_fdr"],
             f2["cooccurrence_min_lineages"]) == (
-        "SUCCESS", "1", "F9", "0.01", "0.6667", "0.05", "2")
+        "SUCCESS", "1", "S9", "0.01", "0.6667", "0.05", "2")
     f1 = fam_rows["F1"]
     assert (f1["cooccurrence_status"], f1["n_cooccurring_partners"],
             f1["top_cooccurring_partner"]) == ("TOO_FEW_LINEAGES", "0", "")
 
     # --- Stage 14: labels are descriptors -------------------------------------------
     assert fam_rows["F1"]["rarity_labels"] == "RARE,LINEAGE_SPECIFIC"
-    assert fam_rows["F1"]["rarity_version"] == "1", (
-        "a label whose definition can change must travel with the version that made it")
 
     # --- evidence dimensions counted, never scored ------------------------------------
     # F2 was measured on every axis; its informative hits are those of its member S4.

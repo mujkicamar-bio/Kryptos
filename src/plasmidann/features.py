@@ -39,8 +39,7 @@ def genbank_location(start, end, strand, length):
     return f"complement({span})" if strand in (-1, "-", "-1") else span
 
 
-def gff3_features(gene, length, source="plasmidann", feature_type="CDS",
-                  attributes=None):
+def gff3_features(gene, length, attributes=None):
     """One gene as GFF3 rows (9-tuples): one row, or two sharing one ID if it spans the origin.
 
     Phase is the number of bases to skip at a segment's 5' end before the next codon. The
@@ -60,6 +59,6 @@ def gff3_features(gene, length, source="plasmidann", feature_type="CDS",
     carried = (first[1] - first[0] + 1) % 3
 
     column9 = gff3_attributes(attrs)
-    return [(gene["plasmid_id"], source, feature_type, s, e, ".", strand_char,
+    return [(gene["plasmid_id"], "plasmidann", "CDS", s, e, ".", strand_char,
              0 if (s, e) == first else (3 - carried) % 3, column9)
             for s, e in segments]

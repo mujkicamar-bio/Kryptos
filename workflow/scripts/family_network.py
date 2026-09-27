@@ -1,4 +1,4 @@
-"""Stage 5b: the family network - 50%-identity clusters linked by sequence similarity.
+"""The family network - 50%-identity clusters linked by sequence similarity.
 
 Inputs: protein_families.tsv, the node-resolution clusters and representatives,
 protein_annotation.tsv, the dark ids and the protein map. Outputs network_nodes.tsv,

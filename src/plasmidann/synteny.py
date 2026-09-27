@@ -1,4 +1,4 @@
-"""Stage 9: whether the arrangement around a dark ORF recurs across its family's lineages.
+"""Rule synteny: whether the arrangement around a dark ORF recurs across its family's lineages.
 
 Six measurements, kept apart because they vary independently:
 
@@ -9,9 +9,9 @@ Six measurements, kept apart because they vary independently:
     lineage_operon_like_conservation   mean over lineages of the operon-like fraction
     context_recurrence                 occurrences with any neighbour at all
 
-Each share is a fractional vote over Stage 6 plasmid lineages (see _lineage_modal), so that
-many copies of one redeposited plasmid are one observation; fewer than min_lineages voting
-lineages gives no value.
+Each share is a fractional vote over plasmid lineages (plasmid_lineage.tsv; see
+_lineage_modal), so that many copies of one redeposited plasmid are one observation;
+fewer than min_lineages voting lineages gives no value.
 """
 import collections
 from fractions import Fraction
@@ -68,7 +68,7 @@ def conservation(occurrences, min_lineages=MIN_LINEAGES):
         left        ordered left neighbour labels, nearest first
         right       ordered right neighbour labels, nearest first
         operon      True when the ORF shares a transcriptional unit with a named neighbour
-        lineage     the Stage 6 lineage of the occurrence's plasmid
+        lineage     the plasmid lineage of the occurrence's plasmid
 
     Returns a dict with the measurements, the modal values behind them, the occurrence and
     lineage counts they were computed over, and a status.

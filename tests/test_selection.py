@@ -1,4 +1,4 @@
-"""S2s: which proteins the cascade annotates (plasmidann.selection).
+"""Which proteins the cascade annotates (plasmidann.selection).
 
 A family (clustering.primary) is annotated when a small plasmid carries a protein in it
 that Tier 0 has not explained; then every member Tier 0 has not explained is annotated,

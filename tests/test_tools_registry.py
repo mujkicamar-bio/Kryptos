@@ -11,11 +11,11 @@ from plasmidann.tools import (
     grammar_problem,
     macsyfinder_version,
     model_grammars,
-    tool_names,
 )
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SOURCES = [ROOT / "workflow" / "scripts", ROOT / "src" / "plasmidann"]
+TOOL_NAMES = {t["name"] for t in REQUIRED_TOOLS}
 
 # The executable is the first token of a command given to subprocess directly - a string
 # (f"mmseqs ...") or a list (["diamond", ...]) - or assigned first to `cmd = (f"...`.
@@ -45,7 +45,7 @@ def test_the_scanner_sees_every_form_of_invocation():
 
 def test_every_invoked_executable_is_in_the_registry():
     undeclared = {t: sorted(f) for t, f in invoked_executables().items()
-                  if t not in tool_names()}
+                  if t not in TOOL_NAMES}
     assert not undeclared, (
         f"tools invoked but absent from plasmidann.tools.REQUIRED_TOOLS, so pre-flight "
         f"cannot check them: {undeclared}")
@@ -53,7 +53,7 @@ def test_every_invoked_executable_is_in_the_registry():
 
 def test_the_registry_names_no_tool_the_workflow_does_not_invoke():
     """A stale entry halts the run on a missing tool that no stage needs."""
-    stale = sorted(tool_names() - set(invoked_executables()) - INDIRECT)
+    stale = sorted(TOOL_NAMES - set(invoked_executables()) - INDIRECT)
     assert not stale, (
         f"pre-flighted but invoked nowhere, and not declared as an indirect dependency: "
         f"{stale}")
@@ -61,12 +61,12 @@ def test_the_registry_names_no_tool_the_workflow_does_not_invoke():
 
 def test_the_registry_names_the_indirect_dependencies():
     """IntegronFinder shells out to prodigal and cmsearch, which no script names."""
-    assert INDIRECT <= tool_names()
+    assert INDIRECT <= TOOL_NAMES
 
 
-def test_every_registry_entry_states_the_stage_that_needs_it():
+def test_every_registry_entry_states_the_rules_that_need_it():
     for entry in REQUIRED_TOOLS:
-        assert entry["stage"], f"{entry['name']} does not say which stage needs it"
+        assert entry["stage"], f"{entry['name']} does not say which rule needs it"
         assert entry["why"], f"{entry['name']} does not say what breaks without it"
 
 

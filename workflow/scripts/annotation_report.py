@@ -2,8 +2,8 @@
 
 annotation_complete.csv has one row per ORF: the cascade call, the dark evidence, the
 orthology terms, the plasmid label database labels of its protein, its CONJScan system, its
-plasmid's host and mobility class, the synteny of its close cluster and, for an ORF in a
-dark family, that family's evidence. dark_families_complete.csv has one row per dark family
+plasmid's host, mobility class and geNomad phage-plasmid label, the synteny of its close
+cluster and, for an ORF in a dark family, that family's evidence. dark_families_complete.csv has one row per dark family
 with every measurement of the family side by side and the evidence dimensions measured for
 it (plasmidann.integration). family_context_terms.tsv, written by context_features, holds
 the context terms per family counted over lineages.
@@ -20,8 +20,9 @@ import _ctx  # noqa: F401
 
 from darkorf import status
 from darkorf.ids import family_id as cluster_family_id
-from plasmidann import integration, labeldb
+from plasmidann import integration
 from plasmidann.context import overlapping_islands
+from plasmidann.context_terms import label_term
 from plasmidann.cooccurrence import family_partners
 from plasmidann.evidence import darkness_state, reality_lines, reality_thresholds
 
@@ -59,16 +60,16 @@ recurrence = index(snakemake.input.recurrence, "family_id")
 synteny = index(snakemake.input.synteny, "family_id")
 rarity = index(snakemake.input.rarity, "family_id")
 
-# dark_cooccurrence: per dark family, the partners it shares a plasmid with in more lineages than chance
-# predicts. The pair table holds the tested pairs only; a family in none of them had no
-# partner together in cooccurrence.min_lineages_together lineages.
+# dark_cooccurrence: pairs of dark sequences that share a plasmid in more lineages than chance predicts.
+# The pair table holds the reported pairs only; a family none of whose members is in one
+# had no member together with another sequence in cooccurrence.min_lineages_together
+# lineages.
 with open(snakemake.input.cooccurrence, newline="") as fh:
     pairs = [{**r, "p_value": float(r["p_value"]), "q_value": float(r["q_value"]),
               "n_lineages_together": int(r["n_lineages_together"]),
               "fraction_of_a": float(r["fraction_of_a"]),
               "fraction_of_b": float(r["fraction_of_b"])}
              for r in csv.DictReader(fh, delimiter="\t")]
-partners = family_partners(pairs, cooc_cfg["fdr"])
 
 # Which unique protein each ORF is, and which family each unique protein belongs to.
 seq_of_orf = {}
@@ -82,6 +83,7 @@ family_of_seq = {}
 for fid, fam in families.items():
     for member in fam["members"].split(","):
         family_of_seq[member] = fid
+partners = family_partners(pairs, cooc_cfg["fdr"], family_of_seq)
 
 # The measured fields the evidence dimensions are counted from, per family member: whether
 # the artefact screen and the cascade reached it, and its informative database hits.
@@ -157,17 +159,17 @@ FAMILY_COLS = [
     "small_lineage_right_conservation", "small_lineage_neighborhood_conservation",
     "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
     "small_modal_left", "small_modal_right", "small_modal_synteny", "small_synteny_status",
-    # dark_cooccurrence: the dark families this one travels with. A partner counts when it shares a
-    # plasmid with this family in more lineages than chance predicts (q <= fdr); the best
-    # partner (lowest q) is named whether significant or not, with its q and the fraction of
-    # THIS family's lineages in which the two share a plasmid. TOO_FEW_LINEAGES: no partner
-    # shared a plasmid with it in min_lineages lineages, so no pair was tested.
+    # dark_cooccurrence: the dark sequences this family's dark members travel with. A partner sequence
+    # counts when it shares a plasmid with a member in more lineages than chance predicts
+    # (q <= fdr); the best partner (lowest q) is named whether significant or not, with its
+    # q and the fraction of the member's lineages in which the two share a plasmid.
+    # TOO_FEW_LINEAGES: no member shared a plasmid with another sequence in min_lineages
+    # lineages, so no pair of it was reported.
     "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
     "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
     "cooccurrence_fdr", "cooccurrence_min_lineages",
-    # rarity: descriptors, not a ranking. RARE is not better than
-    # WIDELY_CONSERVED. The version travels because a label's definition can change.
-    "rarity_labels", "rarity_version",
+    # rarity: descriptors, not a ranking. RARE is not better than WIDESPREAD.
+    "rarity_labels",
     # evidence dimensions: counted, never scored.
     "evidence_dimensions_present", "evidence_dimension_count",
     "supporting_observations_count", "supporting_observations_are_not_independent",
@@ -177,7 +179,7 @@ FAMILY_COLS = [
 # recurrence, which is where they are computed; taking rarity's
 # copies as well would put the same number in the row twice under one name, and whichever
 # was merged last would win silently if the two ever disagreed.
-RARITY_COLS = ("rarity_labels", "rarity_version")
+RARITY_COLS = ("rarity_labels",)
 
 # synteny writes a bare `status`. Every stage does, which is exactly why it cannot be merged
 # under that name: the family row already carries dnds_status and independent_cluster_status
@@ -290,8 +292,8 @@ with open(snakemake.input.clusters_close) as fh:
         if cid in close_rows:
             close_of_seq[member] = cid
 
-# Per protein, the plasmid label databases' labels (label_databases) by term type, as 'source:label':
-# the ORF's own labels, in the vocabulary the context terms use (plasmidann.labeldb).
+# Per protein, the labels of label_databases by term type, as 'source:label':
+# the ORF's own labels, in the vocabulary the context terms use (context_terms.label_term).
 # AMRFinderPlus VIRULENCE and STRESS acid/heat elements have no term type and no column.
 LABEL_COLS = {"amr": "amr_labels", "metal": "metal_labels", "ta": "ta_labels",
               "conj_role": "conj_role_labels", "mge": "mge_labels",
@@ -299,11 +301,13 @@ LABEL_COLS = {"amr": "amr_labels", "metal": "metal_labels", "ta": "ta_labels",
 labels_of_seq = collections.defaultdict(lambda: collections.defaultdict(set))
 with open(snakemake.input.labels_plasmid, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
-        prefix = labeldb.term_prefix(r)
-        if prefix:
-            labels_of_seq[r["seq_id"]][LABEL_COLS[prefix]].add(f"{r['source']}:{r['label']}")
+        term = label_term(r["label_kind"], r["label"], r["sub_label"])
+        if term:
+            labels_of_seq[r["seq_id"]][LABEL_COLS[term.split(":", 1)[0]]].add(
+                f"{r['source']}:{r['label']}")
 
-# Per ORF, its CONJScan system and component (conjugation_systems); per plasmid, its mobility class.
+# Per ORF, its CONJScan system and component (conjugation_systems); per plasmid, its
+# mobility class.
 conj_of_orf = collections.defaultdict(lambda: {"conj_system": set(), "conj_component": set()})
 with open(snakemake.input.conjugation, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
@@ -313,6 +317,10 @@ conj_class = {}
 with open(snakemake.input.conjugation_class, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
         conj_class[r["plasmid_id"]] = r["class"]
+# Per plasmid, its phage-plasmid label from geNomad (phage_plasmids).
+with open(snakemake.input.phage_plasmids, newline="") as fh:
+    phage_plasmid = {r["plasmid_id"]: r["phage_plasmid"]
+                     for r in csv.DictReader(fh, delimiter="\t")}
 
 CARRIED = ["family_id", "scope", "reality_n", "reality_lines", "darkness_state",
            "dnds_median",
@@ -334,7 +342,8 @@ with open(snakemake.input.annotation, newline="") as fh:
                "eggnog_description", "is_element", "host_species", "host_genus",
                "predicted_host_range"]
             + list(LABEL_COLS.values())
-            + ["conj_system", "conj_component", "plasmid_conjscan_class"]
+            + ["conj_system", "conj_component", "plasmid_conjscan_class",
+               "plasmid_phage_plasmid"]
             + list(CLOSE_COLS) + CARRIED)
     with open(snakemake.output.annotation, "w", newline="") as out:
         w = csv.DictWriter(out, fieldnames=cols, extrasaction="ignore")
@@ -365,6 +374,7 @@ with open(snakemake.input.annotation, newline="") as fh:
             for col, values in conj_of_orf.get(r["orf_id"], {}).items():
                 row[col] = "; ".join(sorted(values))
             row["plasmid_conjscan_class"] = conj_class.get(r["plasmid_id"], "")
+            row["plasmid_phage_plasmid"] = phage_plasmid.get(r["plasmid_id"], "")
             close = close_rows.get(close_of_seq.get(sid, ""))
             if close:
                 row.update({c: close[k] for c, k in CLOSE_COLS.items()})

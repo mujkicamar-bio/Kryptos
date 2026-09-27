@@ -9,8 +9,6 @@ WHAT IS INSTALLED
   mobileog  mobileOG-db beatrix-1.6, every entry (Manual, Homology, Keyword Search)
   dbapis    dbAPIS, the verified APIS proteins and their sequence homologues
   acrdb     Anti-CRISPRdb version 2.2, every entry of the core dataset
-  kegg_ko   the KEGG Orthology list as downloaded (raw/list_ko.txt); no FASTA. It maps
-            PlasmidScope Tier 0 KOs to gene symbols for the disagreement file only
 
 EVIDENCE RULE
 
@@ -26,10 +24,9 @@ MANIFEST.sha256 (every file, checkable with `sha256sum -c`).
 
 PINNED DOWNLOADS
 
-Every download except CARD and KEGG is pinned by SHA-256, so a changed file upstream stops
-the install instead of silently changing the labels. CARD and the KEGG KO list are taken as
-the current release, and their version is read from the download (card.json, info/ko). A
-pinned file may instead be taken from a local copy (--local DIR, looked up as
+Every download except CARD is pinned by SHA-256, so a changed file upstream stops the
+install instead of silently changing the labels. CARD is taken as the current release, and
+its version is read from the download (card.json). A pinned file may instead be taken from a local copy (--local DIR, looked up as
 DIR/<db>/<file name>), and only when its SHA-256 matches.
 
 IDEMPOTENT
@@ -46,7 +43,6 @@ import datetime
 import hashlib
 import json
 import pathlib
-import re
 import shutil
 import sys
 import tarfile
@@ -219,22 +215,6 @@ DBS = {
         evidence=ALL_CLASSES,
         header="<anti_CRISPR_id> family=<Family> type=<Anti_type> acc=<Accession> "
                "evidence=<Verified|PLiterature|Putative>, the database's classify field"),
-    "kegg_ko": dict(
-        version=None,  # read from info/ko
-        files=[("https://rest.kegg.jp/list/ko", "list_ko.txt", None),
-               ("https://rest.kegg.jp/info/ko", "info_ko.txt", None)],
-        url="https://rest.kegg.jp/list/ko",
-        citation="Kanehisa M, Furumichi M, Sato Y, Matsuura Y, Ishiguro-Watanabe M. KEGG: "
-                 "biological systems database as a model of the real world. Nucleic Acids "
-                 "Res. 2025;53(D1):D672-D677. doi:10.1093/nar/gkae909",
-        licence="academic use only: 'KEGG API at rest.kegg.jp is made available only for "
-                "academic use by academic users' (https://www.kegg.jp/kegg/rest/); "
-                "non-academic use requires a commercial licence "
-                "(https://www.kegg.jp/kegg/legal.html)",
-        evidence="not applicable (a term list, not a sequence database)",
-        header="no FASTA; raw/list_ko.txt as KEGG serves it, '<KO><TAB><symbols>; <name>'. "
-               "Used only to map PlasmidScope Tier 0 KOs to gene symbols for the "
-               "disagreement file, not for context terms"),
 }
 
 
@@ -450,22 +430,9 @@ def build_acrdb(d, raw):
     return f"{n} entries ({', '.join(f'{k} {v}' for k, v in classes.items())})"
 
 
-def build_kegg_ko(d, raw):
-    info = (raw / "info_ko.txt").read_text()
-    entries = re.search(r"([\d,]+) entries", info).group(1)
-    updated = re.search(r"Last update (\S+)", info).group(1)
-    with open(raw / "list_ko.txt") as fh:
-        n = sum(1 for _ in fh)
-    if n != int(entries.replace(",", "")):
-        sys.exit(f"KEGG list/ko has {n} entries, info/ko reports {entries}")
-    DBS["kegg_ko"]["version"] = (f"KEGG Orthology, {entries} entries, last update {updated} "
-                                 f"(rest.kegg.jp/info/ko)")
-    return f"{n} KO entries"
-
-
 BUILD = {"tadb": build_tadb, "bacmet": build_bacmet, "oritdb": build_oritdb,
          "card": build_card, "mobileog": build_mobileog, "dbapis": build_dbapis,
-         "acrdb": build_acrdb, "kegg_ko": build_kegg_ko}
+         "acrdb": build_acrdb}
 
 
 def up_to_date(db, d):

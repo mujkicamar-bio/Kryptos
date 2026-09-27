@@ -12,8 +12,8 @@
 # =====================================================================================
 
 rule clonal_registry:
-    """S0b: per plasmid, its MOB-suite cluster, topology, observed host and predicted host
-    range. Independent occurrences are counted over Stage 6 lineages (plasmid_lineage),
+    """Per plasmid, its MOB-suite cluster, topology, observed host and predicted host
+    range. Independent occurrences are counted over the lineages of plasmid_lineage.tsv,
     not over these clusters."""
     input:
         master=config["input"]["master_table"],
@@ -82,7 +82,7 @@ rule dark_set:
 
 
 rule plasmid_lineage:
-    """Stage 6: cluster plasmids by sequence similarity into independent lineages.
+    """Cluster plasmids by sequence similarity into independent lineages.
 
     Separate from MOB class: MOB typing describes the relaxase a plasmid carries and says
     nothing about whether two records are the same molecule sequenced twice.
@@ -108,10 +108,11 @@ rule plasmid_lineage:
 
 
 rule protein_families:
-    """Stage 5: the family table for every unique protein, not only the dark set.
+    """The family table for every unique protein, not only the dark set.
 
-    The clusters are made before the cascade (S2f); this adds the annotation, the
-    distribution and the small/large scope. dark_member_count, annotated_member_count,
+    The clusters are made before the cascade (rule protein_clustering); this adds the
+    annotation and the small/large scope. The distribution counts are in recurrence.tsv
+    (rule recurrence). dark_member_count, annotated_member_count,
     percentage_dark_in_family and the dark-only family (100% dark) need the annotated
     members present.
 
@@ -119,7 +120,7 @@ rule protein_families:
     dark-family subset at the primary resolution that the dark stages read.
     """
     input:
-        # Made before the cascade (S2f, protein_clustering); annotation is added here.
+        # Made before the cascade (rule protein_clustering); annotation is added here.
         clusters=expand(f"{OUT}/10_clustering/families_{{res}}_cluster.tsv",
                         res=targets["clustering"]["resolutions"]),
         prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
@@ -127,7 +128,6 @@ rule protein_families:
         dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
-        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     output:
         families=f"{OUT}/10_clustering/protein_families.tsv",
         dark_families=f"{OUT}/10_clustering/dark_families.tsv",
@@ -147,10 +147,10 @@ rule protein_families:
 
 
 rule family_network:
-    """Stage 5b: 50%-identity clusters linked by sequence similarity (Durairaj et al.
-    2023), with communities and an annotation state per node - a map of where the dark
-    plasmidome sits relative to the known. Reads the intermediate clustering Stage 5
-    already made; changes no family and no dark call.
+    """50%-identity clusters linked by sequence similarity (Durairaj et al. 2023), with
+    communities and an annotation state per node - a map of where the dark plasmidome
+    sits relative to the known. Reads the intermediate clustering rule protein_clustering
+    made; changes no family and no dark call.
     """
     input:
         families=f"{OUT}/10_clustering/protein_families.tsv",
@@ -183,9 +183,9 @@ rule family_network:
 
 
 rule rarity:
-    """Stage 14: rarity labels per family, and the dark-family rarefaction curve.
+    """Rarity labels per family, and the dark-family rarefaction curve.
 
-    The curve answers whether the collection has saturated - whether more plasmids would
+    The curve answers whether the collection has saturated - whether more lineages would
     keep revealing new dark families - which is what says if the dark count is a lower
     bound.
     """
@@ -193,8 +193,10 @@ rule rarity:
         recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
         dark_families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
-        # The rarefaction axis: every small plasmid, with a dark family or without.
+        # The rarefaction axis: every lineage holding a small plasmid, with a dark family
+        # or without.
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
+        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     output:
         rarity=f"{OUT}/14_rarity/family_rarity.tsv",
         rarefaction=f"{OUT}/15_report/dark_family_rarefaction.tsv",
@@ -215,12 +217,12 @@ rule rarity:
 
 
 rule synteny:
-    """Stage 9: does a dark family's gene order RECUR across its occurrences?
+    """Does a dark family's gene order RECUR across its occurrences?
 
-    Distinct from Stage 8, which asks what one ORF sits next to once. Conserved gene order
-    survives because the arrangement matters, so it is a much stronger claim than
-    adjacency. Six measurements, kept separate, counted over Stage 6
-    lineages, at every level of synteny.levels (close and intermediate).
+    Distinct from context_features, which asks what one ORF sits next to once. Conserved
+    gene order survives because the arrangement matters, so it is a much stronger claim
+    than adjacency. Six measurements, kept separate, counted over plasmid lineages
+    (plasmid_lineage.tsv), at every level of synteny.levels (close and intermediate).
     """
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
@@ -231,7 +233,7 @@ rule synteny:
         # neighbours are named by their cluster at that level.
         clusters=expand(f"{OUT}/10_clustering/families_{{res}}_cluster.tsv",
                         res=targets["synteny"]["levels"]),
-        # The counting unit: one vote per independent lineage (Stage 6).
+        # The counting unit: one vote per independent lineage.
         lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
         dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
@@ -259,15 +261,17 @@ rule synteny:
 
 
 rule dark_cooccurrence:
-    """S8g: do two dark families travel together more often than chance predicts?
+    """Do two unique dark protein sequences travel together more often than chance
+    predicts?
 
-    Together = a member ORF of each on the same plasmid; counted once per Stage 6 lineage;
-    tested by the hypergeometric upper tail over lineages, with Benjamini-Hochberg across
-    the pairs together in at least cooccurrence.min_lineages_together lineages. Only those
-    tested pairs are written. See plasmidann.cooccurrence.
+    Together = an ORF of each on the same plasmid; counted once per lineage
+    (plasmid_lineage.tsv); only sequences in at least cooccurrence.min_lineages_together
+    lineages are enumerated; tested by the hypergeometric upper tail over lineages, with
+    Benjamini-Hochberg across the enumerated pairs. Pairs together in at least that many
+    lineages are written. See plasmidann.cooccurrence.
     """
     input:
-        # The primary-resolution dark families and their dark members.
+        # The dark sequences: the dark members of the primary-resolution dark families.
         families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
@@ -276,16 +280,14 @@ rule dark_cooccurrence:
     params:
         cooccurrence=targets["cooccurrence"],
     resources:
-        # Memory is ~100 B per distinct family pair sharing a plasmid (measured, a Counter
-        # of tuple keys) plus ~1 KB per tested pair. results_test (job 6985208, 100
-        # plasmids): 533 pair occurrences, 8.8 per small plasmid and 0.15 per large one,
-        # 25 MB peak, under 1 s. Scaled to 82,261 small and 61,242 large plasmids that is
-        # ~0.73 M pair occurrences (< 1 GB). The ceiling, if large plasmids carried as many
-        # dark families as when every dark protein made a family (results_bench, 2,631
-        # pairs per large plasmid), is ~162 M (~16 GB for the counts). 64 GB is a
-        # scheduling figure above that ceiling, not a measurement at full scale.
+        # Upper bound measured at full scale on a proxy (2026-09-27): the 8.75 M PlasmidScope
+        # ORFs of the analysis set, every protein PlasmidScope does not annotate counted as
+        # dark (1.08 M sequences), each plasmid its own lineage. Lineages only merge
+        # plasmids, so the real run enumerates fewer sequences and tests fewer pairs. The
+        # proxy enumerated 277,340 sequences in >= 2 plasmids, with 80.8 M pair occurrences,
+        # 20.9 M pairs tested and 15.5 M reported: 14.5 GB peak, 201 s. A distinct pair
+        # costs ~110 B in the counter (measured); the reported rows dominate the peak.
         mem_mb=64000,
-        # Each tested pair's tail takes 2-25 us (measured); ten million pairs take minutes.
         runtime=120,
     benchmark:
         f"{OUT}/benchmarks/dark_cooccurrence.tsv"
@@ -298,7 +300,7 @@ rule dark_cooccurrence:
 
 
 rule recurrence:
-    """Stage 7: distribution and recurrence, counted over independent units.
+    """Distribution and recurrence, counted over independent units.
 
     Seven counts per family, never collapsed, because database record counts are not
     independent biological observations.
@@ -325,7 +327,7 @@ rule recurrence:
 
 
 rule extract_cds:
-    """S7a: recover nucleotide CDS - dN/dS needs codons, and we store protein only."""
+    """Recover nucleotide CDS - dN/dS needs codons, and we store protein only."""
     input:
         ids=f"{OUT}/10_clustering/dark_ids.txt",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
@@ -347,7 +349,7 @@ rule extract_cds:
 
 
 rule family_evolution:
-    """S7b: dN/dS per family - the strongest evidence a dark ORF is a real protein."""
+    """dN/dS per family - the strongest evidence a dark ORF is a real protein."""
     input:
         families=f"{OUT}/10_clustering/dark_families.tsv",
         faa=f"{OUT}/10_clustering/dark_proteins.faa",
@@ -355,9 +357,12 @@ rule family_evolution:
     output:
         tsv=f"{OUT}/11_distribution_and_evolution/family_evolution.tsv",
         # The family consensus, built from the protein alignment this rule already makes.
-        # S7c re-searches it: a family can be collectively recognisable while every member
-        # individually misses the cut, and Pavlopoulos removed 6.5% of clusters that way.
+        # consensus_recheck re-searches it: a family can be collectively recognisable while
+        # every member individually misses the cut, and Pavlopoulos removed 6.5% of
+        # clusters that way.
         consensus=f"{OUT}/11_distribution_and_evolution/family_consensus.faa",
+        # Every yn00 pair row, as yn00 reported it.
+        pairs=f"{OUT}/11_distribution_and_evolution/family_yn00_pairs.tsv.gz",
     params:
         evolution=targets["evolution"],
     threads: 16
@@ -375,10 +380,11 @@ rule family_evolution:
 
 
 rule consensus_recheck:
-    """S7c: is the family collectively novel, or only individually unmatched?
+    """Is the family collectively novel, or only individually unmatched?
 
     A label, never a filter. A family whose consensus hits Pfam keeps its row and gains
-    `collectively_novel = 0` plus the name of what it matched.
+    the name of what it matched, and `collectively_novel = 0` unless that name is a DUF or
+    UPF family of unknown function.
     """
     input:
         consensus=f"{OUT}/11_distribution_and_evolution/family_consensus.faa",
@@ -405,7 +411,7 @@ rule consensus_recheck:
 
 
 rule defence_search:
-    """S8a phase 1: which proteins look like defence components.
+    """DefenseFinder phase 1: which proteins look like defence components.
 
     Runs on the DEREPLICATED set with --db-type unordered, MacSyFinder's
     "components only, no system calling" mode. Safe to dereplicate here and only here:
@@ -436,7 +442,7 @@ rule defence_search:
 
 
 rule defence_gembase:
-    """S8a phase 1.5: propagate component labels, prune, write genomic order.
+    """Between the DefenseFinder phases: propagate component labels, prune, write genomic order.
 
     A component hit on a unique protein applies to every ORF sharing that sequence, so one
     search covers all copies. Plasmids carrying no component are pruned - they cannot meet
@@ -464,15 +470,15 @@ rule defence_gembase:
 
 
 rule defence_systems:
-    """S8a phase 2: call systems from gene adjacency.
+    """DefenseFinder phase 2: call systems from gene adjacency.
 
     MacSyFinder is driven directly rather than through `defense-finder run`, because the
-    wrapper does not pass --replicon-topology through and 94% of these plasmids are
-    circular. Under linear topology a system spanning the origin is invisible.
+    wrapper passes no replicon topology; each replicon gets its registry topology.
     """
     input:
         faa=f"{OUT}/12_context_and_structure/defence_candidates.faa",
         map=f"{OUT}/12_context_and_structure/defence_gembase_map.tsv",
+        master=config["input"]["master_table"],
     output:
         tsv=f"{OUT}/12_context_and_structure/defence_systems.tsv",
     params:
@@ -496,7 +502,7 @@ rule defence_systems:
 
 
 rule conjugation_systems:
-    """S8f: conjugation and mobilisation systems (CONJScan 2.1.0, Plasmids models) on
+    """Conjugation and mobilisation systems (CONJScan 2.1.0, Plasmids models) on
     every plasmid, and each plasmid's mobility class (pCONJ, pdCONJ, pMOB, pMOBless).
 
     Every ORF of every plasmid in genomic order, as ONE MacSyFinder database: HMMER's
@@ -532,13 +538,15 @@ rule conjugation_systems:
 
 
 rule integrons:
-    """S8b: integron cassette arrays - the strongest plasmid-specific signal available.
+    """Integron cassette arrays - the strongest plasmid-specific signal available.
 
     IntegronFinder walks the replicons one at a time and threads only its HMM searches,
-    so the analysis set is split into one chunk per core, each run on one thread.
+    so the analysis set is split into one chunk per core, each run on one thread. Each
+    plasmid gets its registry topology.
     """
     input:
         fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
+        master=config["input"]["master_table"],
     output:
         f"{OUT}/12_context_and_structure/integrons.tsv",
     threads: workflow.cores
@@ -556,8 +564,34 @@ rule integrons:
         "../scripts/integrons.py"
 
 
+rule phage_plasmids:
+    """geNomad end-to-end, run as is, on every plasmid, and each plasmid's
+    phage-plasmid label from geNomad's own virus calls and virus hallmark genes. geNomad
+    runs from envs/genomad, named by path (genomad.executable).
+    """
+    input:
+        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
+    output:
+        tsv=f"{OUT}/12_context_and_structure/phage_plasmids.tsv",
+    params:
+        exe=config["genomad"]["executable"],
+        db=config["genomad"]["database"],
+    threads: workflow.cores
+    resources:
+        mem_mb=64000,
+        runtime=2880,
+    benchmark:
+        f"{OUT}/benchmarks/phage_plasmids.tsv"
+    log:
+        f"{OUT}/logs/12_context_and_structure/phage_plasmids.log",
+    conda:
+        "../envs/plasmidann.yaml"
+    script:
+        "../scripts/phage_plasmids.py"
+
+
 rule is_elements:
-    """S8e: insertion sequence elements - boundaries, IS family, complete or partial.
+    """Insertion sequence elements - boundaries, IS family, complete or partial.
 
     ISEScan on the whole analysis set in one job, split into one chunk per core with each
     chunk on one thread: its own threading kept 3.8 of 16 cores busy on the test run
@@ -584,7 +618,7 @@ rule is_elements:
 
 
 rule structure_search:
-    """S8d: structural homology for the dark set, via Foldseek + ProstT5.
+    """Structural homology for the dark set, via Foldseek + ProstT5.
 
     Scope is family representatives by default: ProstT5 is a transformer, and the query
     count is the cost of this stage.
@@ -615,12 +649,11 @@ rule structure_search:
 
 
 rule context_features:
-    """S8c: genomic context per ORF, as one row of descriptive rates per family (defence,
+    """Genomic context per ORF, as one row of descriptive rates per family (defence,
     conjugation, integron and IS element membership, annotated neighbours, operons), and
     the context terms per family counted over lineages (family_context_terms.tsv): the
     plasmid label databases and the defence and conjugation systems, never KEGG. Rows for
-    the dark families and for every known family at the primary resolution, which is the
-    benchmark tools/calibrate_context.py reads after the run. No enrichment test."""
+    the dark families. No enrichment test."""
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
         families=f"{OUT}/10_clustering/dark_families.tsv",
@@ -629,7 +662,7 @@ rule context_features:
         conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
         # The terms: each protein's labels (kind, label, sub_label).
         labels=f"{OUT}/08_protein_labels/protein_labels.tsv",
-        # Every family at the primary resolution, for the known-family benchmark rows.
+        # Every family at the primary resolution, for the tandem-paralogue exclusion.
         all_families=f"{OUT}/10_clustering/protein_families.tsv",
         lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
         integrons=f"{OUT}/12_context_and_structure/integrons.tsv",
@@ -685,6 +718,7 @@ rule annotation_report:
         labels_plasmid=f"{OUT}/08_protein_labels/protein_labels_plasmid.tsv",
         conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
         conjugation_class=f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",
+        phage_plasmids=f"{OUT}/12_context_and_structure/phage_plasmids.tsv",
         # Per family: partners it travels with (S8g).
         cooccurrence=f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",
         # Per family: the measured fields the evidence dimensions are counted from.

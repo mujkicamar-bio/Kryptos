@@ -1,15 +1,10 @@
-"""S3 final step: turn every tier's hits into one row per protein.
+"""Rule cascade_resolve: turn every tier's hits into one row per protein
+(protein_annotation.tsv).
 
-Two principles govern it:
-
-  * The class is a property of the PROTEIN (cascade.classify). Coverage is merged across
-    all informative hits from all tiers before anything is decided, so a replication
-    initiator explained by RepA_N and Bac_RepA_C together is annotated although neither
-    domain alone covers half of it.
-
-  * min_explained is applied HERE, post hoc, not during the search. The search narrowed on
-    narrow_at (0.7), so every protein explained below 0.7 was seen by every tier and this
-    threshold can be swept up to 0.7 without re-running anything.
+The class is a property of the PROTEIN (cascade.classify). Coverage is merged across all
+informative hits from all tiers before anything is decided, so a replication initiator
+explained by RepA_N and Bac_RepA_C together is annotated although neither domain alone
+covers half of it.
 
 Two columns describe coverage, over disjoint evidence, and they are not redundant:
 
@@ -23,13 +18,15 @@ Two columns describe coverage, over disjoint evidence, and they are not redundan
 EVERY UNIQUE PROTEIN GETS A ROW, and annot_source says where it came from:
 
   self            searched by the cascade (a search representative)
-  representative  a member of a 90% search cluster (S2s); the row is its representative's,
+  representative  a member of a 90% search cluster (cascade_selection); the row is its
+                  representative's,
                   named in annot_representative. Coverage fields describe the
                   representative, which is within ~20% of the member's length (cov-mode 0)
   plasmidscope    Tier 0
   not_searched    outside every family with an unexplained small-plasmid protein;
                   functional_class NOT_SEARCHED, which is neither dark nor annotated
-  artefact_antifam  flagged by AntiFam (S2b), so it skipped every annotation tier, Tier 0
+  artefact_antifam  flagged by AntiFam (artefact_screen), so it skipped every annotation
+                  tier, Tier 0
                   included; functional_class NOT_SEARCHED
 """
 import collections
@@ -38,6 +35,7 @@ import csv
 import _ctx  # noqa: F401
 
 from plasmidann.cascade import (
+    REQUIRED_THRESHOLDS,
     check_thresholds,
     classify,
     completeness,
@@ -112,13 +110,14 @@ cols = [
     # every informative label and its tier, not only the winning one
     "informative_labels", "informative_tiers",
     # how much of it is accounted for
-    "explained_fraction", "annot_completeness", "meets_min_explained",
+    "explained_fraction", "annot_completeness",
     # what the dark evidence says
     "dark_covered_fraction", "dark_completeness", "dark_evidence",
     "n_dark_databases", "uninformative_labels", "uninformative_tiers",
     # provenance: every row carries the thresholds that produced it
-    "thr_min_coverage", "thr_min_explained", "thr_narrow_at", "thr_full_at", "thr_partial_at",
+    "thr_min_coverage", "thr_narrow_at", "thr_full_at", "thr_partial_at",
 ]
+thr = {f"thr_{k}": cfg[k] for k in REQUIRED_THRESHOLDS}
 
 with open(snakemake.output[0], "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=cols, delimiter="\t")
@@ -154,11 +153,6 @@ with open(snakemake.output[0], "w", newline="") as out:
             "annot_completeness": (
                 completeness(ef, full_at=cfg["full_at"], partial_at=cfg["partial_at"])
                 if span_measured else "NOT_MEASURED"),
-            # min_explained as a reported flag rather than a filter: the protein is in the
-            # table either way, and this column can be recomputed at any threshold. Empty
-            # when the explained fraction was not measured.
-            "meets_min_explained": (int(ef >= cfg["min_explained"])
-                                    if span_measured else ""),
             "dark_covered_fraction": dcf,
             "dark_completeness": (
                 completeness(dcf, full_at=cfg["full_at"], partial_at=cfg["partial_at"])
@@ -171,11 +165,7 @@ with open(snakemake.output[0], "w", newline="") as out:
             "informative_tiers": ",".join(dict.fromkeys(x["tier"] for x in n)),
             "uninformative_labels": " | ".join(dict.fromkeys(labels)),
             "uninformative_tiers": ",".join(dict.fromkeys(x["tier"] for x in u)),
-            "thr_min_coverage": cfg["min_coverage"],
-            "thr_min_explained": cfg["min_explained"],
-            "thr_narrow_at": cfg["narrow_at"],
-            "thr_full_at": cfg["full_at"],
-            "thr_partial_at": cfg["partial_at"],
+            **thr,
         }
         w.writerow(row)
         if sid in copied_from:
@@ -201,11 +191,7 @@ with open(snakemake.output[0], "w", newline="") as out:
                 "informative_labels": annot_label(r),
                 "informative_tiers": PS_TIER,
                 "annot_completeness": "NOT_MEASURED",
-                "thr_min_coverage": cfg["min_coverage"],
-                "thr_min_explained": cfg["min_explained"],
-                "thr_narrow_at": cfg["narrow_at"],
-                "thr_full_at": cfg["full_at"],
-                "thr_partial_at": cfg["partial_at"],
+                **thr,
             })
 
     # Members of a search cluster take their representative's row; the rest of the

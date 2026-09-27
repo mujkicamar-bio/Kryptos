@@ -53,16 +53,16 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | S0 | `01_analysis_set` | plasmids in scope, as ids and sequence; clonal registry over MOB clusters |
 | S1 | `02_orf_calling` | Pyrodigal gene calling, with circular-origin repair |
 | S2 | `03_dereplication` | exact-identity dereplication, asserted lossless |
-| S2b | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards; an AntiFam-flagged protein skips every annotation tier and is reported as `NOT_SEARCHED` |
+| S2b | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards; an AntiFam-flagged protein skips every annotation tier and is reported as `NOT_SEARCHED`; a low-complexity-flagged one skips the DIAMOND tiers |
 | S3 | `05_annotation_cascade` | the annotation cascade, T1…T5, self-narrowing |
 | S4 | `06_annotation_tables` | the annotated plasmidome, plus GFF3 and GenBank |
 | S4b | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
-| S4c | `08_protein_labels` | every label from every source, normalised into one table, and the cross-source disagreements |
+| S4c | `08_protein_labels` | every label from every source, as each tool gives it, in one table |
 | S4d | `08_protein_labels` | plasmid label databases: TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb and AMRFinderPlus |
 | S5 | `09_target_eligibility` | target eligibility: unnamed, searched, not artefact-flagged |
 | S6 | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
 | S7 | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
-| S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, dark family co-occurrence (`dark_cooccurrence.tsv`: pairs of dark families sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
+| S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, dark sequence co-occurrence (`dark_cooccurrence.tsv`: pairs of unique dark protein sequences sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
 | S9a | `13_synteny` | gene-order conservation counted over lineages, at the gene (close) and family (intermediate) level |
 | S9b | `14_rarity` | family rarity labels and the saturation curve |
 | final | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family (the family table includes each family's co-occurring partners) |
@@ -73,10 +73,11 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 
 Five tiers, each handed only what the previous one could not explain. A protein stops
 being searched once `narrow_at` (0.7, a user decision of 2026-09-25) of its length is
-covered; whether it is *reported* as explained is decided separately, by `min_explained`
-(0.5), applied afterwards on a table where every protein explained below 0.7 has been seen
-by every tier. A 2% sweep cohort bypasses narrowing, so what stopping at 0.7 costs is
-measured rather than assumed. Proteins flagged by AntiFam are not searched by any tier.
+covered. A protein below that reaches every tier, except that T5 does not search proteins
+Pfam or Swiss-Prot named (`skip_if_named_by`). It is FUNCTIONAL once `min_coverage` (0.5)
+of its length is explained by informative hits. Proteins flagged by AntiFam are not
+searched by any tier; proteins flagged for low complexity are not searched by the DIAMOND
+tiers.
 
 | tier | method | database | role |
 |---|---|---|---|
@@ -160,7 +161,7 @@ they are several hundred gigabytes.
 | eggNOG data | `config/targets.yaml` → `orthology` | 50 GB |
 | Foldseek target DB and ProstT5 | `config/config.yaml` → `foldseek_db`, `prostt5_model` | 20 GB |
 | MacSyFinder models | `config/config.yaml` → `references.macsyfinder_models` | 100 MB |
-| plasmid label databases and the KEGG KO list | `config/config.yaml` → `labels`, `references.kegg_ko_list` | 0.9 GB |
+| plasmid label databases | `config/config.yaml` → `labels` | 0.9 GB |
 | AMRFinderPlus and its database | `config/config.yaml` → `amrfinder` | 0.24 GB, plus 1.0 GB for `envs/amrfinder` |
 | CONJScan 2.1.0 and its MacSyFinder 2.1.6 | `config/config.yaml` → `references.conjscan_models`; `config/targets.yaml` → `conjugation` | 17 MB, plus 0.7 GB for `envs/conjscan` |
 
@@ -226,8 +227,7 @@ sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
 ```
 
 A run that asked for a GPU and did not get one fails loudly rather than silently taking ten
-times longer. Calibrating the context terms is a separate step after the run:
-`python tools/calibrate_context.py --help`.
+times longer.
 
 ### The SLURM account
 
@@ -313,7 +313,6 @@ resolves the rule graph of the test configuration, which needs Snakemake but no 
 - Cury J. *et al.* Identifying conjugative plasmids and integrative conjugative elements with CONJscan. *Methods Mol. Biol.* **2075**, 265–283 (2020)
 - Coluzzi C., Garcillán-Barcia M.P., de la Cruz F. & Rocha E.P.C. Evolution of plasmid mobility: origin and fate of conjugative and nonconjugative plasmids. *Mol. Biol. Evol.* **39**, msac115 (2022)
 - Benjamini Y. & Hochberg Y. Controlling the false discovery rate: a practical and powerful approach to multiple testing. *J. R. Stat. Soc. B* **57**, 289–300 (1995)
-- Kanehisa M. *et al.* KEGG: biological systems database as a model of the real world. *Nucleic Acids Res.* **53**, D672–D677 (2025) - the KO list, for the disagreement file only
 
 ## Licence
 
@@ -332,7 +331,6 @@ before any commercial use.
 | BacMet 2.0 | website footer "Copyright 2013-2018 All rights reserved"; no data licence stated, although the paper describes the database as freely available |
 | CARD | free for non-commercial research or academic use by academic, government or non-profit institutions; commercial use needs a licence from McMaster University (card.mcmaster.ca/about, Terms of Use, sections 4 and 5) |
 | CONJScan models | CC BY-NC-SA 4.0 (`data/refs/conjscan/CONJScan/metadata.yml`): non-commercial use, and derivatives under the same licence |
-| KEGG KO list | the KEGG API "is made available only for academic use by academic users"; other use needs a commercial licence (kegg.jp/kegg/legal.html) |
 | dbAPIS | no data licence stated; website footer "Copyright 2023 YIN LAB, UNL. All rights reserved"; the article is CC BY 4.0 |
 | Anti-CRISPRdb v2.2 | no data licence stated; website footer "Copyright CEFG 2021 All rights reserved"; the article is CC BY 4.0. The original hosts no longer serve the data, and the core dataset was taken from an Internet Archive capture |
 | TADB 3.0, oriTDB 2.0 | no data licence stated; the papers describe the databases as freely available |

@@ -9,28 +9,15 @@
 # docs/annotation_statistics.md.
 # =====================================================================================
 
-# --- Narrowing versus reporting ------------------------------------------------------
-# narrow_at     how explained a protein must be before we STOP SEARCHING it
-# min_explained how explained a protein must be before we REPORT it as explained
+# --- Narrowing -------------------------------------------------------------------------
+# narrow_at: a protein stops at the tier where its explained fraction reaches narrow_at and
+# is not sent to deeper tiers. A protein withheld after T2 has no T3 or T4 result. (T5 is
+# unaffected: a protein can only reach narrow_at through Pfam or Swiss-Prot spans, and T5
+# skips every protein those named, skip_if_named_by.) Measured, 0.3 -> 0.8 moved the
+# deep-tier set by 76%. check_thresholds() enforces narrow_at >= min_coverage.
 #
-# A protein withheld after T2 has no T3 or T4 result, so a narrowing threshold removes the
-# counterfactual: asking "what would 0.7 have given?" needs a full re-run per value, and
-# each run is weeks. (T5 is unaffected: a protein can only reach narrow_at through Pfam or
-# Swiss-Prot spans, and T5 skips every protein those named, skip_if_named_by.)
-# Measured, 0.3 -> 0.8 moved the deep-tier set by 76%, and 0.5 sat exactly at the 25th
-# percentile of the observed distribution - the densest possible place to put a hard cut.
-#
-# narrow_at stops a protein at the tier where it reaches >= narrow_at explained: it is not
-# sent to deeper tiers. min_explained (0.5) stays the reporting threshold, applied post hoc
-# at cascade_resolve, so a protein between the two was still searched by every tier until
-# it crossed narrow_at, and the reporting threshold can be swept below 0.7 without
-# re-running anything. check_thresholds() enforces narrow_at >= min_explained.
-#
-# 0.7 is a user decision (2026-09-25); no published source sets it. What narrowing at 0.7
-# rather than searching to the end costs is measured by the sweep cohort (sweep_cohort.py),
-# which bypasses narrowing and is searched by every tier.
+# 0.7 is a user decision (2026-09-25); no published source sets it.
 narrow_at: 0.7
-min_explained: 0.5
 
 # --- Classification ------------------------------------------------------------------
 # Merged INFORMATIVE coverage at or above which a protein counts as FUNCTIONAL rather than
@@ -59,7 +46,7 @@ partial_at: 0.5
 # including those PlasmidScope annotates, which skip the cascade (rule
 # plasmidscope_import), and those the selection does not search (rule cascade_selection):
 # E-values then do not move with PlasmidScope's coverage or the selection, and the
-# larger -Z is the conservative choice for the dark set (workflow/scripts/sweep_cohort.py).
+# larger -Z is the conservative choice for the dark set.
 #   9,317,050 ORFs -> 3,497,616 unique proteins
 #   (results/03_dereplication/unique_proteins.faa)
 # Recompute and update this if S1/S2 are re-run on a different analysis set; rule
@@ -74,14 +61,8 @@ hmmer_z: 3497616
 # heuristic, not only its reporting (Shah et al., Bioinformatics 2019, 35:1613).
 max_target_seqs: 25
 
-# Fraction of proteins that bypass narrowing entirely and are searched by EVERY tier.
-# This is the only way to state what the narrowing threshold cost, because for these
-# proteins the counterfactual actually exists. The cohort is 2% of the cascade query set
-# (search_representatives.faa) and about 2% of the T1-T4 compute. Set to 0 to disable (and lose the ability to check your own threshold).
-sweep_cohort_fraction: 0.02
-
 # --- Search clustering ---------------------------------------------------------------
-# The search clustering (rule cascade_selection, S2s). The proteins the cascade annotates
+# The search clustering (rule cascade_selection). The proteins the cascade annotates
 # are clustered at this identity and coverage; only the representatives are searched and
 # each member takes its representative's result (cascade_resolve, annot_source).
 #   90% identity: UniRef90 (Suzek et al. 2015, Bioinformatics 31:926), where cluster

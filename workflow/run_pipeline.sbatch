@@ -16,8 +16,7 @@
 # ONE SUBMISSION ANNOTATES EVERYTHING. `sbatch workflow/run_pipeline.sbatch` runs every
 # stage in this one job: the cascade, the plasmid label databases and AMRFinderPlus
 # (label_databases), DefenseFinder, CONJScan (conjugation_systems), IntegronFinder,
-# ISEScan, synteny, the context terms, the structure search and the report. Calibrating
-# the context terms (tools/calibrate_context.py) is a post-run tool and is not a rule.
+# ISEScan, synteny, the context terms, the structure search and the report.
 #
 # ENVIRONMENT
 #

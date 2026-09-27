@@ -1,4 +1,4 @@
-"""Which proteins the cascade annotates (S2s, cascade_selection).
+"""Which proteins the cascade annotates (rule cascade_selection).
 
 A protein is annotated when it is not skipped - already annotated by PlasmidScope (Tier 0),
 or flagged by AntiFam as a probable non-protein - and its family (clustering.primary)

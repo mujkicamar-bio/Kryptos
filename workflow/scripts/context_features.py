@@ -1,12 +1,13 @@
-"""S8c: genomic context per ORF, aggregated to one row of rates per family.
+"""Rule context_features: genomic context per ORF, aggregated to one row of rates per family.
 
 WHAT IT MEASURES
 
 For every dark family, the fraction of the plasmids carrying it on which a member ORF
 
-    cons_defence                 overlaps a component gene of a DefenseFinder system
-    cons_conj                    overlaps a component gene of a CONJScan system
-    cons_integron                overlaps an integron cassette array (IntegronFinder)
+    cons_defence                 is a component of a DefenseFinder system
+    cons_conj                    is a component of a CONJScan system
+    cons_integron                overlaps an element of an integron with a cassette array
+                                 (IntegronFinder type complete or CALIN; not In0)
     cons_is_element              overlaps an IS element (ISEScan)
     cons_annotated_neighbour     has a FUNCTIONAL gene within the +-window neighbourhood
     cons_operon_with_annotated   shares a directon with a FUNCTIONAL gene
@@ -27,12 +28,10 @@ redundancy between distinct plasmids is not corrected in these rates.
 CONTEXT TERMS (family_context_terms.tsv)
 
 A second, long table names WHAT the context holds: one row per family and term, such as
-amr:<CARD family> or defence:<system>, counted per Stage 6 lineage rather than per plasmid,
-so clonal redundancy is corrected there. The terms, the two neighbour rules and the
-paralogue exclusion are in plasmidann.context_terms. Rows are written for the dark
-families above, over their dark members as the rates are, AND for every other family at
-the primary resolution over all its members (family_set 'known'): the known families are
-the benchmark tools/calibrate_context.py measures precision on.
+amr:<CARD family> or defence:<system>, counted per plasmid lineage (plasmid_lineage.tsv)
+rather than per plasmid, so clonal redundancy is corrected there. The terms, the two
+neighbour rules and the paralogue exclusion are in plasmidann.context_terms. Rows are
+written for the dark families above, over their dark members as the rates are.
 """
 import collections
 import csv
@@ -114,12 +113,14 @@ with open(snakemake.input.map) as fh:
                 seq_of_source[oid] = sid
 
 # ------------------------------------------------------------------------------------
-# Islands, as intervals per plasmid: integron elements, IS elements, and the component
-# genes of defence and conjugation systems.
+# Islands, as intervals per plasmid: the elements of integrons with a cassette array, and
+# IS elements. An In0 integron is an integrase without attC sites, so no cassette array.
 # ------------------------------------------------------------------------------------
 islands = collections.defaultdict(list)
 with open(snakemake.input.integrons, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
+        if r["integron_type"] not in ("complete", "CALIN"):
+            continue
         islands[r["plasmid_id"]].append(
             {"name": "integron", "start": int(r["start"]), "end": int(r["end"])})
 
@@ -128,16 +129,9 @@ with open(snakemake.input.is_elements, newline="") as fh:
         islands[r["plasmid_id"]].append(
             {"name": "is_element", "start": int(r["start"]), "end": int(r["end"])})
 
-for pid, genes in by_plasmid.items():
-    for g in genes:
-        if g["orf_id"] in defence_orfs:
-            islands[pid].append({"name": "defence", "start": g["start"], "end": g["end"]})
-        if g["orf_id"] in conj_orfs:
-            islands[pid].append({"name": "conj", "start": g["start"], "end": g["end"]})
-
 # ------------------------------------------------------------------------------------
-# Per-ORF context: the islands it sits inside, and its annotated neighbours and directon
-# partners.
+# Per-ORF context: the systems it is a component of, the islands it overlaps, and its
+# annotated neighbours and directon partners.
 # ------------------------------------------------------------------------------------
 # The neighbour window and the directons wrap across the origin of a circular plasmid
 # (context.flanks, context.directons).
@@ -165,6 +159,10 @@ for pid, genes in by_plasmid.items():
         left, right = flanks_of[oid]
         near = left + right
         ctx = {island["name"] for island in overlapping_islands(g, plasmid_islands)}
+        if oid in defence_orfs:
+            ctx.add("defence")
+        if oid in conj_orfs:
+            ctx.add("conj")
 
         if any(class_of.get(n) == "FUNCTIONAL" for n in near):
             ctx.add("annotated_neighbour")
@@ -214,30 +212,23 @@ with open(snakemake.output.families, "w", newline="") as out:
 print(f"context: {n_families} families over {len(by_plasmid)} plasmids")
 
 # ------------------------------------------------------------------------------------
-# Context terms per family and lineage: the dark families above, then every other family
-# at the primary resolution as the calibration benchmark.
+# Context terms per dark family and lineage.
 # ------------------------------------------------------------------------------------
 with open(snakemake.input.lineage, newline="") as fh:
     lineage_of = {r["plasmid_id"]: r["plasmid_lineage_cluster"]
                   for r in csv.DictReader(fh, delimiter="\t")}
 
 
-def primary_families():
-    """(family_id, members) at the primary resolution, read afresh on each call."""
-    with open(snakemake.input.all_families, newline="") as fh:
-        for r in csv.DictReader(fh, delimiter="\t"):
-            if r["family_resolution"] == snakemake.params.primary:
-                yield r["family_id"], r["members"].split(",")
-
-
 # The focal family of a source ORF, for the tandem-paralogue exclusion. Membership is
 # the full primary family, annotated members included, not the dark-only member list.
 source_seqs = set(seq_of_source.values())
 family_of_seq = {}
-for family_id, members in primary_families():
-    for m in members:
-        if m in source_seqs:
-            family_of_seq[m] = family_id
+with open(snakemake.input.all_families, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        if r["family_resolution"] == snakemake.params.primary:
+            for m in r["members"].split(","):
+                if m in source_seqs:
+                    family_of_seq[m] = r["family_id"]
 family_of_orf = {oid: family_of_seq[sid] for oid, sid in seq_of_source.items()
                  if sid in family_of_seq}
 
@@ -247,26 +238,15 @@ def occurrences(members):
             for m in members for oid in orfs_of_seq.get(m, ())]
 
 
-n_rows = collections.Counter()
+n_rows = 0
 with open(snakemake.output.terms, "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=COLUMNS, delimiter="\t")
     w.writeheader()
-    dark_ids = set()
     with open(snakemake.input.families, newline="") as fh:
         for fam in csv.DictReader(fh, delimiter="\t"):
-            dark_ids.add(fam["family_id"])
-            rows = family_term_rows(fam["family_id"], "dark",
-                                    occurrences(fam["members"].split(",")),
+            rows = family_term_rows(fam["family_id"], occurrences(fam["members"].split(",")),
                                     family_of_orf, lineage_of)
             w.writerows(rows)
-            n_rows["dark"] += len(rows)
-    for family_id, members in primary_families():
-        if family_id in dark_ids:
-            continue
-        rows = family_term_rows(family_id, "known", occurrences(members),
-                                family_of_orf, lineage_of)
-        w.writerows(rows)
-        n_rows["known"] += len(rows)
+            n_rows += len(rows)
 
-print(f"context terms: {n_rows['dark']} rows for dark families, {n_rows['known']} for "
-      f"known families at {snakemake.params.primary}")
+print(f"context terms: {n_rows} rows for dark families")

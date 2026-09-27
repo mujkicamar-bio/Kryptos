@@ -1,8 +1,8 @@
-"""Dark family co-occurrence (plasmidann.cooccurrence).
+"""Dark sequence co-occurrence (plasmidann.cooccurrence).
 
-Two dark families travel together in a lineage when some plasmid of that lineage carries a
-member ORF of each. The test is the hypergeometric upper tail over lineages, with
-Benjamini-Hochberg across every pair that shares a plasmid.
+Two unique dark protein sequences travel together in a lineage when some plasmid of that
+lineage carries an ORF of each. The test is the hypergeometric upper tail over lineages,
+with Benjamini-Hochberg across every enumerated pair that shares a plasmid.
 """
 import itertools
 import math
@@ -76,8 +76,13 @@ def test_benjamini_hochberg_matches_a_hand_computation():
 def _world(n_lineages=40):
     """Plasmids P<i> in lineage L<i>, one plasmid per lineage unless stated."""
     lineage_of = {f"P{i}": f"L{i}" for i in range(n_lineages)}
-    plasmid_families = {f"P{i}": set() for i in range(n_lineages)}
-    return lineage_of, plasmid_families
+    plasmid_seqs = {f"P{i}": set() for i in range(n_lineages)}
+    return lineage_of, plasmid_seqs
+
+
+def _pairs(pf, lineage_of, n_lineages=40):
+    rows, _ = cooccurrence(pf, lineage_of, n_lineages=n_lineages, min_lineages_together=2)
+    return rows
 
 
 def test_always_together_is_significant_and_independent_is_not():
@@ -88,8 +93,7 @@ def test_always_together_is_significant_and_independent_is_not():
         pf[f"P{i}"].add("C")            # overlap 10, exactly the expectation 20*20/40
     for i in range(0, 40, 2):
         pf[f"P{i}"].add("D")
-    rows = {(r["family_a"], r["family_b"]): r
-            for r in cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2)}
+    rows = {(r["seq_a"], r["seq_b"]): r for r in _pairs(pf, lineage_of)}
 
     ab = rows[("A", "B")]
     assert (ab["n_lineages_a"], ab["n_lineages_b"], ab["n_lineages_together"],
@@ -102,7 +106,8 @@ def test_always_together_is_significant_and_independent_is_not():
     cd = rows[("C", "D")]
     assert cd["n_lineages_together"] == 10 and cd["expected_together"] == pytest.approx(10)
     assert cd["p_value"] > 0.4 and cd["q_value"] > 0.05
-    assert {r["status"] for r in rows.values()} == {"SUCCESS"}
+    # Every written row is a tested pair, so there is no status column.
+    assert not any("status" in r for r in rows.values())
 
 
 def test_clonal_copies_in_one_lineage_count_once():
@@ -112,8 +117,7 @@ def test_clonal_copies_in_one_lineage_count_once():
         lineage_of[f"clone{j}"] = "L0"
         pf[f"clone{j}"] = {"A", "B"}
     pf["P1"] |= {"A", "B"}
-    rows = cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2)
-    (ab,) = rows
+    (ab,) = _pairs(pf, lineage_of)
     assert (ab["n_lineages_a"], ab["n_lineages_b"], ab["n_lineages_together"]) == (2, 2, 2)
 
 
@@ -124,11 +128,11 @@ def test_together_means_the_same_plasmid_not_the_same_lineage():
         lineage_of[f"Q{i}"] = f"L{i}"
         pf[f"P{i}"].add("A")
         pf[f"Q{i}"] = {"B"}
-    assert cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2) == []
+    assert _pairs(pf, lineage_of) == []
     pf["P0"].add("B")
     pf["P1"].add("B")
-    (ab,) = cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2)
-    # Both families are in all five lineages; they share a plasmid in two.
+    (ab,) = _pairs(pf, lineage_of)
+    # Both sequences are in all five lineages; they share a plasmid in two.
     assert (ab["n_lineages_a"], ab["n_lineages_b"], ab["n_lineages_together"]) == (5, 5, 2)
     assert (ab["fraction_of_a"], ab["fraction_of_b"]) == (0.4, 0.4)
 
@@ -137,7 +141,7 @@ def test_a_pair_together_in_one_lineage_is_not_reported():
     """Two singletons on one plasmid would get p = 1/N from one observation."""
     lineage_of, pf = _world()
     pf["P0"] |= {"A", "B"}
-    assert cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2) == []
+    assert _pairs(pf, lineage_of) == []
 
 
 def test_pairs_together_in_one_lineage_still_count_in_the_correction():
@@ -150,7 +154,7 @@ def test_pairs_together_in_one_lineage_still_count_in_the_correction():
     pf["P2"] |= {"C", "D"}
     pf["P3"].add("C")
     pf["P4"].add("D")
-    (ab,) = cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2)
+    (ab,) = _pairs(pf, lineage_of)
     p_ab = 1 / math.comb(40, 2)
     p_cd = 1 - math.comb(38, 2) / math.comb(40, 2)
     assert ab["p_value"] == pytest.approx(p_ab, rel=1e-9)
@@ -162,27 +166,42 @@ def test_a_plasmid_without_a_lineage_is_an_error():
     lineage_of, pf = _world()
     pf["orphan"] = {"A", "B"}
     with pytest.raises(ValueError, match="orphan"):
-        cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2)
+        _pairs(pf, lineage_of)
 
 
-def test_family_partners_counts_significant_partners_and_names_the_best():
+def test_a_sequence_in_fewer_lineages_than_the_minimum_is_not_enumerated():
+    """C is in one lineage, so no pair with it can reach k >= 2: it is left out of the
+    enumeration and the correction, and the pair count stays bounded."""
+    lineage_of, pf = _world()
+    pf["P0"] |= {"A", "B", "C"}
+    pf["P1"] |= {"A", "B"}
+    rows, stats = cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2)
+    assert [(r["seq_a"], r["seq_b"]) for r in rows] == [("A", "B")]
+    assert stats == {"n_sequences": 3, "n_enumerated": 2, "n_pair_occurrences": 2,
+                     "n_tested": 1}
+
+
+def test_family_partners_counts_significant_partner_sequences_and_names_the_best():
+    """a1 and a2 are members of family FA, c of FC; b and d belong to no dark family."""
+    family_of_seq = {"a1": "FA", "a2": "FA", "c": "FC"}
     rows = [
-        {"family_a": "A", "family_b": "B", "n_lineages_together": 4,
+        {"seq_a": "a1", "seq_b": "b", "n_lineages_together": 4,
          "fraction_of_a": 0.8, "fraction_of_b": 1.0, "p_value": 1e-6, "q_value": 1e-5},
-        {"family_a": "A", "family_b": "C", "n_lineages_together": 2,
+        {"seq_a": "a2", "seq_b": "b", "n_lineages_together": 2,
+         "fraction_of_a": 0.5, "fraction_of_b": 0.5, "p_value": 1e-3, "q_value": 1e-2},
+        {"seq_a": "a2", "seq_b": "c", "n_lineages_together": 2,
          "fraction_of_a": 0.4, "fraction_of_b": 0.1, "p_value": 0.01, "q_value": 0.03},
-        {"family_a": "C", "family_b": "D", "n_lineages_together": 2,
+        {"seq_a": "c", "seq_b": "d", "n_lineages_together": 2,
          "fraction_of_a": 0.1, "fraction_of_b": 0.5, "p_value": 0.3, "q_value": 0.6},
     ]
-    got = family_partners(rows, fdr=0.05)
-    assert got["A"] == {"n_cooccurring_partners": 2, "top_cooccurring_partner": "B",
-                        "top_cooccurring_partner_q": 1e-5,
-                        "top_cooccurring_partner_fraction": 0.8}
-    # The fraction is of the focal family's lineages: B shares a plasmid with A in all.
-    assert got["B"]["top_cooccurring_partner_fraction"] == 1.0
-    assert got["C"]["n_cooccurring_partners"] == 1
-    assert got["C"]["top_cooccurring_partner"] == "A"
-    # Tested but nothing significant: the best partner is still named, with its q.
-    assert got["D"] == {"n_cooccurring_partners": 0, "top_cooccurring_partner": "C",
-                        "top_cooccurring_partner_q": 0.6,
-                        "top_cooccurring_partner_fraction": 0.5}
+    got = family_partners(rows, 0.05, family_of_seq)
+    # b is a partner of both members of FA but one partner sequence; c is the other.
+    assert got["FA"] == {"n_cooccurring_partners": 2, "top_cooccurring_partner": "b",
+                         "top_cooccurring_partner_q": 1e-5,
+                         "top_cooccurring_partner_fraction": 0.8}
+    # Tested but significant only with a2: the best partner is named with its q, and the
+    # fraction is of the member's lineages.
+    assert got["FC"] == {"n_cooccurring_partners": 1, "top_cooccurring_partner": "a2",
+                         "top_cooccurring_partner_q": 0.03,
+                         "top_cooccurring_partner_fraction": 0.1}
+    assert set(got) == {"FA", "FC"}, "a sequence outside the dark families has no row"

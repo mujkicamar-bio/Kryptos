@@ -83,9 +83,7 @@ def test_a_qualifier_before_recname_is_kept_and_recname_is_still_parsed():
     assert parsed["accession"] == "Q47718.1"
 
 
-def test_an_nr_hit_yields_the_pgap_product_name():
-    """On WP_ accessions the product name comes from PGAP's controlled vocabulary, which
-    will be the largest single source of role-bearing names in the collection."""
+def test_an_nr_hit_yields_the_product_name_of_the_clusterednr_title():
     row = {"tier": "T4", "source": "nr", "informative": "True",
            "target_accession": "WP_000813620.1",
            "label": "WP_000813620.1 type II toxin-antitoxin system RelE/ParE family "
@@ -93,28 +91,14 @@ def test_an_nr_hit_yields_the_pgap_product_name():
 
     by_kind = {d["kind"]: d["label"] for d in labels.labels_from_hit(row)}
 
-    assert by_kind["pgap_product"] == ("type II toxin-antitoxin system RelE/ParE family "
-                                       "toxin")
-
-
-def test_the_multispecies_prefix_is_removed_from_an_nr_product():
-    """'MULTISPECIES: relaxase' and 'relaxase' are the same product, and keeping the
-    prefix would split every widespread protein into two labels - exactly the proteins a
-    grouping most needs to see as one."""
-    row = {"tier": "T4", "source": "nr", "informative": "True", "target_accession": "WP_1.1",
-           "label": "WP_1.1 MULTISPECIES: conjugal transfer protein TraG "
-                    "[Enterobacteriaceae]"}
-
-    by_kind = {d["kind"]: d["label"] for d in labels.labels_from_hit(row)}
-
-    assert by_kind["pgap_product"] == "conjugal transfer protein TraG"
+    assert by_kind["nr_product"] == ("type II toxin-antitoxin system RelE/ParE family "
+                                     "toxin")
 
 
 def test_an_uninformative_hit_yields_no_label():
     """'hypothetical protein' names nothing. It is evidence that someone has seen the
     protein, which the cascade already records as dark evidence, and it must never enter
-    the functional vocabulary - a 'hypothetical protein' category would be the most
-    frequent, and so the most apparently enriched, context feature in the run."""
+    the label table."""
     row = {"tier": "T4", "source": "nr", "informative": "False",
            "target_accession": "WP_2.1",
            "label": "WP_2.1 hypothetical protein [Escherichia coli]"}
@@ -131,7 +115,7 @@ def test_an_unparsable_title_still_yields_the_whole_title_as_the_product():
 
     by_kind = {d["kind"]: d["label"] for d in labels.labels_from_hit(row)}
 
-    assert by_kind["pgap_product"] == "something with no recognisable structure"
+    assert by_kind["nr_product"] == "something with no recognisable structure"
 
 
 def test_orthology_yields_the_gene_symbol_and_every_controlled_identifier():
@@ -215,8 +199,7 @@ def test_a_swissprot_hit_is_recognised_by_its_source_not_its_tier_id():
 def test_a_pharokka_hit_yields_the_annotation_and_the_category():
     """Two labels from one hit, because they are two different statements: what the family
     is called, and which functional group the database puts it in. The category is the
-    grouping PHROGs' curators made; it is carried as a label like any other so the
-    category map can use it or not."""
+    grouping PHROGs' curators made, carried as a label like any other."""
     row = {"tier": "T3", "source": "pharokka", "informative": "True",
            "target_accession": "phrog_164", "label": "ParA-like partition protein",
            "category": "DNA, RNA and nucleotide metabolism"}
@@ -248,15 +231,13 @@ def test_a_row_without_a_source_is_refused():
         labels.labels_from_hit(row)
 
 
-def test_mag_and_tpa_prefixes_are_removed_from_an_nr_product():
-    """'MAG: ABC transporter permease' is the product 'ABC transporter permease' from a
-    metagenome-assembled genome; ClusteredNR carries MAG: on 3.2% of its titles."""
+def test_ncbi_record_prefixes_stay_in_the_product_as_ncbi_writes_them():
     for title, product in (
             ("MBD3193859.1 MAG: ABC transporter permease [Clostridia bacterium]",
-             "ABC transporter permease"),
+             "MAG: ABC transporter permease"),
             ("DAD1.1 TPA_asm: MobA/MobL family protein [Siphoviridae sp.]",
-             "MobA/MobL family protein"),
-            ("WP_1.1 MULTISPECIES: relaxase [Bacillus]", "relaxase")):
+             "TPA_asm: MobA/MobL family protein"),
+            ("WP_1.1 MULTISPECIES: relaxase [Bacillus]", "MULTISPECIES: relaxase")):
         assert labels.parse_ncbi_title(title)["product"] == product
 
 

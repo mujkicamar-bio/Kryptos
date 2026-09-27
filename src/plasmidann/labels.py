@@ -1,8 +1,7 @@
 """The functional-label vocabulary: what each tool said, and what kind of statement it is.
 
 Every label is copied verbatim from the tool that produced it and tagged with its KIND. No
-biological role is assigned here; the grouping into categories is derived later from the
-vocabulary observed in the data.
+biological role is assigned here.
 
 The kind travels with every label because 'repA' as an eggNOG gene symbol and 'RepA_N' as
 a Pfam family are different statements from different evidence; downstream code groups
@@ -12,7 +11,6 @@ Not labels: organism names (the source of the reference sequence, not a statemen
 the query; the full title stays in hits.tsv), uninformative descriptions such as
 'hypothetical protein' (recorded by the cascade as dark evidence), and empty strings.
 """
-import re
 
 from plasmidann import labeldb
 
@@ -22,9 +20,9 @@ KINDS = frozenset({
     "pfam_family",        # RepA_N            the family name, as tier_search records it
     "pfam_description",   # 'Replication initiator protein A (RepA) N-terminus'
     "pfam_clan",          # CL0123            families too divergent to align as one
-    # DIAMOND against NCBI's rendering of Swiss-Prot, and against nr
+    # DIAMOND against NCBI's rendering of Swiss-Prot, and against ClusteredNR
     "swissprot_product",  # 'Toxin CcdB'      from 'RecName: Full=...'
-    "pgap_product",       # 'conjugal transfer protein TraG'
+    "nr_product",         # 'conjugal transfer protein TraG'   the ClusteredNR title
     # pharokka in protein mode: the phage families, plus CARD and VFDB from the same run
     "pharokka_annotation",  # 'terminase large subunit'   the family's own name
     "pharokka_category",    # 'head and packaging'        the curators' functional group
@@ -46,14 +44,6 @@ KINDS = frozenset({
 # decides the label kind.
 SOURCES = frozenset({"pfam", "pharokka", "card", "vfdb", "swissprot", "nr"})
 
-# NCBI title prefixes that qualify the RECORD, not the product: MULTISPECIES (a title
-# shared by several organisms), MAG (from a metagenome-assembled genome) and TPA,
-# TPA_asm, TPA_inf ... (third-party annotation). 'MAG: relaxase' and 'relaxase' are the
-# same product, so keeping a prefix would split one product into two labels. MAG: is on
-# 3.2% of ClusteredNR titles against 0.3% of full-nr hit titles.
-_RECORD_PREFIX = re.compile(r"^(?:(?:MULTISPECIES|MAG|TPA(?:_\w+)?)\s*:\s*)+")
-
-
 def _informative(row):
     """Whether the cascade judged a hits.tsv row informative (csv writes 'True'/'False')."""
     return row.get("informative") == "True"
@@ -69,7 +59,8 @@ def parse_ncbi_title(title):
 
     A title that matches neither returns the whole string as the product. That is the
     honest fallback: nr titles are not uniform, this parser will meet shapes it was not
-    shown, and a dropped label is invisible while a strange one is not.
+    shown, and a dropped label is invisible while a strange one is not. NCBI's record
+    prefixes (MULTISPECIES:, MAG:, TPA:) stay in the product as NCBI writes them.
     """
     text = (title or "").strip()
     if not text:
@@ -88,8 +79,6 @@ def parse_ncbi_title(title):
     # matching a pattern per database keeps this from needing a rule per accession style.
     if rest and "." in first:
         accession, product = first, rest.strip()
-
-    product = _RECORD_PREFIX.sub("", product)
 
     if "RecName:" in product:
         # 'RecName: Full=Toxin CcdB; AltName: Full=Protein LetD' - the recommended name is
@@ -159,7 +148,7 @@ def labels_from_hit(row, pfam=None):
     parsed = parse_ncbi_title(label)
     if not parsed["product"]:
         return []
-    kind = "swissprot_product" if source == "swissprot" else "pgap_product"
+    kind = "swissprot_product" if source == "swissprot" else "nr_product"
     return [{"kind": kind, "label": parsed["product"],
              "accession": accession or parsed["accession"]}]
 

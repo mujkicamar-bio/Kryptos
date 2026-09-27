@@ -6,6 +6,7 @@ CASES = [
     # strongest: a curator built and named a family for it
     (["DUF4054 domain-containing protein"], "CURATED_FAMILY"),
     (["UPF0102 protein"], "CURATED_FAMILY"),
+    (["DUF2201_N"], "CURATED_FAMILY"),
     # homologs exist, no function
     (["conserved hypothetical protein"], "CONSERVED"),
     (["conserved protein"], "CONSERVED"),

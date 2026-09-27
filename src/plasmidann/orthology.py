@@ -1,14 +1,12 @@
 """Parser for eggNOG-mapper's `.emapper.annotations` table.
 
-eggNOG-mapper is run on the proteins the cascade named, to give the neighbours of a dark
-ORF countable terms (COG, KEGG, GO, EC, Pfam) where the cascade gives free text. It writes
-a bare '-' in every field it has nothing for; that placeholder is read as absence, because
-taken literally it would become a COG category or pathway named '-' shared by most
-proteins.
+eggNOG-mapper is run on the proteins the cascade named, to give them controlled terms
+(COG, KEGG, GO, EC, Pfam) where the cascade gives free text. It writes a bare '-'
+(NO_VALUE, the placeholder PlasmidScope's eggNOG-mapper tables carry too) in every field it
+has nothing for; that placeholder is read as absence, because taken literally it would
+become a COG category or pathway named '-' shared by most proteins.
 """
-
-# eggNOG-mapper's placeholder for "no value". Anything equal to this is absence, not a term.
-NO_VALUE = "-"
+from plasmidann.plasmidscope import NO_VALUE
 
 
 def _clean(value):
@@ -53,12 +51,11 @@ def parse_annotations(text):
         query = _clean(row.get("query"))
         if not query:
             continue
-        pathways = _clean(row.get("KEGG_Pathway"))
         records[query] = {
             # Several single-letter categories are written adjacently, as "EGP". The table
             # keeps the string whole; labels.labels_from_orthology splits it into letters.
             "cog_category": _clean(row.get("COG_category")),
-            "kegg_pathways": [p for p in pathways.split(",") if p] if pathways else [],
+            "kegg_pathways": _clean_list(row.get("KEGG_Pathway")),
             "preferred_name": _clean(row.get("Preferred_name")),
             "description": _clean(row.get("Description")),
             "eggnog_ogs": _clean(row.get("eggNOG_OGs")),

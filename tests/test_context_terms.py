@@ -1,4 +1,5 @@
-"""S8c context terms: what a family's neighbours are, counted per independent lineage.
+"""Context terms (plasmidann.context_terms): what a family's neighbours are, counted per
+independent lineage.
 
 Two neighbour rules, deliberately different. A gene label (amr:, ta:, metal:, conj_role:,
 mge:, antidefence:) counts only from a neighbour in the same directon - same strand, gaps
@@ -165,11 +166,10 @@ def test_clonal_copies_in_one_lineage_count_once():
     occurrences = [("A1|1", [("amr:x", "A1|2")], False),
                    ("A2|1", [("amr:x", "A2|2")], False),
                    ("B1|1", [], False)]
-    rows = family_term_rows("F", "dark", occurrences, family_of_orf={}, lineage_of=LINEAGE)
+    rows = family_term_rows("F", occurrences, family_of_orf={}, lineage_of=LINEAGE)
     row = _row(rows, "amr:x")
     assert (row["n_lineages"], row["n_lineages_with_term"], row["conservation"]) == (2, 1, 0.5)
     assert row["status"] == "SUCCESS" and row["term_type"] == "amr"
-    assert row["family_set"] == "dark"
     assert list(row) == COLUMNS
 
 
@@ -178,7 +178,7 @@ def test_a_neighbour_in_the_focal_family_is_a_tandem_paralogue_and_is_excluded()
     not what F's context is."""
     occurrences = [("A1|1", [("amr:x", "A1|2")], False),
                    ("B1|1", [("amr:x", "B1|2")], False)]
-    rows = family_term_rows("F", "known", occurrences, family_of_orf={"B1|2": "F",
+    rows = family_term_rows("F", occurrences, family_of_orf={"B1|2": "F",
                                                                       "A1|2": "G"},
                             lineage_of=LINEAGE)
     assert _row(rows, "amr:x")["n_lineages_with_term"] == 1
@@ -187,7 +187,7 @@ def test_a_neighbour_in_the_focal_family_is_a_tandem_paralogue_and_is_excluded()
 def test_an_orf_inside_a_system_is_never_excluded_as_a_paralogue():
     occurrences = [("A1|1", [("defence:Clover", None)], False),
                    ("B1|1", [("defence:Clover", None)], False)]
-    rows = family_term_rows("F", "dark", occurrences, family_of_orf={"A1|1": "F",
+    rows = family_term_rows("F", occurrences, family_of_orf={"A1|1": "F",
                                                                      "B1|1": "F"},
                             lineage_of=LINEAGE)
     assert _row(rows, "defence:Clover")["conservation"] == 1.0
@@ -195,7 +195,7 @@ def test_an_orf_inside_a_system_is_never_excluded_as_a_paralogue():
 
 def test_one_lineage_is_too_few():
     occurrences = [("A1|1", [("ta:relE", "A1|2")], True), ("A2|1", [], False)]
-    rows = family_term_rows("F", "dark", occurrences, family_of_orf={}, lineage_of=LINEAGE)
+    rows = family_term_rows("F", occurrences, family_of_orf={}, lineage_of=LINEAGE)
     row = _row(rows, "ta:relE")
     assert row["status"] == TOO_FEW_LINEAGES
     assert row["n_lineages"] == 1 and row["conservation"] == ""
@@ -203,13 +203,13 @@ def test_one_lineage_is_too_few():
 
 
 def test_a_family_with_no_terms_writes_no_rows():
-    assert family_term_rows("F", "dark", [("A1|1", [], False)], family_of_orf={},
+    assert family_term_rows("F", [("A1|1", [], False)], family_of_orf={},
                             lineage_of=LINEAGE) == []
 
 
 def test_a_plasmid_without_a_lineage_is_an_error():
     with pytest.raises(KeyError):
-        family_term_rows("F", "dark", [("Z9|1", [("amr:x", "Z9|2")], False)],
+        family_term_rows("F", [("Z9|1", [("amr:x", "Z9|2")], False)],
                          family_of_orf={}, lineage_of=LINEAGE)
 
 
@@ -287,13 +287,12 @@ def test_the_stage_keeps_the_rates_and_adds_cons_conj(fixture_dir):
     assert row["cons_operon_with_annotated"] == "1.0"
 
 
-def test_the_stage_writes_terms_for_dark_and_known_families(fixture_dir):
+def test_the_stage_writes_terms_for_the_dark_families_only(fixture_dir):
     _, terms = _run_stage(fixture_dir)
     assert list(terms[0]) == COLUMNS
     by = {(r["family_id"], r["term"]): r for r in terms}
 
     dark_amr = by[("intermediate:D", "amr:TEM beta-lactamase")]
-    assert dark_amr["family_set"] == "dark"
     assert (dark_amr["n_lineages"], dark_amr["n_lineages_with_term"]) == ("2", "2")
     assert dark_amr["conservation"] == "1.0" and dark_amr["status"] == "SUCCESS"
     # K is two genes away in the same directon; its AMRFinderPlus STRESS/METAL label is metal:.
@@ -303,12 +302,7 @@ def test_the_stage_writes_terms_for_dark_and_known_families(fixture_dir):
     assert by[("intermediate:D", "conj:T4SS_typeF")]["conservation"] == "0.5"
     assert by[("intermediate:D", "defence:Clover")]["conservation"] == "0.5"
 
-    known = by[("intermediate:K", "conj:T4SS_typeF")]
-    assert known["family_set"] == "known" and known["conservation"] == "0.5"
-    assert by[("intermediate:K", "amr:TEM beta-lactamase")]["family_set"] == "known"
-    # The dark family is not also written as a known one.
-    assert sum(r["family_id"] == "intermediate:D" and r["term"] == "amr:TEM beta-lactamase"
-               for r in terms) == 1
-    # Only the primary resolution, and no KEGG term.
-    assert not any(fid.startswith("close:") for fid, _ in by)
+    # Known family K is the neighbour of the dark family, not a row of its own.
+    assert {fid for fid, _ in by} == {"intermediate:D"}
+    # No KEGG term.
     assert not any(t.startswith("kegg") or t.startswith("ko:") for _, t in by)

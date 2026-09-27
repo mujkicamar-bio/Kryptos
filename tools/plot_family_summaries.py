@@ -5,7 +5,7 @@ Every figure is drawn from the run's own tables, so it regenerates exactly:
                        over the families holding a small-plasmid protein
   dark_fraction        percentage of dark members per family, families with >= 2 members
   dark_family_classes  dark-only vs mixed dark families, and ORPHAN vs FAMILY
-  rarefaction          dark families against small plasmids sampled (mean and range)
+  rarefaction          dark families against lineages sampled (mean and range)
   network              degree distribution and community sizes of the family network
   dark_orf_lengths     protein length (aa) of dark ORFs, FUNCTIONAL ORFs for comparison
 
@@ -84,13 +84,13 @@ def dark_family_classes(run, out):
 
 def rarefaction(run, out):
     rows = read_tsv(run / "15_report/dark_family_rarefaction.tsv")
-    x = [int(r["n_plasmids"]) for r in rows]
+    x = [int(r["n_lineages"]) for r in rows]
     fig, ax = plt.subplots(figsize=(5, 4))
     ax.fill_between(x, [float(r["min_families"]) for r in rows],
                     [float(r["max_families"]) for r in rows], color=PALETTE[0], alpha=0.25,
                     lw=0, label="range over replicates")
     ax.plot(x, [float(r["mean_families"]) for r in rows], color=PALETTE[0], label="mean")
-    ax.set(xlabel="small plasmids sampled", ylabel="dark families observed")
+    ax.set(xlabel="lineages sampled", ylabel="dark families observed")
     ax.legend(frameon=False, fontsize=8)
     save(fig, out, "rarefaction")
 

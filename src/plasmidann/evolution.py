@@ -1,173 +1,74 @@
-"""S7: evolutionary evidence that a dark ORF is a real protein.
+"""Evolutionary evidence that a dark ORF is a real protein.
 
-Pairwise dN/dS by Nei-Gojobori counting (Nei and Gojobori 1986, Mol Biol Evol 3:418) with
-the Jukes-Cantor correction (Jukes and Cantor 1969), on codon alignments projected from
-protein alignments, under genetic code table 11, with a status for every absent estimate;
-and the consensus of a protein alignment. Counting needs no tree, no optimiser and no
-external process, so it runs in-process over hundreds of thousands of small families; a
-codon model per family was too costly at this scale.
+Pairwise dN, dS and omega = dN/dS by the Yang and Nielsen (2000, Mol Biol Evol 17:32)
+method, computed by yn00 of PAML 4.10.7 (Yang 2007, Mol Biol Evol 24:1586) run as is on a
+codon alignment projected from the protein alignment; and the consensus of a protein
+alignment. One yn00 call per family computes every pair of its aligned members.
 """
-import itertools
-import math
+import pathlib
+import subprocess
 
-# Standard genetic code, table 11 (bacterial). '*' is a stop codon.
-GENETIC_CODE = {}
-_BASES = "TCAG"
-_AAS = ("FFLLSSSSYY**CC*W" "LLLLPPPPHHQQRRRR"
-        "IIIMTTTTNNKKSSRR" "VVVVAAAADDEEGGGG")
-for _i, _b1 in enumerate(_BASES):
-    for _j, _b2 in enumerate(_BASES):
-        for _k, _b3 in enumerate(_BASES):
-            GENETIC_CODE[_b1 + _b2 + _b3] = _AAS[_i * 16 + _j * 4 + _k]
+YN00_COLS = ["S", "N", "t", "kappa", "omega", "dN", "dN_SE", "dS", "dS_SE"]
 
 
-def synonymous_sites(codon):
-    """Split a codon's three positions into synonymous and nonsynonymous fractions.
+def yn00(codon_aln, workdir):
+    """Run yn00 on a codon alignment; return (codons, pairs), or None if yn00 failed.
 
-    For each of the three positions, count how many of the three possible substitutions
-    leave the amino acid unchanged; that fraction is the position's synonymous site count.
-    A fourfold-degenerate third position contributes 1.0, a first position of most codons
-    contributes 0.
+    `codon_aln` maps member -> aligned codon sequence. `codons` is the alignment length
+    yn00 reports (ls), after it removes every codon column that carries a gap or an
+    ambiguous base in any sequence. `pairs` holds one dict per pair from yn00's
+    "(B) Yang & Nielsen (2000) method" table: seq1, seq2 and YN00_COLS, as the strings
+    yn00 printed (omega 99.0000 where yn00 finds dS = 0, nan where it cannot estimate).
 
-    Returns (synonymous, nonsynonymous), summing to 3.0.
+    icode 0 is the standard code, whose codon assignments equal those of table 11. An
+    in-frame TGA inside a coding sequence occurs only in a gene called under table 4
+    (TGA = Trp), for which icode 3 (Mycoplasma/Spiroplasma code) is used; yn00 stops with
+    an error on a stop codon under the wrong code.
     """
-    aa = GENETIC_CODE.get(codon)
-    if aa is None:
-        return 0.0, 0.0
-    syn = 0.0
-    for pos in range(3):
-        for base in "TCAG":
-            if base == codon[pos]:
-                continue
-            mutated = codon[:pos] + base + codon[pos + 1:]
-            if GENETIC_CODE.get(mutated) == aa:
-                syn += 1 / 3
-    return syn, 3.0 - syn
-
-
-def codon_differences(a, b):
-    """Synonymous and nonsynonymous differences between two codons.
-
-    Where two codons differ at more than one position the true mutational path is unknown,
-    so all paths are averaged - the standard Nei-Gojobori treatment. Averaging rather than
-    picking the parsimonious path avoids a systematic bias toward synonymous change.
-    """
-    if a == b:
-        return 0, 0
-    aa_a, aa_b = GENETIC_CODE.get(a), GENETIC_CODE.get(b)
-    if aa_a is None or aa_b is None:
-        return 0, 0
-
-    positions = [i for i in range(3) if a[i] != b[i]]
-    if len(positions) == 1:
-        return (1, 0) if aa_a == aa_b else (0, 1)
-
-    # Average over every order in which the differing positions could have changed.
-    syn_total = non_total = 0
-    paths = 0
-    for order in itertools.permutations(positions):
-        current = a
-        syn = non = 0
-        broken = False
-        for pos in order:
-            nxt = current[:pos] + b[pos] + current[pos + 1:]
-            if GENETIC_CODE.get(nxt) == "*":
-                # A path through a stop codon is not a path a real lineage took.
-                broken = True
-                break
-            if GENETIC_CODE[nxt] == GENETIC_CODE[current]:
-                syn += 1
-            else:
-                non += 1
-            current = nxt
-        if not broken:
-            syn_total += syn
-            non_total += non
-            paths += 1
-    if not paths:
-        return 0, 0
-    return syn_total / paths, non_total / paths
-
-
-def _jukes_cantor(p):
-    """Correct an observed proportion of differences for multiple hits at the same site.
-
-    Returns None where the proportion is at or beyond the correction's domain (p >= 0.75),
-    which means the sequences are too diverged for the estimate to mean anything.
-    """
-    if p <= 0:
-        return 0.0
-    if p >= 0.75:
+    workdir = pathlib.Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    names = list(codon_aln)
+    seqs = [codon_aln[n].upper() for n in names]
+    tga = any(s[i:i + 3] == "TGA" for s in seqs for i in range(0, len(s), 3))
+    icode = 3 if tga else 0
+    with open(workdir / "aln.phy", "w") as fh:
+        fh.write(f"{len(seqs)} {len(seqs[0])}\n")
+        for i, s in enumerate(seqs):
+            fh.write(f"s{i}  {s}\n")
+    (workdir / "yn00.ctl").write_text(
+        f"seqfile = aln.phy\noutfile = yn00.out\nverbose = 0\nicode = {icode}\n"
+        "weighting = 0\ncommonf3x4 = 0\n")
+    proc = subprocess.run(["yn00", "yn00.ctl"], cwd=workdir, capture_output=True, text=True)
+    out = workdir / "yn00.out"
+    if proc.returncode != 0 or not out.exists():
         return None
-    return -0.75 * math.log(1 - (4 / 3) * p)
+    return parse_yn00(out.read_text(), names)
 
 
-ABSOLUTE_MIN_CODONS = 3
+def parse_yn00(text, names):
+    """(codons, pairs) from a yn00 output file; None if it holds no Yang-Nielsen table.
 
-
-def dnds_detail(seq_a, seq_b, min_codons=ABSOLUTE_MIN_CODONS):
-    """Nei-Gojobori dN/dS with a status code explaining any absent estimate.
-
-    `min_codons` is the number of USABLE codons - gaps, ambiguity and stop codons excluded -
-    below which no estimate is returned; S7b passes evolution.min_codons from config. The
-    default is the arithmetic floor, three.
-
-    Returns (value, status). Status is one of:
-
-      MEASURED       a usable estimate; value is a float or inf
-      NO_DIVERGENCE  the sequences are identical, so there is nothing to measure
-      TOO_SHORT      too few usable codons once gaps, ambiguity and stops are excluded
-      SATURATED      beyond the Jukes-Cantor domain (pS >= 0.75); no correction exists
-
-    Without a value the status says why. NO_DIVERGENCE (identical sequences, common in
-    conserved or clonally redundant families) is not evidence of neutral evolution, and
-    evidence.reality_lines does not fire purifying_selection on it; nor is it dN/dS = 0,
-    which would read as maximal purifying selection.
+    `names` are the members in alignment order; yn00 numbers them from 1.
     """
-    if len(seq_a) != len(seq_b):
-        raise ValueError(f"aligned sequences differ in length: {len(seq_a)} vs {len(seq_b)}")
-    if len(seq_a) % 3:
-        raise ValueError(f"length {len(seq_a)} is not a whole number of codons")
-
-    syn_sites = non_sites = 0.0
-    syn_diff = non_diff = 0.0
-    usable = 0
-
-    for i in range(0, len(seq_a), 3):
-        ca, cb = seq_a[i:i + 3].upper(), seq_b[i:i + 3].upper()
-        # Gaps and ambiguity are MISSING DATA, not evidence of conservation. Counting a
-        # gapped column as identical would inflate apparent purifying selection exactly
-        # where the alignment is least trustworthy.
-        if ca not in GENETIC_CODE or cb not in GENETIC_CODE:
-            continue
-        if GENETIC_CODE[ca] == "*" or GENETIC_CODE[cb] == "*":
-            continue
-        usable += 1
-        sa, na = synonymous_sites(ca)
-        sb, nb = synonymous_sites(cb)
-        syn_sites += (sa + sb) / 2
-        non_sites += (na + nb) / 2
-        sd, nd = codon_differences(ca, cb)
-        syn_diff += sd
-        non_diff += nd
-
-    # Three codons is the arithmetic floor; min_codons is the configured floor for a
-    # trustworthy estimate. Below either there is no value, and the status is TOO_SHORT.
-    if usable < max(min_codons, ABSOLUTE_MIN_CODONS):
-        return None, "TOO_SHORT"
-    if syn_diff == 0 and non_diff == 0:
-        return None, "NO_DIVERGENCE"
-    if not syn_sites or not non_sites:
-        return None, "TOO_SHORT"
-
-    ps, pn = syn_diff / syn_sites, non_diff / non_sites
-    ds, dn = _jukes_cantor(ps), _jukes_cantor(pn)
-    if ds is None or dn is None:
-        return None, "SATURATED"
-    if ds == 0:
-        # Every observed change is a replacement: evidence AGAINST a conserved protein.
-        return (float("inf"), "MEASURED") if dn > 0 else (None, "NO_DIVERGENCE")
-    return round(dn / ds, 4), "MEASURED"
+    codons = None
+    pairs, in_table = [], False
+    for line in text.splitlines():
+        if line.startswith("ns =") and "ls =" in line:
+            codons = int(line.split("ls =")[1])
+        elif line.startswith("(B) Yang & Nielsen"):
+            in_table = True
+        elif line.startswith("(C)"):
+            in_table = False
+        elif in_table:
+            f = line.split()
+            # i j S N t kappa omega dN +- SE dS +- SE
+            if len(f) == 13 and f[0].isdigit() and f[1].isdigit():
+                values = [f[k] for k in (2, 3, 4, 5, 6, 7, 9, 10, 12)]
+                pairs.append({"seq1": names[int(f[0]) - 1], "seq2": names[int(f[1]) - 1],
+                              **dict(zip(YN00_COLS, values))})
+    if codons is None or not pairs:
+        return None
+    return codons, pairs
 
 
 def back_translate(aligned_protein, cds):
@@ -202,7 +103,7 @@ def consensus(alignment, max_gap_fraction=0.5):
 
     A protein can miss every per-sequence threshold while its family is collectively
     recognisable; Pavlopoulos et al. removed 6.5% of their clusters by searching the family
-    consensus back against the reference databases (S7c).
+    consensus back against the reference databases (rule consensus_recheck).
 
     `alignment` maps name -> aligned sequence, all the same length.
 

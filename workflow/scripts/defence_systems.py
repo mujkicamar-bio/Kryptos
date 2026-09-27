@@ -1,8 +1,10 @@
-"""S8a phase 2: call defence systems from gene adjacency.
+"""Rule defence_systems, DefenseFinder phase 2: call defence systems from gene adjacency.
 
 MacSyFinder is run directly rather than through `defense-finder run`, because the wrapper
-does not pass `--replicon-topology` and 94% of these plasmids are circular; under linear
-topology a system spanning the origin is not found. `--db-type gembase` holds every
+passes no replicon topology: under linear topology a system spanning the origin of a
+circular plasmid is not found, and under circular topology the genes at the two ends of a
+linear plasmid can be joined into one system. Each replicon gets its registry topology
+(darkorf.circular.is_circular) through `--topology-file`. `--db-type gembase` holds every
 candidate replicon in one database and still treats each separately.
 
 The model families and their options are those of `defense-finder run` (DefenseFinder
@@ -31,6 +33,7 @@ import sys
 import _ctx  # noqa: F401
 
 from darkorf import status
+from darkorf.circular import is_circular
 
 COLUMNS = ["orf_id", "plasmid_id", "gembase_id", "system", "system_id", "component",
            "hit_evalue", "hit_status", "sys_wholeness", "hit_gene_ref", "hit_profile_cov",
@@ -66,11 +69,22 @@ if not snakemake.params.get("skip_run", False):
     # A rerun starts clean: results from an interrupted run would be read below.
     shutil.rmtree(outdir, ignore_errors=True)
     outdir.mkdir(parents=True)
+    with open(snakemake.input.master, newline="") as fh:
+        circular = {r["plasmid_id"] for r in csv.DictReader(fh, delimiter="\t")
+                    if is_circular(r.get("topology"))}
+    with open(snakemake.input.map, newline="") as fh:
+        plasmids = {r["plasmid_id"] for r in csv.DictReader(fh, delimiter="\t")}
+    # MacSyFinder 2.1.4 reads one "<replicon>: <topology>" per line (macsypy.database);
+    # the gembase replicon name is the plasmid id with each '_' written as '-'.
+    topology_file = outdir / "topology.txt"
+    topology_file.write_text("".join(
+        f"{p.replace('_', '-')}: {'circular' if p in circular else 'linear'}\n"
+        for p in sorted(plasmids)))
     for family, options in FAMILIES.items():
         subprocess.run(
             ["macsyfinder", "--models-dir", str(models_dir), *options,
              "--sequence-db", snakemake.input.faa,
-             "--db-type", "gembase", "--replicon-topology", "circular",
+             "--db-type", "gembase", "--topology-file", str(topology_file),
              "--worker", str(snakemake.threads), "--out-dir", str(outdir / family),
              "--mute"],
             check=True)

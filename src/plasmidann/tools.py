@@ -1,4 +1,4 @@
-"""Every external executable the pipeline finds on PATH, and which stage needs it.
+"""Every external executable the pipeline finds on PATH, and the rules that run it.
 
 Pre-flight checks every entry before any search. An entry with `only_if_required` names a
 config section (`structure`, `orthology`): the tool is needed only when that section's
@@ -11,44 +11,41 @@ import pathlib
 import re
 
 REQUIRED_TOOLS = [
-    {"name": "hmmsearch", "stage": "S2b, S3",
+    {"name": "hmmsearch", "stage": "artefact_screen, tier_search, consensus_recheck",
      "why": "AntiFam artefact screen and every hmmer cascade tier"},
-    {"name": "diamond", "stage": "S3, S4d",
+    {"name": "diamond", "stage": "tier_search, label_databases",
      "why": "the Swiss-Prot and nr cascade tiers and the plasmid label databases"},
-    {"name": "tantan", "stage": "S2b",
+    {"name": "tantan", "stage": "artefact_screen",
      "why": "low-complexity masking; without it every protein reports 0 masked"},
-    {"name": "mash", "stage": "Stage 6",
+    {"name": "mash", "stage": "plasmid_lineage",
      "why": "plasmid lineage clustering - sequence independence, separate from MOB class"},
-    {"name": "mmseqs", "stage": "S6b",
+    {"name": "mmseqs", "stage": "protein_clustering, cascade_selection, family_network",
      "why": "deep-homology clustering into families; nothing downstream has families"},
-    {"name": "mafft", "stage": "S7b",
+    {"name": "mafft", "stage": "family_evolution",
      "why": "codon alignments for dN/dS; without it every family reports ALIGNMENT_FAILED"},
-    {"name": "defense-finder", "stage": "S8a phase 1",
+    {"name": "defense-finder", "stage": "defence_search",
      "why": "defence component hits; without it the defence_island stratum is empty"},
-    {"name": "macsyfinder", "stage": "S8a phase 2",
+    {"name": "macsyfinder", "stage": "defence_systems",
      "why": "calls systems from gene adjacency; components alone are not systems"},
-    {"name": "integron_finder", "stage": "S8b",
+    {"name": "integron_finder", "stage": "integrons",
      "why": "cassette arrays; without it the integron_cassette stratum is empty"},
-    {"name": "prodigal", "stage": "S8b (invoked by integron_finder)",
+    {"name": "prodigal", "stage": "integrons (invoked by integron_finder)",
      "why": "IntegronFinder calls genes with prodigal and exits non-zero without it"},
-    {"name": "cmsearch", "stage": "S8b (invoked by integron_finder)",
+    {"name": "cmsearch", "stage": "integrons (invoked by integron_finder)",
      "why": "IntegronFinder locates attC sites with an Infernal covariance model"},
-    {"name": "isescan.py", "stage": "S8e",
+    {"name": "isescan.py", "stage": "is_elements",
      "why": "IS elements; without it no ORF can be placed inside or beside an IS element"},
-    {"name": "RNAcode", "stage": "S7b",
+    {"name": "yn00", "stage": "family_evolution",
+     "why": "PAML yn00 pairwise dN/dS; without it every family reports YN00_FAILED"},
+    {"name": "RNAcode", "stage": "family_evolution",
      "why": "coding-potential signal independent of the gene caller, on both strands"},
-    {"name": "emapper.py", "stage": "S4b",
-     "why": "COG and KEGG terms for the annotated fraction; S8's pathway axis needs them",
+    {"name": "emapper.py", "stage": "orthology",
+     "why": "COG and KEGG terms for the annotated fraction; dark ORF neighbourhoods are described with them",
      "only_if_required": "orthology"},
-    {"name": "foldseek", "stage": "S8d",
+    {"name": "foldseek", "stage": "structure_search",
      "why": "structural homology; without it the folds evidence line can never fire",
      "only_if_required": "structure"},
 ]
-
-
-def tool_names():
-    """The set of executable names, for membership checks."""
-    return {t["name"] for t in REQUIRED_TOOLS}
 
 
 def required_tools(structure_required=True, orthology_required=True):

@@ -1,4 +1,4 @@
-"""Plasmid-specific label databases: when a search hit becomes a label, and where two disagree.
+"""Plasmid-specific label databases: when a search hit becomes a label.
 
 WHAT THIS ADDS TO THE LABEL VOCABULARY
 
@@ -9,7 +9,7 @@ that a statement from one is never mistaken for a statement from another:
 
     source     label kind          label                         sub_label
     tadb       tadb_ta             'type II toxin'               -
-    bacmet     bacmet_compound     'Mercury', 'Acridine'         the gene (merA)
+    bacmet     bacmet_compound     compound ('Mercury (Hg)')     gene; BacMet's class
     oritdb     oritdb_role         relaxase / auxiliary / T4CP   MOB or T4CP family
     card       card_amr_family     CARD AMR gene family          the model name (TEM-1)
     mobileog   mobileog_category   major category                minor category; evidence
@@ -36,13 +36,6 @@ paradigm is defined on it (Alcock et al. 2023, Nucleic Acids Res. 51:D690). A ge
 identity tier would ignore the curation. Only protein homolog models are used: variant,
 rRNA, overexpression and knockout models detect resistance from mutations or absence,
 which the presence of a similar protein cannot show.
-
-THE DISAGREEMENT TABLE CHANGES NOTHING
-
-`disagreements` lists every protein on which two sources make incompatible statements. It
-reads labels and returns new rows; no label is removed, re-ranked or rewritten because
-another source disagrees. Deciding which source is right is a review question, and a
-pipeline that settled it silently would hide the evidence the review needs.
 """
 import csv
 import json
@@ -69,8 +62,6 @@ DATABASES = TIERED + ("card",)
 
 COLUMNS = ["seq_id", "source", "label_kind", "label", "sub_label", "tier", "cut_off",
            "pident", "qcov", "scov", "bitscore", "subject", "database_version"]
-DISAGREEMENT_COLUMNS = ["seq_id", "source_a", "label_a", "source_b", "label_b",
-                        "conflict_type"]
 
 # Islam et al. 2026, Nucleic Acids Res. (PlasAnn), Methods "Annotation pipeline": primary
 # tier >=80% identity and >=90% coverage, secondary tier >60% identity and >70% coverage.
@@ -84,13 +75,9 @@ TIER2_COVERAGE = 70.0
 # al. 2026, released code essential_annotation.py); --more-sensitive is the mode RGI passes
 # to DIAMOND (arpcard/rgi app/Diamond.py), used for every database so the sensitivity is
 # the same across sources.
-# Every target is reported (--max-target-seqs 0), pre-filtered at the tier-2 minimum, which
-# no tier-qualifying hit falls below. A target limit is ranked by bitscore, not by tier, so
-# a partial high-scoring hit can push the tier-1 hit out: measured on the 100-plasmid test
-# set, a limit of 50 targets without the pre-filter lost 1 oriTDB and 3 mobileOG-db labels
-# and gave 2 + 2 more the wrong tier, and even 1,000 targets truncated oriTDB queries that
-# have more qualifying relaxases than that. The pre-filter keeps the output small: 17,856
-# oriTDB and 83,770 mobileOG-db (all 775,257 entries) rows for 5,304 proteins.
+# Every target is reported (--max-target-seqs 0), pre-filtered at the tier-2 minimum: a
+# target limit ranks by bitscore, not tier, and on the 100-plasmid test set it dropped
+# tier-1 oriTDB and mobileOG-db hits.
 DIAMOND_TIERED_ARGS = (f"--more-sensitive --evalue 1e-5 --max-target-seqs 0 "
                        f"--id {TIER2_IDENTITY:g} --query-cover {TIER2_COVERAGE:g} "
                        f"--subject-cover {TIER2_COVERAGE:g}")
@@ -100,15 +87,10 @@ DIAMOND_TIERED_ARGS = (f"--more-sensitive --evalue 1e-5 --max-target-seqs 0 "
 # the 100-plasmid test set.
 DIAMOND_CARD_ARGS = "--more-sensitive"
 
-# Context-term prefix per source. AMRFinderPlus is split by element type below; its other
-# STRESS subtypes and VIRULENCE get no prefix.
-_PREFIX = {"card": "amr", "bacmet": "metal", "tadb": "ta", "oritdb": "conj_role",
-           "mobileog": "mge", "dbapis": "antidefence", "acrdb": "antidefence"}
 # AMRFinderPlus Type/Subtype values (NCBI AMRFinderPlus documentation, "Output format").
-_AMRFINDER_PREFIX = {("AMR", "AMR"): "amr", ("AMR", "POINT"): "amr",
-                     ("STRESS", "METAL"): "metal", ("STRESS", "BIOCIDE"): "metal",
-                     ("STRESS", "ACID"): "", ("STRESS", "HEAT"): "",
-                     ("VIRULENCE", "VIRULENCE"): "", ("VIRULENCE", "ANTIGEN"): ""}
+_AMRFINDER_TYPES = {("AMR", "AMR"), ("AMR", "POINT"), ("STRESS", "METAL"),
+                    ("STRESS", "BIOCIDE"), ("STRESS", "ACID"), ("STRESS", "HEAT"),
+                    ("VIRULENCE", "VIRULENCE"), ("VIRULENCE", "ANTIGEN")}
 
 
 def tier(pident, qcov, scov):
@@ -242,9 +224,6 @@ def parse_tadb(header):
     return subject, [(f"type {m.group(1)} {role}", "")]
 
 
-_METAL = re.compile(r"([A-Z][a-z]+) \([A-Za-z]+\)")
-
-
 def read_bacmet_compounds(path):
     """{BacMet_ID: Compound} from BacMet's own mapping file (BacMet2_EXP.753.mapping.txt)."""
     with open(path, newline="") as fh:
@@ -252,23 +231,18 @@ def read_bacmet_compounds(path):
 
 
 def parse_bacmet(header, compounds):
-    """BacMet 2.0: one label per compound, with the gene as sub_label.
-
-    A metal is labelled by its element ('Mercury (Hg)' -> 'Mercury'), a biocide by the
-    class BacMet assigns ('Triclosan [class: Phenolic compounds]' -> 'Phenolic compounds'):
-    the class is the level at which neighbours can share a term.
+    """BacMet 2.0: one label per compound, as BacMet's mapping file names it, with the gene
+    and, when BacMet gives one, the compound class as sub_label:
+    'Triclosan [class: Phenolic compounds]' -> ('Triclosan', 'abeM; class=Phenolic compounds').
+    The final '.' that ends some compound lists is list punctuation and is dropped.
     """
     subject, gene = header.split("|")[:2]
     out = set()
     for part in compounds[subject].split(", "):
-        part = part.strip().rstrip(".")
-        if "[class:" in part:
-            out.add(part.split("[class:", 1)[1].strip(" ]"))
-        elif _METAL.fullmatch(part):
-            out.add(_METAL.fullmatch(part).group(1))
-        elif part:
-            out.add(part)
-    return subject, [(label, gene) for label in sorted(out)]
+        compound, _, cls = part.strip().rstrip(".").partition("[class:")
+        if compound.strip():
+            out.add((compound.strip(), f"{gene}; class={cls.strip(' ]')}" if cls else gene))
+    return subject, sorted(out)
 
 
 _ORITDB_ROLE = {"relaxase": "relaxase", "auxiliary": "auxiliary protein", "t4cp": "T4CP"}
@@ -319,15 +293,16 @@ def parse_mobileog(header):
 def parse_dbapis(header):
     """dbAPIS as installed: '<accession> gene=<gene> family=<family> evidence=verified|homolog
     <description>'. A verified seed that formed no family has its gene as family (gp54).
-    gene=NA marks a homologue whose family has no verified seed, so it names no gene.
+    gene=NA marks a homologue whose family has no verified seed, so it names no gene. An
+    accession dbAPIS assigns to several families carries them comma-joined in family=, and
+    gives one label per family.
     """
     fields = _fields(header)
     if not fields.get("family") or not fields.get("evidence"):
         raise ValueError(f"dbAPIS header lacks family= or evidence=: {header!r}")
     gene = fields.get("gene", "")
-    return header.split()[0], [(fields["family"],
-                                _with_evidence("" if gene == "NA" else gene,
-                                               fields["evidence"]))]
+    detail = _with_evidence("" if gene == "NA" else gene, fields["evidence"])
+    return header.split()[0], [(f, detail) for f in fields["family"].split(",")]
 
 
 def parse_acrdb(header):
@@ -405,14 +380,14 @@ def parse_amrfinder(path, version):
     Every element becomes an amrfinder_gene label with Type/Subtype as sub_label; its
     Method (EXACTP, BLASTP, PARTIALP, HMM...) is the tier. AMRFinderPlus reports identity
     and coverage of the reference only, so qcov and bitscore stay empty, as does every 'NA'.
-    An element type this module does not know is refused, because its term prefix would
-    otherwise be guessed.
+    An element type this module does not know is refused, because its context-term type
+    (plasmidann.context_terms.label_term) would otherwise be guessed.
     """
     rows = []
     with open(path, newline="") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
             value = {k: ("" if r[c] == "NA" else r[c]) for k, c in _AMR_COLUMNS.items()}
-            if (value["type"], value["subtype"]) not in _AMRFINDER_PREFIX:
+            if (value["type"], value["subtype"]) not in _AMRFINDER_TYPES:
                 raise ValueError(f"AMRFinderPlus element type {value['type']}/"
                                  f"{value['subtype']} is not known to plasmidann.labeldb")
             rows.append({
@@ -423,263 +398,3 @@ def parse_amrfinder(path, version):
                 "qcov": "", "scov": value["scov"], "bitscore": "",
                 "subject": value["subject"], "database_version": version})
     return rows
-
-
-def term_prefix(row):
-    """The context-term prefix of a label row, '' when it has none."""
-    if row["source"] == "amrfinder":
-        return _AMRFINDER_PREFIX[tuple(row["sub_label"].split("/", 1))]
-    return _PREFIX[row["source"]]
-
-
-# ------------------------------------------------------------------------------------
-# Disagreements
-# ------------------------------------------------------------------------------------
-def read_protein_map(path):
-    """{orf_id: seq_id} from 03_dereplication/protein_map.tsv (seq_id, comma-joined ORFs)."""
-    out = {}
-    with open(path) as fh:
-        for line in fh:
-            seq_id, orfs = line.rstrip("\n").split("\t")
-            for orf in orfs.split(","):
-                out[orf] = seq_id
-    return out
-
-
-def by_protein(rows, orf_to_protein):
-    """{seq_id: {(system, component)}} from a per-ORF system table (DefenseFinder, CONJScan).
-
-    The system is the last element of MacSyFinder's model path. ORFs absent from the map
-    (not in the dereplicated protein set) are skipped.
-    """
-    out = {}
-    for r in rows:
-        seq_id = orf_to_protein.get(r["orf_id"])
-        if seq_id is not None:
-            out.setdefault(seq_id, set()).add((r["system"].rsplit("/", 1)[-1],
-                                               r["component"]))
-    return out
-
-
-def read_ko_symbols(path):
-    """{KO: [gene symbols]} from KEGG's KO list (rest.kegg.jp/list/ko), whose lines read
-    'K00002<TAB>AKR1A1, adh; alcohol dehydrogenase (NADP+) [EC:1.1.1.2]'. A KO whose
-    description has no ';' names no symbol, and neither does one whose symbol is the KO
-    itself ('K00243; uncharacterized protein', 1,185 KOs in the 2026-09-25 list).
-    """
-    out = {}
-    with open(path) as fh:
-        for line in fh:
-            ko, desc = line.rstrip("\n").split("\t")
-            symbols = desc.split(";")[0] if ";" in desc else ""
-            out[ko] = [s.strip() for s in symbols.split(",")
-                       if s.strip() and not re.fullmatch(r"K\d{5}", s.strip())]
-    return out
-
-
-def tier0_symbols(orthology_rows, ko_symbols):
-    """{seq_id: gene symbols} for the Tier 0 proteins of orthology.tsv.
-
-    PlasmidScope publishes KOs but no eggNOG preferred name, so the symbols are the KEGG
-    gene symbols of its KOs.
-    """
-    out = {}
-    for r in orthology_rows:
-        if r["orthology_source"] != "plasmidscope":
-            continue
-        symbols = set()
-        for ko in r["kegg_ko"].split(","):
-            symbols.update(ko_symbols.get(ko.strip().removeprefix("ko:"), ()))
-        if symbols:
-            out[r["seq_id"]] = symbols
-    return out
-
-
-def _names(name):
-    """Comparable forms of a gene name: lower case, alphanumerics only, with and without
-    a leading 'bla' (CARD names beta-lactamases without it, AMRFinderPlus and eggNOG with).
-    """
-    n = re.sub(r"[^a-z0-9]", "", name.lower())
-    forms = {n}
-    if n.startswith("bla") and len(n) > 3:
-        forms.add(n[3:])
-    return {f for f in forms if f}
-
-
-def same_gene(a, b):
-    """True when two gene names are the same gene up to punctuation and allele suffix.
-
-    Equal after normalisation, or one a prefix of the other of at least three characters:
-    'tetA' = 'tet(A)', 'bla' ~ 'blaTEM-1', 'aac(6')-Ib' ~ 'aac(6')-Ib-cr', 'TEM-1' =
-    'blaTEM-1'. 'sul1' and 'sul2' differ. Three characters is the gene-symbol stem of the
-    bacterial nomenclature (Demerec et al. 1966, Genetics 54:61): a shorter prefix names no
-    gene, and a stem shared with an allele or locus suffix names the same gene family.
-    Synonyms of different stems (aad/ant, virD4/traD) are not resolved and appear as
-    conflicts for review.
-    """
-    for x in _names(a):
-        for y in _names(b):
-            short, long_ = sorted((x, y), key=len)
-            if short == long_ or (len(short) >= 3 and long_.startswith(short)):
-                return True
-    return False
-
-
-_GENE_SYMBOL = re.compile(r"[A-Za-z][a-z]{2}[A-Z][A-Za-z0-9]*")
-
-
-def card_gene(model_name):
-    """The gene a CARD model name names, or '' when it names none.
-
-    5,914 of the 6,059 protein homolog model names in CARD 4.0.2 are one token (TEM-1,
-    sul1). For the other 145: a gene in brackets at the end is the gene ('PC1
-    beta-lactamase (blaZ)'); a leading binomial is the organism ('Streptomyces lividans
-    cmlR'); then the first token that is not an English word ('beta-lactamase',
-    'intrinsic', 'Trimethoprim-resistant'), a number-led token ('23S') or a '-type'
-    qualifier ('mecA-type mecI') is the gene. Checked against all 145, this is right for
-    144 - the gene, or '' for the 9 that name none ('Enterococcus faecium chloramphenicol
-    acetyltransferase') - and '23S rRNA (adenine(2058)-N(6))-methyltransferase Erm(A)'
-    gives 'rRNA'.
-    """
-    tokens = model_name.split()
-    if len(tokens) == 1:
-        return model_name
-    bracketed = re.search(r"\s\(([^()\s]+)\)$", model_name)
-    if bracketed:
-        return bracketed.group(1)
-    if (len(tokens) > 2 and re.fullmatch(r"[A-Z][a-z]+", tokens[0])
-            and re.fullmatch(r"[a-z]+", tokens[1])):
-        tokens = tokens[2:]
-    for t in tokens:
-        # A word is lower case after its first letter and longer than four characters:
-        # the only all-lower-case gene tokens among the 145 names are 'cmr' and 'rox'.
-        word = len(t) > 4 and re.fullmatch(r"[A-Za-z][a-z]+([-/][a-z]+)*", t)
-        if not (word or t[0].isdigit() or t.endswith("-type")):
-            return t
-    return ""
-
-
-def _gene(row):
-    """The gene a label row names, or '' when its source names none."""
-    source = row["source"]
-    if source == "bacmet":
-        return row["sub_label"]
-    if source == "card":
-        return card_gene(row["sub_label"])
-    if source == "amrfinder":
-        return row["label"]
-    if source == "oritdb":
-        # oriTDB entry names start with the gene (traD_pHCM1, TraI_RP4) - or, for many
-        # predicted entries, with a family or a word (t4cp2_..., Relaxase_..., Mob_...).
-        # Only a name of the bacterial gene-symbol form, three letters and an upper-case
-        # locus letter (Demerec et al. 1966, Genetics 54:61), is taken as a gene.
-        name = row["subject"].split("_")[0]
-        return name if _GENE_SYMBOL.fullmatch(name) else ""
-    return ""
-
-
-def _conj_role(component):
-    """(role, MOB family) of a CONJScan component: 'T4SS_MOBP1' -> ('relaxase', 'MOBP')."""
-    name = component.split("T4SS_", 1)[-1]
-    if name.upper().startswith("MOB"):
-        return "relaxase", re.match(r"MOB[A-Z]", name.upper()).group(0)
-    if name.lower() in ("t4cp1", "t4cp2", "tcpa"):
-        return "T4CP", ""
-    return "MPF", ""
-
-
-def disagreements(labels, tier0=None, defence=None, conj=None):
-    """Rows in DISAGREEMENT_COLUMNS for every cross-source conflict. Changes no label.
-
-    labels   label rows (COLUMNS) from every source of this module
-    tier0    {seq_id: gene symbols} of the Tier 0 (PlasmidScope eggNOG) annotation, from
-             tier0_symbols
-    defence  {seq_id: {(system, component)}} from DefenseFinder, via by_protein
-    conj     {seq_id: {(system, component)}} from CONJScan, via by_protein
-
-    Conflict types:
-      tier0_vs_<source>     the Tier 0 gene symbol and a source that names a gene (bacmet,
-                            card, amrfinder, oritdb) name different genes
-      card_vs_amrfinder     both call an AMR gene, and no gene of one is a gene of the other
-      bacmet_vs_amrfinder   BacMet and an AMRFinderPlus STRESS METAL/BIOCIDE element name
-                            no gene in common
-      card_vs_bacmet        both label the protein and name no gene in common
-      tadb_vs_defencefinder TADB calls it a toxin-antitoxin gene and DefenseFinder a
-                            defence-system component. Recorded for every such protein:
-                            no cited source says which defence systems are TA-derived
-                            (MazEF, AbiE) and which contradict a TA call, so the pair is
-                            listed for review rather than judged by a hand-written list.
-      oritdb_vs_conjscan    the roles differ (relaxase / T4CP against CONJScan's MOB* /
-                            t4cp / MPF components; an auxiliary protein that CONJScan calls
-                            a relaxase or T4CP), or both say relaxase and the MOB families
-                            differ. oriTDB 'Other' carries no family to compare.
-    A one-sided call (one source labels the protein, the other does not) is not a
-    conflict here: it is read directly from protein_labels_plasmid.tsv.
-    """
-    by_seq = {}
-    for row in labels:
-        by_seq.setdefault(row["seq_id"], []).append(row)
-
-    out = set()
-
-    def add(seq_id, source_a, label_a, source_b, label_b, conflict):
-        out.add((seq_id, source_a, label_a, source_b, label_b, conflict))
-
-    for seq_id, rows in by_seq.items():
-        genes = {}
-        for row in rows:
-            gene = _gene(row)
-            if not gene:
-                continue
-            if row["source"] == "amrfinder":
-                kind = row["sub_label"]
-                if kind.startswith("AMR/"):
-                    genes.setdefault("amrfinder_amr", set()).add(gene)
-                elif kind in ("STRESS/METAL", "STRESS/BIOCIDE"):
-                    genes.setdefault("amrfinder_metal", set()).add(gene)
-                genes.setdefault("amrfinder", set()).add(gene)
-            else:
-                genes.setdefault(row["source"], set()).add(gene)
-
-        symbols = sorted((tier0 or {}).get(seq_id, ()))
-        if symbols:
-            for source in ("bacmet", "card", "amrfinder", "oritdb"):
-                for gene in sorted(genes.get(source, ())):
-                    if not any(same_gene(s, gene) for s in symbols):
-                        add(seq_id, "tier0", ",".join(symbols), source, gene,
-                            f"tier0_vs_{source}")
-
-        for a, b, key_b, conflict in (("card", "amrfinder", "amrfinder_amr",
-                                       "card_vs_amrfinder"),
-                                      ("bacmet", "amrfinder", "amrfinder_metal",
-                                       "bacmet_vs_amrfinder"),
-                                      ("card", "bacmet", "bacmet", "card_vs_bacmet")):
-            ga, gb = sorted(genes.get(a, ())), sorted(genes.get(key_b, ()))
-            if ga and gb and not any(same_gene(x, y) for x in ga for y in gb):
-                add(seq_id, a, ",".join(ga), b, ",".join(gb), conflict)
-
-        components = sorted(f"{s}/{c}" for s, c in (defence or {}).get(seq_id, ()))
-        if components:
-            for row in rows:
-                if row["source"] == "tadb":
-                    add(seq_id, "tadb", row["label"], "defencefinder",
-                        ",".join(components), "tadb_vs_defencefinder")
-
-        conj_components = sorted(c for _, c in (conj or {}).get(seq_id, ()))
-        if conj_components:
-            called = [_conj_role(c) for c in conj_components]
-            for row in rows:
-                if row["source"] != "oritdb":
-                    continue
-                role, family = row["label"], row["sub_label"]
-                if role == "auxiliary protein":
-                    agrees = not any(r in ("relaxase", "T4CP") for r, _ in called)
-                elif role == "relaxase" and re.fullmatch(r"MOB[A-Z]", family):
-                    agrees = ("relaxase", family) in called
-                else:
-                    agrees = any(r == role for r, _ in called)
-                if not agrees:
-                    add(seq_id, "oritdb", f"{role} {family}".strip(), "conjscan",
-                        ",".join(conj_components), "oritdb_vs_conjscan")
-
-    return [dict(zip(DISAGREEMENT_COLUMNS, r)) for r in sorted(out)]

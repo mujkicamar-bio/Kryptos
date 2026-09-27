@@ -11,10 +11,10 @@ the vocabulary of a dark protein's neighbours, and the neighbours are the named 
 
 NOT RUN IS NOT "NOTHING FOUND"
 
-A database whose directory is absent halts the stage when label databases are required,
-and is otherwise recorded as NOT_RUN in label_databases_status.tsv, as the defence stage
-does. Without that file an absent Anti-CRISPRdb and an
-Anti-CRISPRdb that matched nothing would both read as "no anti-CRISPR on any plasmid".
+A required database that is absent stops the run at pre-flight. One that is not required
+and absent is recorded as NOT_RUN in label_databases_status.tsv, as the defence stage does.
+Without that file an absent Anti-CRISPRdb and an Anti-CRISPRdb that matched nothing would
+both read as "no anti-CRISPR on any plasmid".
 """
 import csv
 import os
@@ -36,8 +36,8 @@ refs = pathlib.Path(cfg["dir"])
 workdir = pathlib.Path(snakemake.output.tsv).parent / "label_databases"
 
 # ------------------------------------------------------------------------------------
-# What is installed. Checked for every database before any search, so a required but
-# missing one fails in seconds and names every absence at once.
+# What is installed. A required database or AMRFinderPlus that is absent has already
+# stopped the run at pre-flight (rule input preflight.tsv); the rest are NOT_RUN.
 # ------------------------------------------------------------------------------------
 absent = [db for db in labeldb.DATABASES if not (refs / db).is_dir()]
 amr_db = pathlib.Path(amr["database"])
@@ -47,13 +47,6 @@ if shutil.which(amr["executable"]) is None:
                       "executable")
 if not (amr_db / "version.txt").is_file():
     amr_absent.append(f"the AMRFinderPlus database {amr_db} (version.txt) is absent")
-if absent and cfg["required"]:
-    sys.exit(f"label_databases: {', '.join(absent)} are not installed under {refs}. "
-             "Run tools/download_label_dbs.py, or set labels.required to false to record "
-             "them as NOT_RUN.")
-if amr_absent and amr["required"]:
-    sys.exit("label_databases: " + "; ".join(amr_absent) + ". Install AMRFinderPlus "
-             "(envs/amrfinder), or set amrfinder.required to false to record it as NOT_RUN.")
 
 
 def version_of(db):
@@ -151,5 +144,8 @@ with open(snakemake.output.status, "w", newline="") as out:
     w = csv.writer(out, delimiter="\t")
     w.writerow(["database", "status", "version", "n_proteins"])
     w.writerows(report)
+# The raw DIAMOND tables, the reference FASTA files and their databases are parsed into the
+# tables above; at full scale the raw tables hold tens of millions of rows.
+shutil.rmtree(workdir)
 
 print(f"label_databases: {len(rows)} label rows on {len({r['seq_id'] for r in rows})} proteins")

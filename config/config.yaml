@@ -117,6 +117,12 @@ amrfinder:
   database: data/refs/amrfinder/latest
   required: true
 
+# geNomad (Camargo et al. 2024, Nat. Biotechnol. 42:1303) for the phage-plasmid label (rule
+# phage_plasmids). Its own environment and database (tools/install_tool_envs.py).
+genomad:
+  executable: envs/genomad/bin/genomad
+  database: data/refs/genomad/genomad_db
+
 qc:
   # Not read by any rule: the flag for a protein whose coding region is mostly antisense
   # to a longer ORF on the opposite strand (a shadow ORF) is not implemented. The AntiFam

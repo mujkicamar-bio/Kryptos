@@ -23,7 +23,7 @@ from plasmidann.features import genbank_location, gff3_features
 topology = {}
 with open(snakemake.input.master, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
-        topology[r["plasmid_id"]] = r.get("topology", "") or "linear"
+        topology[r["plasmid_id"]] = r.get("topology", "")
 
 # ------------------------------------------------------------------------------------
 # Every ORF, grouped by plasmid.

@@ -22,7 +22,18 @@ UNINFORMATIVE_LABELS = [
     "conserved protein",
     "unnamed protein product",
     "putative protein",
-    "ORF",
+    # The whole name inside a DIAMOND title: accession, [organism], Swiss-Prot 'Full='.
+    "WP_1.1 putative protein [Escherichia coli]",
+    "WP_1.1 MULTISPECIES: conserved protein [Enterobacteriaceae]",
+    "P1.1 RecName: Full=Putative protein; AltName: Full=X [Escherichia coli]",
+    "P2.1 predicted protein",
+    # Pfam DUF/UPF families with a suffix
+    "DUF2201_N",
+    "DUF1357_C",
+    "DUF3108_like",
+    "DUF34_NIF3",
+    "Chloroplast_duf",
+    "UPF0102_N",
 ]
 
 FUNCTIONAL_LABELS = [
@@ -38,6 +49,12 @@ FUNCTIONAL_LABELS = [
     "RelB",
     "conjugal transfer protein TraD",
     "ParE toxin",
+    "upfront",
+    # putative / predicted / conserved protein as part of a longer name
+    "WP_1.1 putative protein kinase [Escherichia coli]",
+    "Putative protein-export protein",
+    "P1 predicted protein kinase",
+    "WP_1.1 conserved protein of the ABC transporter family",
 ]
 
 

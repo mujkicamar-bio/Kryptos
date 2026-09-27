@@ -1,4 +1,4 @@
-"""One long table of every functional label every tool produced, and their disagreements.
+"""One long table of every functional label every tool produced.
 
 Inputs: the cascade hits (hits.tsv), the orthology table (eggNOG-mapper and PlasmidScope),
 the plasmid label databases' table (protein_labels_plasmid.tsv) and the Pfam metadata.
@@ -11,20 +11,19 @@ via_representative. The plasmid label
 database rows keep their sub_label and their tier or call (1, 2, Perfect, Strict, the
 AMRFinderPlus method); for every other source sub_label is empty.
 
-label_disagreements.tsv lists the cross-source conflicts found by labeldb.disagreements;
-it changes no label.
+The table is the per-protein label deliverable; context_features reads the rows of the
+plasmid label database kinds from it.
 """
 import csv
 import sys
 
 import _ctx  # noqa: F401
 
-from plasmidann import labeldb, labels, pfam_meta
+from plasmidann import labels, pfam_meta
 from plasmidann.cascade import as_float
 
 # Which database and version produced each source, for the provenance columns. A label
-# without its database release cannot be reproduced, and a category built on it cannot be
-# described in a paper.
+# without its database release cannot be reproduced.
 _DATABASE = {
     "pfam": ("Pfam-A", "pfam_version"),
     "swissprot": ("NCBI swissprot", "swissprot_version"),
@@ -34,9 +33,13 @@ _DATABASE = {
     # (data/refs/pharokka/VERSION_x_y_z) and does not expose the CARD or VFDB snapshot
     # dates separately, so all three cite the bundle version. The family table is PHROG v4.
     "pharokka": ("pharokka databases (PHROG v4)", "pharokka_db_version"),
-    "card": ("pharokka databases (CARD)", "pharokka_db_version"),
-    "vfdb": ("pharokka databases (VFDB)", "pharokka_db_version"),
+    "pharokka_card": ("pharokka databases (CARD)", "pharokka_db_version"),
+    "pharokka_vfdb": ("pharokka databases (VFDB)", "pharokka_db_version"),
 }
+# The cascade's hits.tsv names pharokka's bundled CARD and VFDB searches 'card' and 'vfdb'.
+# They are written as pharokka_card and pharokka_vfdb, apart from the direct CARD search of
+# label_databases, whose source is 'card'.
+_HIT_SOURCE = {"card": "pharokka_card", "vfdb": "pharokka_vfdb"}
 
 # The database each plasmid label source searched; its release travels on every row.
 _LABEL_DATABASE = {
@@ -96,7 +99,8 @@ for path in snakemake.input.hits:
             n_hits += 1
             for entry in labels.labels_from_hit(row, pfam=pfam):
                 for pid, via in [(q, "")] + [(m, q) for m in members_of.get(q, ())]:
-                    add(pid, row["source"], row.get("tier", ""), entry,
+                    add(pid, _HIT_SOURCE.get(row["source"], row["source"]),
+                        row.get("tier", ""), entry,
                         evalue=row.get("evalue", ""), coverage=row.get("coverage", ""),
                         representative=via)
 
@@ -136,37 +140,11 @@ with open(snakemake.output.tsv, "w", newline="") as out:
     for key in sorted(rows):
         writer.writerow(rows[key])
 
-# ------------------------------------------------------------------------------------
-# Cross-source disagreements. Written beside the labels; no label changes because of them.
-# ------------------------------------------------------------------------------------
-def read_rows(path):
-    with open(path, newline="") as fh:
-        return list(csv.DictReader(fh, delimiter="\t"))
-
-
-with open(snakemake.input.orthology, newline="") as fh:
-    tier0 = labeldb.tier0_symbols(csv.DictReader(fh, delimiter="\t"),
-                                  labeldb.read_ko_symbols(snakemake.input.ko_list))
-orf_to_protein = labeldb.read_protein_map(snakemake.input.map)
-conflicts = labeldb.disagreements(
-    plasmid_labels, tier0=tier0,
-    defence=labeldb.by_protein(read_rows(snakemake.input.defence), orf_to_protein),
-    conj=labeldb.by_protein(read_rows(snakemake.input.conjugation), orf_to_protein))
-with open(snakemake.output.disagreements, "w", newline="") as out:
-    writer = csv.DictWriter(out, fieldnames=labeldb.DISAGREEMENT_COLUMNS, delimiter="\t")
-    writer.writeheader()
-    writer.writerows(conflicts)
-
 by_kind = {}
 for (_, _, kind, _, _) in rows:
     by_kind[kind] = by_kind.get(kind, 0) + 1
 distinct_labels = len({(k, l) for (_, _, k, l, _) in rows})
 
-by_conflict = {}
-for c in conflicts:
-    by_conflict[c["conflict_type"]] = by_conflict.get(c["conflict_type"], 0) + 1
-print(f"protein_labels: {len(conflicts)} cross-source disagreements on "
-      f"{len({c['seq_id'] for c in conflicts})} proteins {by_conflict}")
 print(f"protein_labels: read {n_hits} hits, {n_orth} orthology rows and "
       f"{len(plasmid_labels)} plasmid label database rows -> "
       f"{len(rows)} label rows on {len({k[0] for k in rows})} proteins, "
@@ -177,6 +155,6 @@ for kind in sorted(by_kind):
 # Every named protein carries at least one label, and the cascade names a large fraction
 # of any real collection, so an empty table means an input is wrong.
 if not rows:
-    sys.exit("protein_labels: no labels extracted from any source - the functional "
-             "grouping has no substrate. Check that hits.tsv carries a tier column and "
-             "that orthology.tsv is not empty.")
+    sys.exit("protein_labels: no labels extracted from any source. Check that hits.tsv "
+             "carries the source, label and informative columns and that orthology.tsv is "
+             "not empty.")

@@ -1,4 +1,4 @@
-"""S8a: DefenseFinder's two phases on the representation each needs.
+"""DefenseFinder's two phases on the representation each needs.
 
 Phase 1 (per-protein HMM search) runs on dereplicated proteins; phase 2 (MacSyFinder system
 calling, whose models count intervening genes) runs on every ORF of a candidate plasmid in
@@ -205,9 +205,13 @@ def _phase2(tmp_path, monkeypatch, threads):
     # A chunk of 50 sequences would keep both, which is the core-count dependence.
     plan = [[gembase_id("p0", 3), "Gabija", "GajA", 4e-6],
             [gembase_id("p5", 7), "Zorya", "ZorA", 1e-5]]
-    faa, gmap = base / "cand.faa", base / "map.tsv"
+    faa, gmap, master = base / "cand.faa", base / "map.tsv", base / "master.tsv"
     write_fasta(faa, records)
     write_tsv(gmap, ["gembase_id", "orf_id", "plasmid_id"], mapping)
+    # p1 is linear; 'direct terminal repeat' is a circular molecule (darkorf.circular).
+    write_tsv(master, ["plasmid_id", "topology"],
+              [["p0", "circular"], ["p1", "linear"], ["p2", "direct terminal repeat"]]
+              + [[f"p{r}", "circular"] for r in range(3, 8)])
     write_tsv(base / "plan.tsv", ["hit_id", "system", "component", "pvalue"], plan)
     exe = base / "bin" / "macsyfinder"
     exe.parent.mkdir(parents=True)
@@ -221,7 +225,8 @@ def _phase2(tmp_path, monkeypatch, threads):
     out = base / "out" / "defence_systems.tsv"
     out.parent.mkdir(parents=True)
     run_script("defence_systems.py", FakeSnakemake(
-        input={"faa": str(faa), "map": str(gmap)}, output={"tsv": str(out)},
+        input={"faa": str(faa), "map": str(gmap), "master": str(master)},
+        output={"tsv": str(out)},
         params={"models_dir": str(models), "required": True}, threads=threads))
     return out
 
@@ -239,27 +244,33 @@ def test_phase2_calls_do_not_depend_on_the_core_count(tmp_path, monkeypatch):
 def test_phase2_searches_the_model_families_of_defense_finder(tmp_path, monkeypatch):
     """`defense-finder run` (DefenseFinder 3.0.0) runs one MacSyFinder process per family:
     DefenseFinder and RM with --coverage-profile 0.4 and --exchangeable-weight 1, CasFinder
-    without options (its package configuration applies), and the AntiDefenseFinder models only on request. Each
-    process covers every candidate replicon, as circular molecules, with all cores."""
+    without options (its package configuration applies), and the AntiDefenseFinder models
+    only on request. Each process covers every candidate replicon, each with its registry
+    topology, with all cores."""
     phase2 = _phase2(tmp_path, monkeypatch, threads=4).parent / "phase2"
+    topology = str(phase2 / "topology.txt")
+    # The format MacSyFinder 2.1.4 parses: "<replicon>: <topology>" (macsypy.database).
+    assert (phase2 / "topology.txt").read_text().splitlines() == [
+        "p0: circular", "p1: linear", "p2: circular", "p3: circular", "p4: circular",
+        "p5: circular", "p6: circular", "p7: circular"]
     calls = {}
-    for run in phase2.iterdir():
+    for run in (d for d in phase2.iterdir() if d.is_dir()):
         argv = (run / "argv.txt").read_text().split("\n")
         opt = {k: argv[argv.index(k) + 1] if k in argv else None
                for k in ("--models", "--coverage-profile", "--exchangeable-weight",
-                         "--worker", "--replicon-topology")}
+                         "--worker", "--topology-file")}
         assert argv[argv.index("--models") + 2] == "all"
         calls[run.name] = opt
     assert calls == {
         "DefenseFinder": {"--models": "defense-finder-models/DefenseFinder",
                           "--coverage-profile": "0.4", "--exchangeable-weight": "1",
-                          "--worker": "4", "--replicon-topology": "circular"},
+                          "--worker": "4", "--topology-file": topology},
         "RM": {"--models": "defense-finder-models/RM",
                "--coverage-profile": "0.4", "--exchangeable-weight": "1",
-               "--worker": "4", "--replicon-topology": "circular"},
+               "--worker": "4", "--topology-file": topology},
         "Cas": {"--models": "CasFinder",
                 "--coverage-profile": None, "--exchangeable-weight": None,
-                "--worker": "4", "--replicon-topology": "circular"},
+                "--worker": "4", "--topology-file": topology},
     }
 
 
