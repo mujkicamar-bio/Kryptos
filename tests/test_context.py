@@ -7,13 +7,7 @@ with cargo organised into recognisable islands.
 """
 import pytest
 
-from plasmidann.context import (
-    context_conservation,
-    directons,
-    neighbourhood,
-    overlapping_island,
-    overlapping_islands,
-)
+from plasmidann.context import directons, flanks, overlapping_islands
 
 
 def _g(oid, start, end, strand):
@@ -110,70 +104,45 @@ def test_a_circular_directon_needs_the_molecule_length():
         directons([_g("a", 11, 300, 1), _g("m", 400, 500, -1)], circular=True)
 
 
-# --- neighbourhood -------------------------------------------------------------------
+# --- flanks ----------------------------------------------------------------------------
 
-def test_the_neighbourhood_is_the_genes_on_either_side():
+def test_the_flanks_are_the_genes_on_either_side_nearest_first():
     genes = [_g(x, i * 100 + 1, i * 100 + 90, 1) for i, x in enumerate("abcdefg")]
 
-    assert neighbourhood(genes, "d", window=2) == ["b", "c", "e", "f"]
+    assert flanks(genes, window=2)["d"] == (["c", "b"], ["e", "f"])
 
 
-def test_a_neighbourhood_at_the_end_of_a_plasmid_is_truncated_not_wrapped():
-    """Wrapping would be right for a circular molecule but must be an explicit choice,
-    not an accident of indexing."""
+def test_the_flanks_at_the_end_of_a_linear_record_are_truncated_not_wrapped():
     genes = [_g(x, i * 100 + 1, i * 100 + 90, 1) for i, x in enumerate("abcde")]
 
-    assert neighbourhood(genes, "a", window=2) == ["b", "c"]
+    assert flanks(genes, window=2)["a"] == ([], ["b", "c"])
 
 
-# --- islands -------------------------------------------------------------------------
+def test_genes_are_ordered_by_coordinate_not_by_input_order():
+    genes = [_g("c", 201, 290, 1), _g("a", 1, 90, 1), _g("b", 101, 190, 1)]
 
-def test_an_orf_inside_a_defence_island_is_detected():
-    """A dark ORF inside a defence island is a defence-system candidate."""
+    assert flanks(genes, window=1)["b"] == (["a"], ["c"])
+
+
+# --- islands ---------------------------------------------------------------------------
+
+def test_an_orf_inside_an_island_is_detected():
     islands = [{"name": "defence", "start": 1000, "end": 5000}]
 
-    assert overlapping_island(_g("x", 2000, 2500, 1), islands)["name"] == "defence"
-
-
-def test_an_orf_outside_every_island_returns_nothing():
-    islands = [{"name": "defence", "start": 1000, "end": 5000}]
-
-    assert overlapping_island(_g("x", 6000, 6500, 1), islands) is None
+    assert overlapping_islands(_g("x", 2000, 2500, 1), islands) == islands
 
 
 def test_an_orf_partly_overlapping_an_island_counts_as_inside():
     islands = [{"name": "integron", "start": 1000, "end": 5000}]
 
-    assert overlapping_island(_g("x", 4800, 5400, 1), islands)["name"] == "integron"
-
-
-# --- family-level aggregation --------------------------------------------------------
-
-def test_context_conservation_is_the_fraction_of_members_sharing_an_association():
-    """The family-level statistic is CONSERVATION of context, not a single instance.
-    FESNov thresholded this at 90% for its high-confidence set."""
-    members = [
-        {"orf_id": "a", "context": {"defence"}},
-        {"orf_id": "b", "context": {"defence"}},
-        {"orf_id": "c", "context": {"amr"}},
-        {"orf_id": "d", "context": {"defence"}},
-    ]
-
-    assert context_conservation(members, "defence") == 0.75
-    assert context_conservation(members, "amr") == 0.25
-
-
-def test_an_empty_family_has_no_conservation():
-    assert context_conservation([], "defence") == 0.0
+    assert overlapping_islands(_g("x", 4800, 5400, 1), islands) == islands
 
 
 # --- islands: a gene can sit in more than one, and can cross the origin ---------------
 
 def test_a_gene_inside_two_islands_reports_both():
-    """`overlapping_island` returned the FIRST match and stopped. Defence intervals are
-    appended after integron intervals, so a dark ORF inside a defence system that also sits
-    in a cassette array was only ever labelled 'integron' - and the defence_island stratum,
-    175 of the 1,000 constructs, was unreachable behind it."""
+    """A gene in a defence system inside a cassette array is in both, whatever the order in
+    which the islands are listed."""
     gene = {"orf_id": "o1", "start": 500, "end": 800, "strand": 1}
     islands = [{"name": "integron", "start": 100, "end": 1200},
                {"name": "defence", "start": 450, "end": 900}]
@@ -187,12 +156,8 @@ def test_a_gene_in_no_island_reports_none():
 
 
 def test_a_gene_crossing_the_origin_still_matches_its_island():
-    """S1 reconstructs genes broken by linearising a circular plasmid, and writes them in
-    the GenBank join() convention: start > end, read as start..L then 1..end. 160,375 ORFs
-    are in that state. A plain interval test asks `start <= island.end and end >=
-    island.start`, which for such a gene is simply false, so every reconstructed
-    origin-spanning gene was invisible to every island - on a molecule where 94% of records
-    are circular."""
+    """An origin-spanning gene is written start > end (start..L then 1..end); it overlaps
+    islands on either side of the origin."""
     wrapped = {"orf_id": "o1", "start": 4900, "end": 120, "strand": 1}
     assert [i["name"] for i in overlapping_islands(
         wrapped, [{"name": "defence", "start": 4800, "end": 4950}])] == ["defence"]
@@ -205,10 +170,9 @@ def test_a_gene_crossing_the_origin_still_matches_its_island():
 def test_a_circular_neighbourhood_wraps_across_the_origin():
     """On a circle the first gene's left neighbours are the last genes of the record; a
     gene is never its own neighbour, however small the circle."""
-    from plasmidann.context import flanks
     genes = [{"orf_id": x, "start": 100 * i + 1, "end": 100 * i + 90, "strand": 1}
              for i, x in enumerate("abcde")]
-    assert flanks(genes, "a", window=2, circular=True) == (["e", "d"], ["b", "c"])
-    assert flanks(genes, "a", window=2) == ([], ["b", "c"])
+    assert flanks(genes, window=2, circular=True)["a"] == (["e", "d"], ["b", "c"])
+    assert flanks(genes, window=2)["a"] == ([], ["b", "c"])
     two = genes[:2]
-    assert flanks(two, "a", window=3, circular=True) == (["b"], ["b"])
+    assert flanks(two, window=3, circular=True)["a"] == (["b"], ["b"])

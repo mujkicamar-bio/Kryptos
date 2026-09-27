@@ -63,7 +63,8 @@ def test_family_evolution_runs_and_reports_a_dnds_status(fixture_dir):
         "alignment failed with mafft available - the tool is not being invoked correctly")
 
 
-def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear"):
+def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear",
+                 defence_rows=(), conj_rows=()):
     """One plasmid: dark ORF pl1|1 in a two-gene directon with an annotated partner, and a
     dark ORF pl1|3 inside an integron cassette array. F1 is pl1|1's family."""
     ann = fixture_dir / "plasmid_annotation.tsv"
@@ -79,7 +80,7 @@ def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear"):
     pmap = fixture_dir / "protein_map.tsv"
     pmap.write_text("S1\tpl1|1\nS2\tpl1|2\nS3\tpl1|3\n")
     defence = fixture_dir / "defence_systems.tsv"
-    write_tsv(defence, ["orf_id", "system"], [])
+    write_tsv(defence, ["orf_id", "system", "status"], list(defence_rows))
     integrons = fixture_dir / "integrons.tsv"
     write_tsv(integrons, ["plasmid_id", "integron_id", "element", "start", "end",
                           "integron_type", "annotation", "type_elt"],
@@ -89,7 +90,8 @@ def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear"):
     lengths = fixture_dir / "plasmid_lengths.tsv"
     write_tsv(lengths, ["plasmid_id", "length_bp"], [["pl1", 5000]])
     conj = fixture_dir / "conjugation_systems.tsv"
-    write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component"], [])
+    write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component", "status"],
+              list(conj_rows))
     labels = fixture_dir / "protein_labels.tsv"
     write_tsv(labels, ["protein_id", "source", "tier", "kind", "label", "sub_label"], [])
     all_fams = fixture_dir / "protein_families.tsv"
@@ -127,6 +129,19 @@ def test_context_writes_one_row_of_rates_per_family(fixture_dir):
     assert row["cons_defence"] == "0.0"
     assert row["cons_is_element"] == "0.0"
     assert row["cons_conj"] == "0.0"
+
+
+def test_a_not_run_system_stage_gives_an_empty_rate_not_zero(fixture_dir):
+    """NOT_RUN means nothing was searched, so the rate is missing, not a measured 0."""
+    row = _run_context(fixture_dir, defence_rows=[["", "", "NOT_RUN"]],
+                       conj_rows=[["", "", "", "", "", "NOT_RUN"]])[0]
+    assert row["cons_defence"] == "" and row["cons_conj"] == ""
+    assert row["cons_integron"] == "0.0"
+
+
+def test_an_orf_that_is_a_defence_component_gets_defence_context(fixture_dir):
+    row = _run_context(fixture_dir, defence_rows=[["pl1|1", "Clover", "SUCCESS"]])[0]
+    assert row["cons_defence"] == "1.0"
 
 
 FOLDSEEK_DB = "data/refs/foldseek/pdb"

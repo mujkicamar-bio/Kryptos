@@ -35,11 +35,10 @@ THE UNIT IS THE LINEAGE
 
 Clonal copies of one plasmid are one observation. A family's conservation of a term is the
 fraction of the Stage 6 lineages it occurs in where at least one occurrence has the term.
-Below two lineages there is nothing to conserve across, and the row says so.
+Below two lineages there is nothing to conserve across: the row has status
+TOO_FEW_LINEAGES and no conservation.
 """
 import re
-
-from plasmidann.context import neighbourhood
 
 # The kind of a label (plasmidann.labeldb) and the term type it gives. amrfinder_gene is
 # absent on purpose: its type depends on the element type, see label_term.
@@ -94,32 +93,30 @@ def system_term(prefix, system):
     return f"{prefix}:{system.rsplit('/', 1)[-1]}"
 
 
-def orf_term_sources(genes, orf_id, window, circular, directon, label_terms,
-                     system_terms):
+def orf_term_sources(orf_id, near, directon, label_terms, system_terms):
     """Every (term, source ORF) in one ORF's context; the source is None for its own system.
 
-    `directon` is the ORF's transcriptional unit (plasmidann.context.directons),
+    `near` holds the orf_ids within the +-window neighbourhood (plasmidann.context.flanks),
+    `directon` the ORF's transcriptional unit (plasmidann.context.directons), and
     `label_terms` and `system_terms` map an orf_id to the terms it carries. The source is
     kept so that the family step can drop tandem paralogues, which only it can recognise.
     """
-    near = set(neighbourhood(genes, orf_id, window=window, circular=circular))
-    same_unit = near & set(directon)
+    near = set(near)
     out = {(t, None) for t in system_terms.get(orf_id, ())}
     for n in near:
         out |= {(t, n) for t in system_terms.get(n, ())}
-    for n in same_unit:
+    for n in near & set(directon):
         out |= {(t, n) for t in label_terms.get(n, ())}
     return sorted(out, key=lambda s: (s[0], s[1] or ""))
 
 
-def window_covers_plasmid(genes, orf_id, window, circular):
-    """Whether the +-window neighbourhood holds every other gene on the plasmid.
+def window_covers_plasmid(near, n_genes):
+    """Whether the neighbourhood `near` holds every other gene of a plasmid of `n_genes`.
 
     On such a plasmid everything is everything's neighbour, so a context term there says
     little about the ORF; the family rows report how often that is the case.
     """
-    near = set(neighbourhood(genes, orf_id, window=window, circular=circular))
-    return len(near) == len(genes) - 1
+    return len(set(near)) == n_genes - 1
 
 
 def family_term_rows(family_id, family_set, occurrences, family_of_orf, lineage_of):
@@ -129,6 +126,10 @@ def family_term_rows(family_id, family_set, occurrences, family_of_orf, lineage_
     with sources from orf_term_sources and covers from window_covers_plasmid. orf_id is
     '<plasmid_id>|<ordinal>'. A plasmid missing from `lineage_of` raises KeyError: Stage 6
     assigns every analysed plasmid a lineage, so a gap is an input mismatch.
+
+    conservation is counted over lineages, and is empty under TOO_FEW_LINEAGES;
+    window_covers_plasmid_fraction is the fraction of the family's occurrences (ORFs)
+    whose window covers their plasmid.
     """
     lineages = set()
     with_term = {}
@@ -147,11 +148,12 @@ def family_term_rows(family_id, family_set, occurrences, family_of_orf, lineage_
             with_term.setdefault(term, set()).add(lineage)
     n = len(lineages)
     covers_fraction = round(n_covers / len(occurrences), 6) if occurrences else 0.0
-    status = SUCCESS if n >= MIN_LINEAGES else TOO_FEW_LINEAGES
+    measured = n >= MIN_LINEAGES
     return [{
         "family_id": family_id, "family_set": family_set,
         "term_type": term.split(":", 1)[0], "term": term,
         "n_lineages": n, "n_lineages_with_term": len(with_term[term]),
-        "conservation": round(len(with_term[term]) / n, 6), "status": status,
+        "conservation": round(len(with_term[term]) / n, 6) if measured else "",
+        "status": SUCCESS if measured else TOO_FEW_LINEAGES,
         "window_covers_plasmid_fraction": covers_fraction,
     } for term in sorted(with_term)]

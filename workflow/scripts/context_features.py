@@ -4,23 +4,19 @@ WHAT IT MEASURES
 
 For every dark family, the fraction of the plasmids carrying it on which a member ORF
 
-    cons_defence                 sits inside a defence system (DefenseFinder)
-    cons_conj                    sits inside a conjugation or mobilisation system (CONJScan)
-    cons_integron                sits inside an integron cassette array (IntegronFinder)
-    cons_is_element              sits inside an IS element (ISEScan)
-    cons_annotated_neighbour     has a FUNCTIONAL gene within the +-3 neighbourhood
+    cons_defence                 overlaps a component gene of a DefenseFinder system
+    cons_conj                    overlaps a component gene of a CONJScan system
+    cons_integron                overlaps an integron cassette array (IntegronFinder)
+    cons_is_element              overlaps an IS element (ISEScan)
+    cons_annotated_neighbour     has a FUNCTIONAL gene within the +-window neighbourhood
     cons_operon_with_annotated   shares a directon with a FUNCTIONAL gene
     cons_two_gene_operon         is one of exactly two genes in its directon
 
-These are descriptive rates, not tests. There is no background and no enrichment: the
-context enrichment test, its stratified background and the label grouping it ran on were
-removed on 2026-09-25. What each dark ORF's neighbours are is still described per family by
-synteny (S9).
-
-A rate of 0 is a measurement - the family was examined and the feature was absent - not a
-missing value. The rates are not corrected for plasmid size: on a six-gene plasmid a +-3
-neighbourhood is the whole molecule, so cons_annotated_neighbour is high there by
-construction.
+These are descriptive rates, with no background and no enrichment test. A rate of 0 means
+the family was examined and the feature was absent. cons_defence and cons_conj are empty
+when that stage recorded NOT_RUN, because nothing was searched. The rates are not corrected
+for plasmid size: on a six-gene plasmid a +-3 neighbourhood is the whole molecule, so
+cons_annotated_neighbour is high there by construction.
 
 THE UNIT IS THE PLASMID
 
@@ -44,11 +40,17 @@ import sys
 
 import _ctx  # noqa: F401
 
+from darkorf import status
 from darkorf.circular import is_circular
-from plasmidann.context import directons, neighbourhood, overlapping_islands
-from plasmidann.context_terms import (COLUMNS, family_term_rows, label_term,
-                                      orf_term_sources, system_term,
-                                      window_covers_plasmid)
+from plasmidann.context import directons, flanks, overlapping_islands
+from plasmidann.context_terms import (
+    COLUMNS,
+    family_term_rows,
+    label_term,
+    orf_term_sources,
+    system_term,
+    window_covers_plasmid,
+)
 
 cfg = snakemake.params.context
 FEATURES = ("defence", "integron", "is_element", "annotated_neighbour",
@@ -81,21 +83,21 @@ with open(snakemake.input.labels, newline="") as fh:
 
 system_terms = collections.defaultdict(set)
 defence_orfs, conj_orfs = set(), set()
+not_run = set()
 for path, prefix, orfs in ((snakemake.input.defence, "defence", defence_orfs),
                            (snakemake.input.conjugation, "conj", conj_orfs)):
     with open(path, newline="") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
-            # A NOT_RUN stage writes a row without an ORF.
-            if r.get("orf_id"):
+            # A NOT_RUN stage writes one row with that status and no ORF.
+            if r["status"] == status.NOT_RUN:
+                not_run.add(prefix)
+            else:
                 orfs.add(r["orf_id"])
                 system_terms[r["orf_id"]].add(system_term(prefix, r["system"]))
 
 # ------------------------------------------------------------------------------------
-# Which ORFs correspond to which unique protein.
-#
-# The reverse direction matters: the per-family loop below previously rescanned the whole
-# 9.3M-entry forward map per family, which is O(families x ORFs) - measured at 0.37-0.39 s
-# per family, projecting to 10 hours to 3.6 days single-core for ~50k families.
+# Which ORFs correspond to which unique protein, indexed by protein so that each family
+# looks up only its own members.
 # ------------------------------------------------------------------------------------
 orfs_of_seq = collections.defaultdict(list)
 # Only ORFs that can be a term's source need their protein, to recognise a tandem
@@ -112,21 +114,14 @@ with open(snakemake.input.map) as fh:
                 seq_of_source[oid] = sid
 
 # ------------------------------------------------------------------------------------
-# Islands: defence systems, integron cassette arrays and IS elements, as intervals per
-# plasmid.
-#
-# These are system-level calls rather than per-protein labels, so they stay intervals: a
-# dark ORF INSIDE a defence system is a different statement from one merely beside a
-# defence component.
+# Islands, as intervals per plasmid: integron elements, IS elements, and the component
+# genes of defence and conjugation systems.
 # ------------------------------------------------------------------------------------
 islands = collections.defaultdict(list)
 with open(snakemake.input.integrons, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
-        try:
-            islands[r["plasmid_id"]].append(
-                {"name": "integron", "start": int(r["start"]), "end": int(r["end"])})
-        except (ValueError, KeyError):
-            continue
+        islands[r["plasmid_id"]].append(
+            {"name": "integron", "start": int(r["start"]), "end": int(r["end"])})
 
 with open(snakemake.input.is_elements, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
@@ -162,17 +157,16 @@ for pid, genes in by_plasmid.items():
     units = directons(genes, max_gap=cfg["max_operon_gap"], circular=pid in circular,
                       length=length_of.get(pid))
     unit_of = {oid: i for i, unit in enumerate(units) for oid in unit}
+    flanks_of = flanks(genes, window=cfg["neighbourhood_window"], circular=pid in circular)
     plasmid_islands = islands.get(pid, [])
 
     for g in genes:
         oid = g["orf_id"]
-        # EVERY island, not the first one found: an ORF inside a defence system that also
-        # sits in a cassette array is both.
+        left, right = flanks_of[oid]
+        near = left + right
         ctx = {island["name"] for island in overlapping_islands(g, plasmid_islands)}
 
-        if any(class_of.get(n) == "FUNCTIONAL"
-               for n in neighbourhood(genes, oid, window=cfg["neighbourhood_window"],
-                                      circular=pid in circular)):
+        if any(class_of.get(n) == "FUNCTIONAL" for n in near):
             ctx.add("annotated_neighbour")
 
         # Directon membership with at least one annotated partner: the dark ORF is
@@ -187,13 +181,11 @@ for pid, genes in by_plasmid.items():
 
         context_of[oid] = ctx
 
-        sources = orf_term_sources(genes, oid, window=cfg["neighbourhood_window"],
-                                   circular=pid in circular, directon=unit,
-                                   label_terms=label_terms, system_terms=system_terms)
+        sources = orf_term_sources(oid, near, directon=unit, label_terms=label_terms,
+                                   system_terms=system_terms)
         if sources:
             term_sources[oid] = sources
-        if window_covers_plasmid(genes, oid, window=cfg["neighbourhood_window"],
-                                 circular=pid in circular):
+        if window_covers_plasmid(near, len(genes)):
             covers_plasmid.add(oid)
 
 # ------------------------------------------------------------------------------------
@@ -215,6 +207,7 @@ with open(snakemake.output.families, "w", newline="") as out:
                 continue
             n_families += 1
             w.writerow([fam["family_id"], n_units] + [
+                "" if f in not_run else
                 round(sum(f in present for present in per_plasmid.values()) / n_units, 6)
                 for f in FEATURES])
 
