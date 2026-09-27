@@ -1,13 +1,10 @@
-"""S4b: eggNOG-mapper over the proteins the cascade named.
+"""eggNOG-mapper over the proteins the cascade named.
 
-Runs on the ANNOTATED fraction, not the dark one. See plasmidann.orthology for why a
-dark-protein pipeline spends compute describing the known genes: S8 asks what a dark ORF's
-neighbours do, the cascade answers in free text, and free text cannot be aggregated into
-pathways. FESNov's neighbourhood metric is defined over KEGG pathway membership because a
-pathway is a term you can count.
-
-Nothing is filtered. Every unique protein gets a row; the ones eggNOG could not place get
-an empty one, which is the honest record of an absent term rather than a missing row.
+Only proteins classed FUNCTIONAL or DOMAIN_ONLY are annotated: the terms describe the
+neighbours of dark ORFs for the context features (plasmidann.orthology). Proteins
+PlasmidScope annotated take PlasmidScope's own eggNOG-mapper result; the rest are sent to
+eggNOG-mapper. Every named protein gets a row; one eggNOG-mapper could not place gets an
+empty row.
 """
 import csv
 import pathlib
@@ -31,8 +28,8 @@ with open(snakemake.input.prot, newline="") as fh:
         if r.get("functional_class") in ("FUNCTIONAL", "DOMAIN_ONLY"):
             named.add(r["seq_id"])
 
-# Proteins PlasmidScope annotated already carry eggNOG-mapper's result (S2p), from the
-# same tool; only the proteins our cascade named are sent to eggNOG-mapper here.
+# Proteins PlasmidScope annotated already carry eggNOG-mapper's result from the PlasmidScope
+# import; only the other named proteins are sent to eggNOG-mapper here.
 from_ps = {}
 with open(snakemake.input.ps, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
@@ -51,10 +48,9 @@ with open(query, "w") as out:
         if emit:
             out.write(line)
 
-# Same contract as structural evidence: when the stage is declared required, a missing
-# database fails PRE-FLIGHT in seconds rather than here. When it is not required the stage
-# is skipped and every term is recorded as absent - which is honest - and the columns still
-# exist, because S8 reads them.
+# When the stage is required, a missing database fails pre-flight. When it is not, the
+# search is skipped, every term is recorded as absent, and the columns still exist for the
+# context features.
 required = bool(cfg.get("required"))
 data_dir = pathlib.Path(cfg["data_dir"])
 records = {}
@@ -79,7 +75,7 @@ elif n_query:
     if not annotations.exists():
         raise SystemExit(
             f"emapper.py exited 0 but wrote no annotations to {annotations}. The KEGG axis "
-            "of every S8 context feature would be silently empty.")
+            "of every context feature would be silently empty.")
     records = parse_annotations(annotations.read_text())
 
 cols = ["seq_id", "cog_category", "kegg_pathways", "preferred_name", "eggnog_description",

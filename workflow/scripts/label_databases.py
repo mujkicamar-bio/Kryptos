@@ -1,4 +1,4 @@
-"""S4d: search every unique protein against the plasmid-specific label databases.
+"""Search every unique protein against the plasmid-specific label databases.
 
 TADB, BacMet, oriTDB, mobileOG-db, dbAPIS and Anti-CRISPRdb are searched with DIAMOND and
 labelled at PlasAnn's identity and coverage tiers; CARD's protein homolog models with RGI's
@@ -12,8 +12,8 @@ the vocabulary of a dark protein's neighbours, and the neighbours are the named 
 NOT RUN IS NOT "NOTHING FOUND"
 
 A database whose directory is absent halts the stage when label databases are required,
-and is otherwise recorded as NOT_RUN in label_databases_status.tsv, the same contract as
-the defence stage (spec section 7.2). Without that file an absent Anti-CRISPRdb and an
+and is otherwise recorded as NOT_RUN in label_databases_status.tsv, as the defence stage
+does. Without that file an absent Anti-CRISPRdb and an
 Anti-CRISPRdb that matched nothing would both read as "no anti-CRISPR on any plasmid".
 """
 import csv
@@ -48,12 +48,12 @@ if shutil.which(amr["executable"]) is None:
 if not (amr_db / "version.txt").is_file():
     amr_absent.append(f"the AMRFinderPlus database {amr_db} (version.txt) is absent")
 if absent and cfg["required"]:
-    sys.exit(f"S4d: label databases {', '.join(absent)} are not installed under {refs}. "
+    sys.exit(f"label_databases: {', '.join(absent)} are not installed under {refs}. "
              "Run tools/download_label_dbs.py, or set labels.required to false to record "
              "them as NOT_RUN.")
 if amr_absent and amr["required"]:
-    sys.exit("S4d: " + "; ".join(amr_absent) + ". Install AMRFinderPlus (envs/amrfinder), "
-             "or set amrfinder.required to false to record it as NOT_RUN.")
+    sys.exit("label_databases: " + "; ".join(amr_absent) + ". Install AMRFinderPlus "
+             "(envs/amrfinder), or set amrfinder.required to false to record it as NOT_RUN.")
 
 
 def version_of(db):
@@ -61,7 +61,8 @@ def version_of(db):
     path = refs / db / "VERSION"
     text = path.read_text().strip() if path.is_file() else ""
     if not text:
-        sys.exit(f"S4d: {path} is missing or empty; every label must carry its release.")
+        sys.exit(f"label_databases: {path} is missing or empty; every label must carry "
+                 "its release.")
     return text.splitlines()[0]
 
 
@@ -98,8 +99,8 @@ workdir.mkdir(parents=True)
 rows, report = [], []
 for db in labeldb.DATABASES:
     if db in absent:
-        print(f"S4d: {db} not installed under {refs}; recording NOT_RUN. Its labels are "
-              "absent-because-not-searched, not absent-because-searched.")
+        print(f"label_databases: {db} not installed under {refs}; recording NOT_RUN. Its "
+              "labels are absent-because-not-searched, not absent-because-searched.")
         report.append([db, status.NOT_RUN, "", ""])
         continue
     version = version_of(db)
@@ -116,14 +117,15 @@ for db in labeldb.DATABASES:
     rows += found
     n = len({r["seq_id"] for r in found})
     report.append([db, status.SUCCESS if n else status.NO_HIT, version, n])
-    print(f"S4d: {db} {version}: {len(entries)} reference entries, {n} proteins labelled")
+    print(f"label_databases: {db} {version}: {len(entries)} reference entries, "
+          f"{n} proteins labelled")
 
 # ------------------------------------------------------------------------------------
 # AMRFinderPlus, protein mode with --plus: AMR, stress (metal, biocide, acid, heat) and
 # virulence elements, by NCBI's curated rules (Feldgarden et al. 2021, Sci. Rep.).
 # ------------------------------------------------------------------------------------
 if amr_absent:
-    print("S4d: " + "; ".join(amr_absent) + ". Recording AMRFinderPlus as NOT_RUN.")
+    print("label_databases: " + "; ".join(amr_absent) + ". Recording AMRFinderPlus as NOT_RUN.")
     report.append(["amrfinder", status.NOT_RUN, "", ""])
 else:
     version = (amr_db / "version.txt").read_text().strip().splitlines()[0]
@@ -138,7 +140,7 @@ else:
     rows += found
     n = len({r["seq_id"] for r in found})
     report.append(["amrfinder", status.SUCCESS if n else status.NO_HIT, version, n])
-    print(f"S4d: AMRFinderPlus database {version}: {n} proteins labelled")
+    print(f"label_databases: AMRFinderPlus database {version}: {n} proteins labelled")
 
 with open(snakemake.output.tsv, "w", newline="") as out:
     w = csv.DictWriter(out, fieldnames=labeldb.COLUMNS, delimiter="\t")
@@ -150,4 +152,4 @@ with open(snakemake.output.status, "w", newline="") as out:
     w.writerow(["database", "status", "version", "n_proteins"])
     w.writerows(report)
 
-print(f"S4d: {len(rows)} label rows on {len({r['seq_id'] for r in rows})} proteins")
+print(f"label_databases: {len(rows)} label rows on {len({r['seq_id'] for r in rows})} proteins")
