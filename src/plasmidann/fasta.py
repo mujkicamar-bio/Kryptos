@@ -1,5 +1,6 @@
 """Streaming a plasmid FASTA, plain or gzipped."""
 import gzip
+import pathlib
 
 
 def iter_fasta(paths):
@@ -16,10 +17,12 @@ def iter_fasta(paths):
         opener = gzip.open if str(path).endswith(".gz") else open
         name, chunks = None, []
         with opener(path, "rt") as fh:
-            for line in fh:
+            for n, line in enumerate(fh, 1):
                 if line.startswith(">"):
                     if name is not None:
                         yield name, "".join(chunks)
+                    if not line[1:].split():
+                        raise ValueError(f"{path} line {n}: empty FASTA header")
                     name, chunks = line[1:].split()[0], []
                 else:
                     chunks.append(line.strip())
@@ -36,7 +39,6 @@ def split_fasta(path, n, outdir):
     memory and no chunk is much longer than the others. Returns the chunk paths that
     received at least one record, in order.
     """
-    import pathlib
     outdir = pathlib.Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     paths = [outdir / f"chunk_{i:03d}.fna" for i in range(n)]

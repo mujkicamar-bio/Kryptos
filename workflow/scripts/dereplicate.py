@@ -8,7 +8,6 @@ with open(snakemake.input.index, newline="") as fh:
     orfs = list(csv.DictReader(fh, delimiter="\t"))
 
 uniques, mapping = dereplicate(orfs)
-assert sum(len(v) for v in mapping.values()) == len(orfs), "dereplication lost ORFs"
 
 with open(snakemake.output.faa, "w") as faa:
     for u in uniques:

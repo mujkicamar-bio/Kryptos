@@ -1,15 +1,6 @@
 import hashlib
 
-# Width of the protein identity, in hex characters.
-#
-# 16 characters is 64 bits, and across 3.5M unique proteins the birthday probability of a
-# collision is about 3e-7 per run. Small, but the failure is silent and unrecoverable: the
-# first sequence wins and the second, genuinely different protein is replaced by it
-# everywhere downstream. The losslessness assertion in workflow/scripts/dereplicate.py
-# cannot catch it either - it checks that ORF counts are preserved, not that sequences are.
-#
-# 32 characters is 128 bits, which puts the same probability below 1e-26, and costs 16 bytes
-# per protein.
+# 128-bit truncated SHA-256: collision probability below 1e-26 for 3.5 M sequences.
 ID_HEX_CHARS = 32
 
 

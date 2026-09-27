@@ -67,11 +67,8 @@ def test_controls_with_uninformative_titles_are_excluded(fixture_dir):
 
 
 def test_a_scripts_output_reaches_its_declared_log(fixture_dir):
-    """Every rule declares `log:`, and for `script:` rules Snakemake does not redirect
-    stdout there - it only creates the path. So all 26 log files stayed empty and every
-    diagnostic the scripts print (hit counts, rejected hits, background rates) went to the
-    single SLURM output file interleaved across 1,481 concurrent jobs, where it cannot be
-    attributed to a rule."""
+    """Snakemake does not redirect a script's stdout to the rule's `log:`; _ctx does, so
+    each rule's diagnostics can be attributed to it."""
     master = fixture_dir / "master.tsv"
     write_tsv(master, ["plasmid_id", "hab_top", "size_bp"],
               [["p1", "Unknown", 4], ["p2", "Unknown", 4]])
@@ -403,3 +400,17 @@ def test_prepare_control_leaves_plasmidscope_annotated_proteins_out(fixture_dir)
     assert "known" not in ids, "a PlasmidScope-annotated protein was sent to the cascade"
     assert {"dark", "absent"} <= set(ids)
     assert any(i.startswith("CTRL_") for i in ids) and "DECOY_shuf_00000" in ids
+
+
+def test_make_test_set_refuses_a_master_without_hab_top(fixture_dir):
+    """Without the column the locked exclusion cannot be applied, so the tool must fail
+    rather than sample simulated records."""
+    import subprocess
+    import sys
+    master = fixture_dir / "master.tsv"
+    write_tsv(master, ["plasmid_id", "topology", "size_bp"], [["p1", "circular", 4000]])
+    tool = pathlib.Path(__file__).resolve().parents[1] / "tools" / "make_test_set.py"
+    r = subprocess.run([sys.executable, str(tool), "--master", str(master),
+                        "--fasta", "unused.fna.gz", "--out", str(fixture_dir / "out.fna")],
+                       capture_output=True, text=True)
+    assert r.returncode != 0 and "hab_top" in r.stderr

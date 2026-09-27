@@ -7,7 +7,7 @@ which is neither representative nor stable. This selects a STRATIFIED sample so 
 properties the pipeline branches on are all present:
 
   * topology       circular and linear both appear, because origin repair runs on one and
-                   must not run on the other (spec section 8.4);
+                   must not run on the other;
   * size           small cryptic plasmids and large ones both appear, because the plus or
                    minus three neighbourhood on a six-gene plasmid is the whole molecule
                    and that is the statistical trap S8 exists to avoid;
@@ -44,9 +44,9 @@ def main():
         col = {name: i for i, name in enumerate(header)}
         for line in fh:
             f = line.rstrip("\n").split("\t")
-            if len(f) <= max(col["topology"], col["size_bp"]):
+            if len(f) <= max(col["topology"], col["size_bp"], col["hab_top"]):
                 continue
-            if f[col.get("hab_top", 0)] == args.exclude_hab_top:
+            if f[col["hab_top"]] == args.exclude_hab_top:
                 continue
             try:
                 size = int(f[col["size_bp"]])
@@ -58,8 +58,9 @@ def main():
         sys.exit(f"no usable rows in {args.master}")
 
     # ---- stratify: topology x size band ----------------------------------------------
-    # Small is below 10 kb, which is where the cryptic plasmids the project cares about
-    # sit; the band boundary is descriptive here and decides nothing downstream.
+    # The band only spreads the sample over sizes and decides nothing downstream. It is not
+    # the pipeline's small-plasmid cut-off (input.max_plasmid_size_bp, 20 kb); it stays at
+    # 10 kb so that the seeded command reproduces the existing test set.
     def band(size):
         return "small" if size < 10_000 else "large"
 
@@ -83,8 +84,6 @@ def main():
 
     wanted = set(chosen)
     print(f"selected {len(wanted)} plasmids from {len(rows)} eligible")
-    for key in order:
-        n = sum(1 for pid in chosen if pid in set(strata[key]) | {pid} and True)
     counts = collections.Counter()
     for pid, topology, size in rows:
         if pid in wanted:

@@ -1,51 +1,18 @@
-"""S2b: flag proteins that are probably not proteins.
+"""S2b: flag unique proteins that are probably not proteins.
 
-WHY THIS STAGE EXISTS
+Two screens run on unique_proteins.faa:
+  * AntiFam (Eberhardt et al. 2012, Database bas003), Pfam's database of families known
+    to be spurious ORFs (shadow ORFs, translated RNA, repeat-derived ORFs), searched with
+    hmmsearch --cut_ga, the curators' own gathering thresholds;
+  * tantan: the fraction of each protein masked as low complexity, flagged above
+    artefact_screen.max_low_complexity_fraction.
+No other artefact test is made; in particular an ORF on the opposite strand of a real gene
+that matches no AntiFam family is not flagged.
 
-Gene callers make systematic, repeatable mistakes:
-
-  * Shadow ORFs. On the reverse-complement strand of a real gene there is often a long
-    ORF purely by chance, and it inherits coding-like statistics because it IS the reverse
-    complement of genuine coding sequence.
-  * Translated structural RNA. rRNA and tRNA read in some frame yield a consistent
-    "protein" across thousands of genomes.
-  * Repeat-derived ORFs from transposon inverted repeats and CRISPR arrays.
-
-WHY IT MATTERS DISPROPORTIONATELY HERE
-
-Our selection criterion is "nothing named it". A shadow ORF is BY CONSTRUCTION something
-nothing named, because it is not a protein and no database contains it - so it passes the
-entire cascade cleanly and lands in the dark set with a perfect score.
-
-Worse, these artefacts are CONSERVED, because the real feature underneath them (the gene
-on the opposite strand, the rRNA) is conserved. They therefore also survive the
-multi-lineage and purifying-selection tests at S7. They look like ideal candidates all the
-way to the plate.
-
-AntiFam is Pfam's companion database, curated specifically as a blocklist of the artefact
-families researchers kept independently rediscovering and reporting as exciting novel
-conserved hypothetical proteins. It is small - 278 profiles against Pfam-A's ~21,000 - so
-this costs minutes.
-
-An AntiFam flag also saves cascade compute. cascade_selection reads these flags, and a
-protein AntiFam flags skips every annotation tier, Tier 0 included: its
-protein_annotation.tsv row has annot_source artefact_antifam and functional_class
-NOT_SEARCHED, and it does not open its family for searching. Only AntiFam flags skip; a
-protein flagged for low complexity alone is still searched. The label databases (S4d),
-DefenseFinder and CONJScan still read every unique protein, AntiFam-flagged ones included.
-Negative-control decoys are not in unique_proteins.faa, so this screen never sees them and
-they are searched by every tier: the decoy false-positive rate measures the cascade
-thresholds alone, not AntiFam and the cascade together.
-
-Plasmids are high-yield for these artefacts: gene-dense, GC-skewed, saturated with mobile
-elements.
-
-DESIGN PRINCIPLE P5: FLAG, NEVER DISCARD
-
-Nothing is deleted. A flagged protein stays in every table and every count; it is excluded
-from target eligibility at S5 and the exclusion is reversible and countable. An
-AntiFam-flagged protein that skipped the cascade keeps its row with the exclusion reason
-"artefact,not_searched".
+Output artefact_flags.tsv, one row per protein with the flag and its evidence. Nothing is
+removed from any table. cascade_selection reads the flags: an AntiFam-flagged protein skips
+every annotation tier, Tier 0 included, and does not open its family for searching; a
+protein flagged for low complexity only is still searched.
 """
 import csv
 import pathlib
@@ -65,18 +32,8 @@ tmp = scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent)
 # ------------------------------------------------------------------------------------
 # AntiFam
 # ------------------------------------------------------------------------------------
-# THRESHOLD: AntiFam's own curated gathering thresholds, not a blanket E-value.
-#
-# All 278 AntiFam profiles ship a GA line, and 274 of them (98.6%) are LOOSER than
-# E=1e-5 at Z=3,497,616 - the median curated cut corresponds to E=7.3e-4, roughly 73x
-# looser. An earlier version imposed -E 1e-5 here, which silently overrode the curator on
-# essentially the whole database, in the one screen whose job is to stop shadow ORFs
-# entering the dark set with a perfect score. It is the same argument that already sets
-# --cut_ga on T1, applied where the consequence is worse: a missed artefact is not a missed
-# annotation, it is a non-protein sent to the bench.
-#
-# -Z is still pinned for the same reason as in the cascade: the E-values REPORTED
-# alongside each flag must not depend on how many sequences happened to be in this input.
+# Threshold: AntiFam's curated gathering thresholds (--cut_ga). -Z is pinned so that the
+# E-values reported with each flag do not depend on the size of this input.
 antifam_hits = {}
 dom = f"{tmp}/antifam.domtbl"
 max_evalue = cfg.get("antifam_max_evalue")

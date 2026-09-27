@@ -51,8 +51,7 @@ def ps_class(row):
     The bar is the cascade's own: a label must NAME a function (cascade.is_informative).
     A DUF or UPF family is a domain of unknown function, and a COG category letter is a
     broad class, not a function; a protein resting on either is searched by the cascade
-    like any other unnamed protein. On the 100-plasmid test set these were 153 and 81 of
-    the 2,956 proteins a looser rule had called annotated.
+    like any other unnamed protein.
 
     PlasmidScope writes category S on rows with no identifier as well, so NONE cannot tell
     "no eggNOG hit" from "hit without an identifier". Both are dark here.
