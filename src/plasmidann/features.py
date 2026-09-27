@@ -1,25 +1,16 @@
-"""S4: turning the annotation table into the two feature formats.
+"""GenBank locations and GFF3 rows for CDS features, including origin-spanning ones.
 
-The design lists GFF3 and GenBank as S4 deliverables and records that v1 never wrote them.
-Formatting is the easy half. The hard half is the 160,375 ORFs that S1 reconstructed across
-the origin of a circular plasmid: those carry start > end, and the two formats disagree
-about how to express that.
-
-  GenBank  has dedicated syntax - join(start..L,1..end) - and a strand wrapper that must
-           enclose the WHOLE join, because complement(join(a,b)) and join(complement(a),
-           complement(b)) describe different proteins.
-  GFF3     forbids start > end outright. The spec's answer is a discontinuous feature:
-           several lines carrying the same ID, which parsers reassemble into one gene.
-
-Getting either wrong yields a file that loads without complaint and puts genes in the wrong
-part of the molecule, which is the class of error nobody notices until an experiment fails.
+An ORF reconstructed across the origin of a circular plasmid has start > end: it runs
+start..length, then 1..end. GenBank writes it as join(start..length,1..end), wrapped whole
+in complement() on the minus strand. GFF3 does not allow start > end, so the ORF becomes a
+discontinuous feature: one row per segment, all rows sharing one ID.
 """
 
-# Characters that carry structural meaning in a GFF3 attribute column. Escaped per the
-# GFF3 specification, which requires percent-encoding for exactly these. A DIAMOND stitle
-# is free text and routinely contains several of them.
+# Characters with a reserved meaning in GFF3 column 9, percent-encoded as the Sequence
+# Ontology's GFF3 format definition (version 1.26) requires. A DIAMOND title is free text
+# and often contains several of them.
 _GFF3_ESCAPE = {"%": "%25", ";": "%3B", "=": "%3D", "&": "%26", ",": "%2C",
-                "\t": "%09", "\n": "%0A", "\r": "%0D", "|": "%7C"}
+                "\t": "%09", "\n": "%0A", "\r": "%0D"}
 
 
 def _escape(value):
@@ -27,27 +18,19 @@ def _escape(value):
 
 
 def gff3_attributes(attributes):
-    """The attribute column, escaped, with empty values omitted.
+    """The attribute column, escaped, in the caller's order, with empty values omitted.
 
-    Omitting rather than writing `product=` keeps the file honest: a dark ORF has no
-    product, and an empty attribute asserts that it has one which happens to be blank.
-
-    Order is the caller's, because GFF3 conventionally leads with ID and readers scan for
-    it; Python dictionaries preserve insertion order, so the caller controls this.
+    An empty value is left out rather than written as `product=`: a dark ORF has no product.
     """
     return ";".join(f"{_escape(k)}={_escape(v)}"
                     for k, v in attributes.items() if v not in (None, ""))
 
 
 def genbank_location(start, end, strand, length):
-    """A GenBank location string, honouring the origin-spanning convention.
+    """A GenBank location string; `start > end` means the feature runs start..length, 1..end.
 
-    `start > end` means the feature runs start..length then 1..end, which is what S1 writes
-    for a gene it reconstructed across the cut point of a circular plasmid.
-
-    The complement wrapper encloses the entire join. complement(join(a,b)) reads the
-    segments in the order b then a, reverse-complemented, which is the actual gene;
-    join(complement(a),complement(b)) reads them a then b and yields a different protein.
+    The complement wrapper encloses the entire join: complement(join(a,b)) reads b then a,
+    reverse-complemented, which is the gene; join(complement(a),complement(b)) is not.
     """
     if start <= end:
         span = f"{start}..{end}"
@@ -58,17 +41,12 @@ def genbank_location(start, end, strand, length):
 
 def gff3_features(gene, length, source="plasmidann", feature_type="CDS",
                   attributes=None):
-    """One gene as one or more GFF3 rows, as 9-tuples ready to be tab-joined.
+    """One gene as GFF3 rows (9-tuples): one row, or two sharing one ID if it spans the origin.
 
-    An origin-spanning gene becomes TWO rows sharing one ID - a discontinuous feature. A
-    single row with start > end is invalid GFF3: some parsers reject the file and others
-    silently reinterpret the coordinates, which is worse.
-
-    `phase` is 0 on every row. These are complete CDS features called by Pyrodigal from
-    their own start codon, so the first base of the feature is the first base of a codon.
-    For the second segment of an origin-spanning gene that is not strictly true, but GFF3
-    has no way to express a phase carried across segments of a discontinuous feature and
-    every parser recomputes it from the reassembled feature anyway.
+    Phase is the number of bases to skip at a segment's 5' end before the next codon. The
+    genes are complete CDS called from their own start codon, so the segment translated
+    first has phase 0 and the other segment continues its reading frame. On the minus strand
+    translation starts in the 1..end segment.
     """
     strand_char = "-" if gene["strand"] in (-1, "-", "-1") else "+"
     attrs = dict(attributes or {})
@@ -78,8 +56,10 @@ def gff3_features(gene, length, source="plasmidann", feature_type="CDS",
         segments = [(gene["start"], gene["end"])]
     else:
         segments = [(gene["start"], length), (1, gene["end"])]
+    first = segments[-1] if strand_char == "-" else segments[0]
+    carried = (first[1] - first[0] + 1) % 3
 
     column9 = gff3_attributes(attrs)
-    return [(gene["plasmid_id"], source, feature_type, s, e, ".", strand_char, "0",
-             column9)
+    return [(gene["plasmid_id"], source, feature_type, s, e, ".", strand_char,
+             0 if (s, e) == first else (3 - carried) % 3, column9)
             for s, e in segments]

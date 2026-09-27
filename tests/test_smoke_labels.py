@@ -4,7 +4,6 @@ Each test runs one workflow script against a small fixture.
 """
 import pytest
 from conftest import (
-    PLASMID_LABEL_COLS,
     FakeSnakemake,
     _ps_table,
     _selection,
@@ -13,6 +12,8 @@ from conftest import (
     write_fasta,
     write_tsv,
 )
+
+from plasmidann import labeldb
 
 
 def test_the_quality_gate_passes_when_controls_are_annotated(fixture_dir):
@@ -70,9 +71,8 @@ def test_the_quality_gate_halts_when_known_proteins_come_out_dark(fixture_dir):
 
 
 def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
-    """S1 reconstructs genes broken by linearising a circular plasmid and writes them
-    start > end. GFF3 forbids that and GenBank has dedicated syntax for it, so this is the
-    case where a feature file silently puts a gene in the wrong part of the molecule."""
+    """A gene reconstructed across the origin has start > end: two GFF3 rows sharing one
+    ID, and a GenBank complement(join(...))."""
     import gzip
 
     ann = fixture_dir / "plasmid_annotation.tsv"
@@ -94,11 +94,10 @@ def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
         output={"gff3": str(gff), "genbank": str(gbk)}))
 
     lines = [l for l in gff.read_text().splitlines() if not l.startswith("#")]
-    assert lines[0].startswith("##sequence-region") or True
     cds = [l.split("\t") for l in lines]
     assert all(int(c[3]) <= int(c[4]) for c in cds), "GFF3 requires start <= end"
     # The origin-spanning gene is two rows sharing one ID.
-    wrapped = [c for c in cds if "p1%7C2" in c[8]]
+    wrapped = [c for c in cds if "ID=p1|2" in c[8]]
     assert len(wrapped) == 2, f"expected a discontinuous feature, got {len(wrapped)} rows"
     assert sorted((int(c[3]), int(c[4])) for c in wrapped) == [(1, 120), (480, 500)]
 
@@ -110,14 +109,38 @@ def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
     assert "atgcatgc" in text.lower().replace(" ", ""), "no sequence written"
 
 
+def test_feature_files_write_genbank_that_biopython_parses(fixture_dir):
+    """A real 30-character plasmid id, a circular topology and a product holding a double
+    quote: the LOCUS line must keep the name, length and topology apart, and the quote must
+    be doubled inside the qualifier."""
+    from Bio import SeqIO
+
+    pid = "IMGPR_plasmid_645058772_000001"
+    ann = fixture_dir / "long.tsv"
+    write_tsv(ann, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                    "spans_origin", "annot_label", "functional_class", "annot_tier",
+                    "artefact_flag"],
+              [[f"{pid}|1", pid, 1, 30, "+", 0, 0, 'protein "X"', "FUNCTIONAL", "T1", 0]])
+    master = fixture_dir / "long_master.tsv"
+    write_tsv(master, ["plasmid_id", "topology"], [[pid, "circular"]])
+    fasta = fixture_dir / "long.fna"
+    write_fasta(fasta, [(pid, "ATGC" * 3000)])
+    gbk = fixture_dir / "long.gbk"
+    run_script("feature_files.py", FakeSnakemake(
+        input={"annotation": str(ann), "fasta": str(fasta), "master": str(master)},
+        output={"gff3": str(fixture_dir / "long.gff3"), "genbank": str(gbk)}))
+
+    (record,) = SeqIO.parse(str(gbk), "genbank")
+    assert (record.name, len(record.seq)) == (pid, 12000)
+    assert record.annotations["topology"] == "circular"
+    (cds,) = [f for f in record.features if f.type == "CDS"]
+    assert cds.qualifiers["product"] == ['protein "X"']
+    assert cds.qualifiers["locus_tag"] == [f"{pid}|1"]
+
+
 def test_feature_files_cover_the_analysis_set_and_nothing_else(fixture_dir):
     """One record per sequence in the analysis-set FASTA, whether or not it carries an
-    annotation.
-
-    This stage used to read the whole corpus FASTA, so on a 100-plasmid run it emitted
-    208,245 GenBank records. The scope has to come from the FASTA S0 wrote. A plasmid with
-    no called ORFs still gets a record - it is in the analysis set and the answer for it
-    is "no features", which is not the same as the record being absent.
+    annotation. A plasmid with no called ORFs still gets a record with no features.
     """
     ann = fixture_dir / "scope.tsv"
     write_tsv(ann, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
@@ -173,7 +196,7 @@ def test_a_dark_orf_is_written_without_a_fabricated_product(fixture_dir):
     row = [l for l in gff.read_text().splitlines() if not l.startswith("#")][0]
     attrs = row.split("\t")[8]
     assert "product=" not in attrs, f"a product was fabricated for a dark ORF: {attrs}"
-    assert "ID=p1%7C1" in attrs
+    assert "ID=p1|1" in attrs
 
 
 def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
@@ -183,7 +206,7 @@ def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
     aggregated into pathways.
 
     With no eggNOG database present the run must still produce a complete, empty-valued
-    table rather than no table - the column has to exist for S8 to read."""
+    table rather than no table - the columns have to exist for the context features."""
     prot = fixture_dir / "protein_annotation.tsv"
     write_tsv(prot, ["seq_id", "functional_class"],
               [["named1", "FUNCTIONAL"], ["named2", "DOMAIN_ONLY"],
@@ -206,10 +229,10 @@ def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
 
 def _label_inputs(fixture_dir, label_rows=(), ko_lines=(), defence_rows=(),
                   conj_rows=(), protein_map=""):
-    """The S4d inputs of protein_labels, empty unless rows are given: the plasmid label
+    """The plasmid-label inputs of protein_labels, empty unless rows are given: the label
     databases' table, the KEGG KO list, the defence and CONJScan calls and the map."""
     labels_plasmid = fixture_dir / "protein_labels_plasmid.tsv"
-    write_tsv(labels_plasmid, PLASMID_LABEL_COLS, list(label_rows))
+    write_tsv(labels_plasmid, labeldb.COLUMNS, list(label_rows))
     ko_list = fixture_dir / "list_ko.txt"
     ko_list.write_text("".join(f"{line}\n" for line in ko_lines))
     defence = fixture_dir / "defence_systems.tsv"
@@ -275,6 +298,8 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
     assert ("s1", "swissprot_product", "Toxin CcdB") in pairs
     # From eggNOG, including the gene symbol.
     assert ("s1", "gene_symbol", "repA") in pairs
+    # An eggNOG row's tier column names the run it came from.
+    assert {r["tier"] for r in read_tsv(out) if r["source"] == "eggnog"} == {"emapper"}
     assert ("s1", "cog_category", "L") in pairs
     assert ("s1", "cog_id", "COG5527") in pairs
     # The uninformative hit contributes nothing.
@@ -297,9 +322,7 @@ def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
                      "category", "threshold", "max_evalue"],
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
                 "T1", "pfam", "", "--cut_ga", ""],
-               # The three sources the pharokka tier emits. The first real run failed
-               # here with KeyError: 'pharokka' - the provenance map had no entry, and
-               # no fixture had exercised a row from the new tier.
+               # The three sources the pharokka tier emits.
                ["s2", "ParA-like partition protein", "phrog_164", "", "", "1e-42", "True",
                 1, "", "", "T3", "pharokka", "DNA, RNA and nucleotide metabolism", "",
                 "1e-05"],
@@ -349,7 +372,7 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
                      "category", "threshold", "max_evalue"],
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-10", "True", 1, 1, 100,
                 "T1", "pfam", "", "--cut_ga", ""],
-               ["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
+               ["s1", "RepA_N", "PF06970.19", 0.5, 0.95, "1e-40", "True", 1, 1, 100,
                 "T2", "pfam", "", "-E 1e-5", "1e-5"]])
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
@@ -368,13 +391,14 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
 
     rows = [r for r in read_tsv(out) if r["kind"] == "pfam_family"]
     assert len(rows) == 1, f"the same family was recorded {len(rows)} times"
-    # The strongest evidence for the statement survives the merge.
-    assert rows[0]["evidence_evalue"] == "1e-40"
+    # The row of the strongest evidence survives the merge whole: tier, e-value, coverage.
+    assert (rows[0]["tier"], rows[0]["evidence_evalue"], rows[0]["evidence_coverage"]) == (
+        "T2", "1e-40", "0.5")
 
 
 def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreements(
         fixture_dir):
-    """S4d: every plasmid label database row enters protein_labels.tsv as its own kind,
+    """Every plasmid label database row enters protein_labels.tsv as its own kind,
     sub_label included (AMRFinderPlus's element type decides amr against metal), and the
     cross-source conflicts are written beside it without changing a label."""
     hits = fixture_dir / "hits.tsv"
@@ -445,7 +469,7 @@ def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreemen
     conflicts = {(r["seq_id"], r["conflict_type"]) for r in read_tsv(disagree)}
     assert conflicts == {("s1", "card_vs_amrfinder"), ("s2", "tier0_vs_bacmet"),
                          ("s3", "tadb_vs_defencefinder")}
-    # No label was removed because of a disagreement.
+    # A disagreement removes no label.
     assert len(merged) == len(label_rows)
 
 
@@ -516,3 +540,82 @@ def test_orthology_takes_plasmidscope_terms_without_running_emapper(fixture_dir)
     query = fixture_dir / "emapper" / "named.faa"
     sent = [l[1:].strip() for l in open(query) if l.startswith(">")]
     assert sent == ["named1"], f"eggNOG-mapper would re-annotate PlasmidScope's proteins: {sent}"
+
+
+ANNOTATION_COLS = [
+    "seq_id", "annot_source", "annot_representative", "annot_tier", "annot_label",
+    "functional_class", "homology_depth", "annot_qcov", "annot_tcov", "annot_evalue",
+    "n_informative_hits", "explained_fraction", "annot_completeness", "meets_min_explained",
+    "dark_covered_fraction", "dark_completeness", "dark_evidence", "n_dark_databases",
+    "uninformative_labels", "uninformative_tiers", "thr_min_coverage", "thr_min_explained",
+    "thr_narrow_at"]
+
+
+def _annotate(fixture_dir, protein_map, annotation_cols=ANNOTATION_COLS):
+    """Run annotate_plasmids.py on two ORFs and one unique protein; return the rows."""
+    prot = fixture_dir / "protein_annotation.tsv"
+    write_tsv(prot, annotation_cols,
+              [["s1"] + ["FUNCTIONAL" if c == "functional_class" else ""
+                         for c in annotation_cols[1:]]])
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                      "spans_origin", "translation_table", "seq"],
+              [["p1|1", "p1", 1, 90, "+", 0, 0, 11, "M"],
+               ["p2|1", "p2", 480, 30, "-", 0, 1, 11, "M"]])
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text(protein_map)
+    artefact = fixture_dir / "artefact_flags.tsv"
+    write_tsv(artefact, ["seq_id", "artefact_flag", "antifam_family", "antifam_ievalue",
+                         "low_complexity_fraction", "artefact_reason"],
+              [["s1", 1, "", "", "0.6", "low_complexity"]])
+    out = fixture_dir / "plasmid_annotation.tsv"
+    run_script("annotate_plasmids.py", FakeSnakemake(
+        input={"prot": str(prot), "index": str(index), "map": str(pmap),
+               "artefact": str(artefact)},
+        output=[str(out)], log=[str(fixture_dir / "annotate.log")]))
+    return read_tsv(out)
+
+
+def test_annotate_plasmids_expands_a_protein_over_every_orf(fixture_dir):
+    rows = {r["orf_id"]: r for r in _annotate(fixture_dir, "s1\tp1|1,p2|1\n")}
+    assert set(rows) == {"p1|1", "p2|1"}
+    for r in rows.values():
+        assert (r["functional_class"], r["artefact_flag"]) == ("FUNCTIONAL", "1")
+    # ORF-level columns come from the ORF index, not the protein.
+    assert (rows["p2|1"]["start"], rows["p2|1"]["spans_origin"]) == ("480", "1")
+
+
+def test_annotate_plasmids_fails_on_an_orf_without_a_protein(fixture_dir):
+    with pytest.raises(AssertionError):
+        _annotate(fixture_dir, "s1\tp1|1\n")
+
+
+def test_annotate_plasmids_fails_on_a_missing_input_column(fixture_dir):
+    with pytest.raises(SystemExit, match="thr_narrow_at"):
+        _annotate(fixture_dir, "s1\tp1|1,p2|1\n", ANNOTATION_COLS[:-1])
+
+
+def test_dark_set_drops_a_protein_seen_only_as_partial_orfs(fixture_dir):
+    flags = fixture_dir / "eligibility.tsv"
+    write_tsv(flags, ["seq_id", "is_artefact", "target_eligible", "exclusion_reason"],
+              [["whole", 0, 1, ""], ["fragment", 0, 1, ""], ["named", 0, 0, "annotated"]])
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                      "spans_origin", "translation_table", "seq"],
+              [["p1|1", "p1", 1, 90, "+", "1", 0, 11, "M"],
+               ["p2|1", "p2", 1, 90, "+", "0", 0, 11, "M"],
+               ["p1|2", "p1", 100, 190, "+", "1", 0, 11, "M"],
+               ["p1|3", "p1", 200, 290, "+", "0", 0, 11, "M"]])
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("whole\tp1|1,p2|1\nfragment\tp1|2\nnamed\tp1|3\n")
+    faa = fixture_dir / "unique.faa"
+    write_fasta(faa, [(n, "MKVLATT") for n in ("whole", "fragment", "named")])
+    out_faa = fixture_dir / "dark.faa"
+    ids = fixture_dir / "dark_ids.txt"
+    run_script("dark_set.py", FakeSnakemake(
+        input={"flags": str(flags), "index": str(index), "map": str(pmap), "faa": str(faa)},
+        output={"faa": str(out_faa), "ids": str(ids)}))
+
+    # A protein with one complete ORF is kept even if another ORF of it is partial.
+    assert ids.read_text().split() == ["whole"]
+    assert [l[1:].strip() for l in open(out_faa) if l.startswith(">")] == ["whole"]

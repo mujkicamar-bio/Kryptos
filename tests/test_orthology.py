@@ -1,13 +1,5 @@
-"""S4b: orthology terms, and why the dark half needs the annotated half described properly.
-
-eggNOG-mapper is not a dark-hunting tier and must not be used as one - it adds little over
-Swiss-Prot and nr for finding homologues. It is here because S8's context analysis is
-impossible without it. The cascade produces free text, and free text cannot be aggregated
-into pathways; FESNov's neighbourhood metric is defined over KEGG pathway membership of the
-neighbouring genes. Annotating the KNOWN fraction properly is what makes the UNKNOWN
-fraction interpretable.
-"""
-from plasmidann.orthology import cog_category, kegg_pathways, parse_annotations
+"""Parsing eggNOG-mapper's annotation table."""
+from plasmidann.orthology import parse_annotations
 
 HEADER = ("#query\tseed_ortholog\tevalue\tscore\teggNOG_OGs\tmax_annot_lvl\t"
           "COG_category\tDescription\tPreferred_name\tGOs\tEC\tKEGG_ko\tKEGG_Pathway\n")
@@ -55,15 +47,7 @@ def test_multiple_cog_categories_are_kept_whole():
     assert parse_annotations(text)["P4"]["cog_category"] == "EGP"
 
 
-def test_helpers_read_the_parsed_record():
-    record = {"cog_category": "E", "kegg_pathways": ["ko00260"]}
-    assert cog_category(record) == "E"
-    assert kegg_pathways(record) == ["ko00260"]
-    assert kegg_pathways({}) == []
-    assert cog_category({}) == ""
-
-
-# --- every identifying column, not only the two the first consumer needed -------------
+# --- every identifying column ----------------------------------------------------------
 
 EMAPPER_FULL = "\n".join([
     "## emapper-2.1.12",
@@ -78,9 +62,7 @@ EMAPPER_FULL = "\n".join([
 
 
 def test_gene_symbol_pfams_go_ec_and_ko_are_all_parsed():
-    """These four columns were parsed and thrown away. The gene symbol is the axis a
-    functional grouping leans on hardest, because symbols are systematic: rep*, tra*,
-    trb*, mob*, par*, tnp*, ccd*."""
+    """The gene symbol and the controlled-vocabulary columns, multi-valued ones as lists."""
     records = parse_annotations(EMAPPER_FULL)
 
     assert records["p1"]["preferred_name"] == "repA"
@@ -90,7 +72,7 @@ def test_gene_symbol_pfams_go_ec_and_ko_are_all_parsed():
     assert records["p1"]["kegg_ko"] == ["ko:K02314"]
 
 
-def test_the_placeholder_is_absence_in_every_new_column_too():
+def test_the_placeholder_is_absence_in_every_list_column():
     """emapper writes a bare '-' for every field it has nothing for. Read literally that
     becomes a Pfam family named '-' and a GO term named '-', and both would aggregate as
     though they were real terms."""
@@ -104,8 +86,7 @@ def test_the_placeholder_is_absence_in_every_new_column_too():
 
 
 def test_a_missing_column_yields_an_empty_list_not_a_failure():
-    """An older emapper writes fewer columns. A KeyError here would fail the whole stage
-    for a column nothing load-bearing depends on."""
+    """A table without some columns parses, with those fields empty."""
     minimal = "\n".join([
         "#query\tCOG_category\tDescription",
         "p3\tL\tSome protein",

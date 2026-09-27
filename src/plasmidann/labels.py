@@ -1,57 +1,22 @@
 """The functional-label vocabulary: what each tool said, and what kind of statement it is.
 
-WHY THIS REPLACES A CURATED LIST
+Every label is copied verbatim from the tool that produced it and tagged with its KIND. No
+biological role is assigned here; the grouping into categories is derived later from the
+vocabulary observed in the data.
 
-An earlier version of this pipeline classified plasmid proteins into replication,
-mobilisation, conjugation, partition, transposition, toxin-antitoxin and
-restriction-modification using a hand-written list of 73 Pfam family names. It could not
-work, and the measurements say why:
+The kind travels with every label because 'repA' as an eggNOG gene symbol and 'RepA_N' as
+a Pfam family are different statements from different evidence; downstream code groups
+on (kind, label), never on the label alone.
 
-  * Pfam-A 38.2 holds 30,134 families, of which 67 mention replication in their
-    description and 42 mention conjugation. The list named 16 and 15. It named no MobB and
-    no MobD.
-  * pfam2go, the published Pfam-to-GO mapping, covers 4 of the 16 listed replication
-    families, 1 of 16 conjugation families and 0 of 11 mobilisation families - so the gaps
-    are in the curated mapping too, not only in the list.
-  * Nine of the 73 names did not exist in Pfam-A at all, so those entries had never once
-    matched anything, and no output could have revealed it.
-  * The role assignments had no source. They were one person's reading.
-
-A hand list cannot reach the scope of a 30,134-family database, and its gaps are silent.
-So no role is assigned here. Every label is taken verbatim from the tool that produced it,
-tagged with the KIND of statement it is, and the grouping into biological categories is
-derived later from the vocabulary actually observed in the data.
-
-WHY THE KIND IS LOAD-BEARING
-
-'repA' as a gene symbol from eggNOG and 'RepA_N' as a Pfam family from hmmsearch are
-different statements about a protein, from different evidence, with different reliability.
-A vocabulary that could not tell them apart could not be audited, and a category built from
-both would be impossible to describe in a methods section. The kind travels with every
-label for that reason, and downstream code groups on (kind, label), never on the label
-alone.
-
-WHAT IS DELIBERATELY NOT A LABEL
-
-  * Organism names. A functional grouping is not a taxonomy, and an organism in a title is
-    the source of the reference sequence, not a statement about the query. The full title
-    stays in hits.tsv either way, so nothing is lost from the record.
-  * Uninformative descriptions. 'hypothetical protein' names nothing; the cascade already
-    records it as dark evidence. Admitted here it would become the most frequent, and
-    therefore most apparently enriched, category in the collection.
-  * The empty string in any field. Absence is absence, and a label of '' would group every
-    protein missing that field into one enormous false category.
+Not labels: organism names (the source of the reference sequence, not a statement about
+the query; the full title stays in hits.tsv), uninformative descriptions such as
+'hypothetical protein' (recorded by the cascade as dark evidence), and empty strings.
 """
 import re
 
 from plasmidann import labeldb
 
-# Every kind of label this module can emit. A kind not listed here is a statement nothing
-# downstream knows how to group, so emitting one is a bug rather than a new feature.
-#
-# Deliberately absent: any biological role name. Roles are derived from these kinds later;
-# a role appearing in this set would be the curated list growing back, and
-# tests/test_labels.py asserts that it has not.
+# Every kind of label protein_labels admits; it refuses any other.
 KINDS = frozenset({
     # hmmsearch against Pfam-A, tiers T1 and T2
     "pfam_family",        # RepA_N            the family name, as tier_search records it
@@ -65,8 +30,8 @@ KINDS = frozenset({
     "pharokka_category",    # 'head and packaging'        the curators' functional group
     "card_gene_family",     # 'TEM beta-lactamase'        CARD's AMR gene family
     "card_mechanism",       # 'antibiotic inactivation'   CARD's resistance mechanism
-    "vfdb_factor",          # 'type IV pilus'             VFDB's virulence factor'
-    # eggNOG-mapper, S4b
+    "vfdb_factor",          # 'type IV pilus'             VFDB's virulence factor
+    # eggNOG-mapper
     "gene_symbol",        # repA, traG, mobA  the most systematic axis available
     "cog_category",       # L, D, V           one label per letter
     "cog_id",             # COG5527
@@ -75,19 +40,10 @@ KINDS = frozenset({
     "go",                 # GO:0006270
     "ec",                 # 2.7.7.7
     "kegg_ko",            # ko:K02314
-    # MacSyFinder, S8a phase 2
-    "macsy_system",       # RM_Type_II        the model's own system name
-    "macsy_component",    # RM_Type_II_REase
-    # IntegronFinder, S8b
-    "integron_element",   # intI, attC, attI
-    "integron_type",      # complete, In0, CALIN
-}) | labeldb.KINDS  # S4d plasmid label databases: card_amr_family, amrfinder_gene, ...
+}) | labeldb.KINDS  # the plasmid label databases: card_amr_family, amrfinder_gene, ...
 
-# Every hits.tsv row carries the SOURCE its tier searched, declared per tier in
-# config/cascade.yaml. The kind used to be decided from the tier id - T1 and T2 were Pfam,
-# T3 was Swiss-Prot, anything else nr - and inserting a tier, which the specification's
-# cascade order does, shifted every tier below it: every Swiss-Prot hit would have been
-# labelled as an nr product with nothing failing. The row now says what it is.
+# The database a hits.tsv row came from, declared per tier in config/cascade.yaml; it
+# decides the label kind.
 SOURCES = frozenset({"pfam", "pharokka", "card", "vfdb", "swissprot", "nr"})
 
 # NCBI title prefixes that qualify the RECORD, not the product: MULTISPECIES (a title
@@ -99,13 +55,8 @@ _RECORD_PREFIX = re.compile(r"^(?:(?:MULTISPECIES|MAG|TPA(?:_\w+)?)\s*:\s*)+")
 
 
 def _informative(row):
-    """Whether a hits.tsv row was judged informative by the cascade.
-
-    The column is written by csv as the string 'True' or 'False'. Comparing the raw value
-    to a boolean would make every row falsy and silently empty the vocabulary, so the
-    accepted spellings are tested explicitly.
-    """
-    return row.get("informative") in (True, "True", "true", "1", 1)
+    """Whether the cascade judged a hits.tsv row informative (csv writes 'True'/'False')."""
+    return row.get("informative") == "True"
 
 
 def parse_ncbi_title(title):
@@ -258,35 +209,4 @@ def labels_from_orthology(row):
     description = (row.get("eggnog_description") or "").strip()
     if description:
         out.append({"kind": "eggnog_description", "label": description, "accession": ""})
-    return out
-
-
-def labels_from_defence(row):
-    """Labels from one defence_systems.tsv row.
-
-    `system` is MacSyFinder's model_fqn, a path such as
-    'defense-finder-models/Defense/RM_Type_II'. The system name is its last element; the
-    full path is kept as the accession so the model set that made the call stays visible in
-    the table, which is what makes the call traceable to its publication.
-    """
-    out = []
-    fqn = (row.get("system") or "").strip()
-    if fqn:
-        out.append({"kind": "macsy_system", "label": fqn.rsplit("/", 1)[-1],
-                    "accession": fqn})
-    component = (row.get("component") or "").strip()
-    if component:
-        out.append({"kind": "macsy_component", "label": component, "accession": fqn})
-    return out
-
-
-def labels_from_integron(row):
-    """Labels from one integron row: the element type and the integron class."""
-    out = []
-    element = (row.get("annotation") or "").strip()
-    if element:
-        out.append({"kind": "integron_element", "label": element, "accession": ""})
-    integron_type = (row.get("integron_type") or "").strip()
-    if integron_type:
-        out.append({"kind": "integron_type", "label": integron_type, "accession": ""})
     return out

@@ -1,37 +1,14 @@
-"""S4: the feature files - GFF3 and GenBank.
+"""Write the annotation table as GFF3 and GenBank feature files.
 
-The design names these as S4 deliverables alongside the TSV, and records that v1 declared
-them and never wrote them. A TSV is what this project reasons over; a feature file is what
-every genome browser, every downstream tool and every collaborator expects.
-
-WHAT MAKES THIS MORE THAN FORMATTING
-
-160,375 ORFs were reconstructed by S1 across the origin of a circular plasmid, and they
-carry start > end. GFF3 forbids that outright and GenBank has dedicated syntax for it, so
-the same gene has to be written two different ways. Get it wrong and the file still loads -
-it just puts the gene somewhere else on the molecule. plasmidann.features owns both
-conventions and is unit-tested against them.
-
-NOTHING IS FILTERED HERE
-
-Every ORF in the annotation table becomes a feature, including artefact-flagged ones. The
-flags travel as attributes so a reader can act on them; the record stays complete.
-
-ONE PASS OVER EACH INPUT
-
-The annotation table is held indexed by plasmid, and the FASTA is streamed once. Reading
-the annotation per plasmid instead would be a scan of a 9.3M-row file per record, which is
-the quadratic pattern this pipeline has already had to fix twice.
-
-THE SCOPE IS THE ANALYSIS SET
-
-This stage used to stream the whole working-set FASTA and write a record for every sequence
-in it. That is the corpus, not the run: on the 100-plasmid test configuration it produced
-208,245 GenBank records and 11.9 GB. The TSV beside it was correctly scoped, so every count
-a reader would think to check looked right. It now reads the analysis-set FASTA from S0.
+Inputs: the per-ORF annotation table, the analysis-set FASTA (one record per sequence in
+it, with or without ORFs) and the master table for each plasmid's topology. Every ORF
+becomes a feature, artefact-flagged ones included; the flags travel as attributes.
+Origin-spanning ORFs are encoded by plasmidann.features. The annotation table is held in
+memory, indexed by plasmid, and the FASTA is streamed once.
 """
 import collections
 import csv
+import datetime
 
 import _ctx  # noqa: F401
 
@@ -84,11 +61,18 @@ def attributes_for(r):
     return attrs
 
 
+def quoted(value):
+    """A GenBank qualifier value in double quotes, with inner double quotes doubled."""
+    return '"' + str(value).replace('"', '""') + '"'
+
+
 def wrap(seq, width=60):
     for i in range(0, len(seq), width):
         yield seq[i:i + width]
 
 
+# The LOCUS date is the date the file was written.
+today = datetime.date.today().strftime("%d-%b-%Y").upper()
 n_features = n_records = 0
 with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w") as gbk:
     gff.write("##gff-version 3\n")
@@ -96,8 +80,8 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
     def write_record(name, seq):
         """Write one plasmid's GFF3 and GenBank records."""
         global n_features, n_records
-        # The record's own length, as S0 wrote it: S1 wrapped the coordinates on this
-        # sequence, which is shorter than size_bp wherever S0 removed a terminal repeat.
+        # The record's own length: ORF coordinates wrap on this sequence, which is shorter
+        # than the master table's size_bp wherever the analysis set trimmed a terminal repeat.
         L = len(seq)
         rows = genes.get(name, [])
         n_records += 1
@@ -111,7 +95,11 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
                 n_features += 1
 
         circular = "circular" if is_circular(topology.get(name)) else "linear"
-        gbk.write(f"LOCUS       {name:<20}{L} bp    DNA     {circular}  UNK\n")
+        # INSDC column layout: name from column 13, length right-aligned in columns 30-40,
+        # topology from column 56. A name longer than 16 characters shifts the rest right,
+        # and the space after it keeps name and length apart for a parser.
+        gbk.write(f"LOCUS       {name:<16} {L:>11} bp    DNA     {circular:<8} UNK "
+                  f"{today}\n")
         gbk.write(f"DEFINITION  {name} annotated by plasmidann.\n")
         gbk.write("FEATURES             Location/Qualifiers\n")
         gbk.write(f"     source          1..{L}\n")
@@ -119,11 +107,11 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
         for r in rows:
             loc = genbank_location(int(r["start"]), int(r["end"]), r["strand"], L)
             gbk.write(f"     CDS             {loc}\n")
-            gbk.write(f'                     /locus_tag="{r["orf_id"]}"\n')
+            gbk.write(f'                     /locus_tag={quoted(r["orf_id"])}\n')
             if r.get("annot_label"):
-                gbk.write(f'                     /product="{r["annot_label"]}"\n')
-            gbk.write(f'                     /note="functional_class='
-                      f'{r.get("functional_class", "")}"\n')
+                gbk.write(f'                     /product={quoted(r["annot_label"])}\n')
+            note = "functional_class=" + r.get("functional_class", "")
+            gbk.write(f'                     /note={quoted(note)}\n')
         gbk.write("ORIGIN\n")
         for i, line in enumerate(wrap(seq.lower())):
             blocks = " ".join(line[j:j + 10] for j in range(0, len(line), 10))

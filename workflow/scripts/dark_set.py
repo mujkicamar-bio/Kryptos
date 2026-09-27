@@ -1,13 +1,9 @@
-"""S6a: assemble the dark set - the proteins that are candidates at all.
+"""The dark set: the proteins that are candidates at all.
 
-Dark = the cascade named nothing (UNCHARACTERIZED_HOMOLOG or NONE), minus everything S5
-excluded: backbone, artefact, and ORFs still flagged partial after S1 origin repair.
-
-Partial ORFs are excluded rather than repaired at this point because a fragment is a real
-protein that is not whole: it aligns to only part of a domain, drifts toward DOMAIN_ONLY or
-out of annotation entirely, and looks exactly like a novel dark protein. Synthesising half
-a protein guarantees a dead well. S1 recovers the ones it can; whatever remains partial is
-reported and set aside.
+Target-eligible proteins from the quality gate (UNCHARACTERIZED_HOMOLOG or NONE, not
+artefact-flagged), minus proteins that occur only as partial ORFs. A fragment aligns to only
+part of a domain, drifts toward DOMAIN_ONLY or out of annotation, and looks like a novel
+dark protein, so a protein without one complete ORF is set aside and counted.
 """
 import csv
 
@@ -62,4 +58,4 @@ with open(snakemake.output.ids, "w") as out:
 
 print(f"eligible={len(eligible)} excluded_partial_only={len(eligible & partial_only)} "
       f"dark_set={n_written}")
-assert n_written > 0, "the dark set is empty - check S5 flags and the cascade output"
+assert n_written > 0, "the dark set is empty - check the quality-gate flags and the cascade output"

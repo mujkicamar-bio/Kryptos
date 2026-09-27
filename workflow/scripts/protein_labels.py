@@ -1,63 +1,18 @@
-"""S4c: one long table of every functional label every tool produced.
+"""One long table of every functional label every tool produced, and their disagreements.
 
-WHY THIS TABLE EXISTS
+Inputs: the cascade hits (hits.tsv), the orthology table (eggNOG-mapper and PlasmidScope),
+the plasmid label databases' table (protein_labels_plasmid.tsv) and the Pfam metadata.
+Labels are copied verbatim with their kind and database release (plasmidann.labels); no
+biological role is assigned here. One row per (protein_id, source, kind, label, sub_label):
+a label seen several times for one protein keeps the row of its best e-value, so a label
+is not counted once per supporting hit. The cascade searched one representative per 90%
+search cluster; each member takes its representative's labels, named in
+via_representative. Spiked controls and decoys contribute no labels. The plasmid label
+database rows keep their sub_label and their tier or call (1, 2, Perfect, Strict, the
+AMRFinderPlus method); for every other source sub_label is empty.
 
-The question it serves is "is this protein replication, mobilisation, or conjugation", and
-the answer cannot come from a hand-written list. The list this replaces held 73 Pfam family
-names; Pfam-A 38.2 holds 30,134 families, of which 67 mention replication in their
-description and 42 mention conjugation. It named 16 and 15, named no MobB and no MobD,
-included nine names that do not exist in Pfam-A at all, and assigned every role with no
-source.
-
-So the labels are collected verbatim, with their kind and their provenance, and the
-grouping into biological categories is derived afterwards from the vocabulary observed
-here. That order matters: a category built from the labels the data actually contains can be
-described in a methods section, and a category built from recollection cannot.
-
-WHY IT IS LONG AND NOT WIDE
-
-The vocabulary is open. Pfam-A 38.2 has 30,134 families, nr product names are unbounded,
-and a protein carries a different number of labels from every source. One row per
-(protein, source, kind, label) is the only shape that holds that without a column per
-family, and it is the shape a grouping step reads naturally: select the distinct labels of
-one kind, decide their categories, join back.
-
-SEARCH-CLUSTER MEMBERS, CONTROLS AND DECOYS
-
-The cascade searched only the representative of each 90% search cluster (S2s), so hits.tsv
-holds representatives alone. Every label a representative's hits produced is written for
-each of its members too, with the representative in `via_representative`: without that,
-about 140,000 members of the selected families carried no Pfam, pharokka, Swiss-Prot or nr
-label at all. The spiked controls (CTRL_) and decoys (DECOY_) are instrumentation, not
-plasmid proteins, and contribute no labels.
-
-THE PLASMID LABEL DATABASES (S4d)
-
-label_databases.py searches TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb
-and AMRFinderPlus and writes 08_protein_labels/protein_labels_plasmid.tsv; its rows are
-merged here as their own kinds (plasmidann.labeldb.KIND), with seq_id as protein_id,
-label_kind as kind, subject as accession and the database's tier or call (1, 2, Perfect,
-Strict, the AMRFinderPlus method) as tier. sub_label is kept - AMRFinderPlus's element
-type/subtype decides whether a gene is an amr or a metal context term - and is empty for
-every other source. Identity and coverage stay in protein_labels_plasmid.tsv, whose
-columns differ from the cascade's e-value and query coverage. The source 'card' names
-both pharokka's CARD search (kinds card_gene_family, card_mechanism) and the direct search
-of the CARD protein homolog models (kind card_amr_family); the kind tells them apart.
-
-This step also writes 08_protein_labels/label_disagreements.tsv (labeldb.disagreements):
-every protein on which two sources make incompatible statements - the Tier 0 gene symbol
-against a database naming a gene, CARD against AMRFinderPlus, BacMet against AMRFinderPlus
-and CARD, TADB against a DefenseFinder component, oriTDB against a CONJScan component. The
-Tier 0 symbols are the KEGG gene symbols of PlasmidScope's KOs; the KEGG KO list is used for
-that mapping only. The table changes no label.
-
-DEDUPLICATION
-
-A label seen several times for one protein - the same Pfam family hit by two tiers, the
-same product name from ten nr subjects - is one statement, not ten. Rows are keyed on
-(protein_id, source, kind, label, sub_label) and the best supporting statistics are kept, because an
-unmerged table would let a widespread label outvote a rare one purely by copy number when
-the categories are counted.
+label_disagreements.tsv lists the cross-source conflicts found by labeldb.disagreements;
+it changes no label.
 """
 import csv
 import sys
@@ -96,9 +51,7 @@ _LABEL_DATABASE = {
 params = snakemake.params
 pfam = pfam_meta.load(snakemake.input.pfam_dat)
 
-# (protein_id, source, kind, label) -> row. Identity is fixed on first sight and later
-# sightings only improve the statistics, so a label's evidence is the strongest seen rather
-# than the last row read.
+# (protein_id, source, kind, label, sub_label) -> row.
 rows = {}
 
 # Representative -> the members that take its result (selection.tsv, role 'member').
@@ -131,9 +84,8 @@ def add(protein_id, source, tier, entry, evalue="", coverage="", representative=
         }
         return
     if as_float(evalue) < as_float(existing["evidence_evalue"]):
-        existing["evidence_evalue"] = evalue
-        existing["evidence_coverage"] = coverage
-        existing["accession"] = entry.get("accession", "") or existing["accession"]
+        existing.update(tier=tier, evidence_evalue=evalue, evidence_coverage=coverage,
+                        accession=entry.get("accession", "") or existing["accession"])
 
 
 # ------------------------------------------------------------------------------------
@@ -147,9 +99,6 @@ for path in snakemake.input.hits:
             if q.startswith(CONTROL_PREFIX) or q.startswith(DECOY_PREFIX):
                 continue
             n_hits += 1
-            # The source travels with the row, declared per tier in config/cascade.yaml.
-            # It used to be looked up from the tier id here, which broke the moment a tier
-            # was inserted. labels_from_hit refuses a row without one.
             for entry in labels.labels_from_hit(row, pfam=pfam):
                 for pid, via in [(q, "")] + [(m, q) for m in members_of.get(q, ())]:
                     add(pid, row["source"], row.get("tier", ""), entry,
@@ -164,10 +113,10 @@ with open(snakemake.input.orthology, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
         n_orth += 1
         for entry in labels.labels_from_orthology(row):
-            add(row["seq_id"], "eggnog", "S4b", entry)
+            add(row["seq_id"], "eggnog", row["orthology_source"], entry)
 
 # ------------------------------------------------------------------------------------
-# The plasmid label databases (S4d), already one row per statement.
+# The plasmid label databases, already one row per statement.
 # ------------------------------------------------------------------------------------
 with open(snakemake.input.labels_plasmid, newline="") as fh:
     plasmid_labels = list(csv.DictReader(fh, delimiter="\t"))
@@ -230,8 +179,8 @@ print(f"protein_labels: read {n_hits} hits, {n_orth} orthology rows and "
 for kind in sorted(by_kind):
     print(f"  {kind:<22} {by_kind[kind]}")
 
-# An empty table here is always a bug: the cascade named a large fraction of the
-# collection, and every named protein carries at least one label by construction.
+# Every named protein carries at least one label, and the cascade names a large fraction
+# of any real collection, so an empty table means an input is wrong.
 if not rows:
     sys.exit("protein_labels: no labels extracted from any source - the functional "
              "grouping has no substrate. Check that hits.tsv carries a tier column and "
