@@ -13,13 +13,14 @@ protein_families.tsv reports at this resolution. Clusters of large-plasmid prote
 are left out. `scope` is the family's small-only/mixed and known/unknown call from
 protein_families.tsv.
 
-This node set is a SUBSET, and share_dark_connected_to_bright is therefore a lower bound: a
-dark small-plasmid cluster whose bright relative sits only on large plasmids has no edge to
-it here. The subset is deliberate rather than an oversight. Those large-only clusters were
-mostly never searched (NOT_SEARCHED: the cascade annotates only families holding a small-
-plasmid protein), so their brightness is unknown and adding them would add nodes whose
-state cannot be read. Durairaj et al. also built their network over a subset (UniRef50
-clusters with pLDDT > 90), and the summary states the node scope beside the numbers.
+The shares in the summary are measured over this node set and may differ in either
+direction on the full set: a dark cluster whose bright relative sits only on large plasmids
+has no edge to it here, and with at most `max_out_edges` outbound edges per node, adding
+the large-only clusters could also displace an existing edge. The large-only clusters are
+left out because the cascade annotates only families holding a small-plasmid protein, so
+most of them were never searched and their brightness is unknown. Durairaj et al. also
+built their network over a subset (UniRef50 clusters with pLDDT > 90), and the summary
+states the node scope beside the numbers.
 
 MMseqs2 runs at its own default search sensitivity: Durairaj et al. do not state theirs,
 and a value we chose would be a parameter with no source.
@@ -33,8 +34,8 @@ import subprocess
 import _ctx  # noqa: F401
 
 from plasmidann import scratch
-from plasmidann.fasta import iter_fasta
 from plasmidann.cascade import is_informative
+from plasmidann.fasta import iter_fasta
 from plasmidann.network import communities, edges_from_hits, node_brightness
 
 cfg = snakemake.params.network
@@ -47,7 +48,7 @@ with open(snakemake.input.families, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
         if r["family_resolution"] == snakemake.params.primary:
             for m in r["members"].split(","):
-                family_of[m] = (r["family_id"], r["family_class"])
+                family_of[m] = r["family_id"]
         if r["family_resolution"] == snakemake.params.node_resolution:
             node_family[r["representative"]] = r
 
@@ -86,11 +87,11 @@ subprocess.run(
     f"{work / 'tmp'} -e {cfg['max_evalue']} -c 0 --threads {snakemake.threads} "
     f"--format-output query,target,evalue,qcov,tcov -v 1",
     shell=True, check=True)
+# Streamed: at hundreds of thousands of nodes the hit table does not fit in memory.
 with open(hits_path) as fh:
-    hits = [dict(zip(("query", "target", "evalue", "qcov", "tcov"), line.split()))
-            for line in fh]
-edges = edges_from_hits(hits, max_out=cfg["max_out_edges"], min_cov=cfg["min_cov"],
-                        max_evalue=cfg["max_evalue"])
+    edges = edges_from_hits(
+        (dict(zip(("query", "target", "evalue", "qcov", "tcov"), line.split())) for line in fh),
+        max_out=cfg["max_out_edges"], min_cov=cfg["min_cov"], max_evalue=cfg["max_evalue"])
 community = communities(edges, list(members), seed=snakemake.params.seed)
 
 # ---- write nodes and edges -----------------------------------------------------------
@@ -113,9 +114,9 @@ for rep, mem in members.items():
         "brightness": round(bright, 4),
         "dark": int(bright <= cfg["dark_brightness"]),
         "dark_fraction": round(sum(m in dark for m in mem) / len(mem), 4),
-        "family_id": family_of.get(rep, ("", ""))[0],
+        "family_id": family_of.get(rep, ""),
         "scope": node_family[rep]["scope"],
-        "label": labels.most_common(1)[0][0] if labels else "dark",
+        "label": labels.most_common(1)[0][0] if labels else "",
         "community_id": community[rep],
         "degree": len(neighbours[rep]),
     }
@@ -136,11 +137,11 @@ dark_nodes = [n for n, r in node_rows.items() if r["dark"]]
 dark_connected = [n for n in dark_nodes if neighbours[n]]
 dark_to_bright = [n for n in dark_connected
                   if any(not node_rows[m]["dark"] for m in neighbours[n])]
-# Dark singleton families (primary resolution): is the protein alone because nothing
-# resembles it, or because the family thresholds were not met?
-dark_singletons = [m for m, (_, cls) in family_of.items()
-                   if cls == "ORPHAN" and m in dark]
-singletons_with_edge = [m for m in dark_singletons if neighbours.get(m)]
+# Dark single-member clusters at the node resolution: is the protein alone because nothing
+# resembles it, or because the clustering thresholds were not met?
+dark_singletons = [rep for rep, r in node_family.items()
+                   if r["family_class"] == "ORPHAN" and rep in dark]
+singletons_with_edge = [rep for rep in dark_singletons if neighbours[rep]]
 n_comm = collections.Counter(r["community_id"] for r in node_rows.values())
 
 
@@ -150,7 +151,7 @@ def share(part, whole):
 
 summary = [
     ("node_scope", f"{snakemake.params.node_resolution} clusters holding a small-plasmid "
-                   "protein; share_dark_connected_to_bright is a lower bound"),
+                   "protein; the shares may differ in either direction on the full set"),
     ("nodes", len(node_rows)),
     ("edges", len(edges)),
     ("communities_2plus", sum(1 for c in n_comm.values() if c >= 2)),

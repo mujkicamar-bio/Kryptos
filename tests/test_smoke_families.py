@@ -224,18 +224,21 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
         output=out,
         params={"network": {"min_cov": 0.5, "max_evalue": 1e-4, "max_out_edges": 4,
                             "dark_brightness": 0.05},
-                "primary": "broad", "node_resolution": "intermediate", "seed": 1},
+                "primary": "intermediate", "node_resolution": "intermediate", "seed": 1},
         threads=2))
 
     nodes = {r["node_id"]: r for r in read_tsv(out["nodes"])}
     assert set(nodes) == {"known", "darkrel", "loner"}
     assert nodes["darkrel"]["scope"] == "mixed_unknown"
     assert nodes["known"]["dark"] == "0" and nodes["known"]["label"] == "Relaxase"
-    assert nodes["darkrel"]["dark"] == "1"
+    assert nodes["known"]["family_id"] == "intermediate:known"
+    # No member has an informative label, so the node has none.
+    assert nodes["darkrel"]["dark"] == "1" and nodes["darkrel"]["label"] == ""
     assert nodes["darkrel"]["degree"] == "1" and nodes["loner"]["degree"] == "0"
     summary = {r["metric"]: r["value"] for r in read_tsv(out["summary"])}
     assert summary["dark_nodes_connected"] == "1"
     assert summary["dark_connected_to_bright"] == "1"
+    assert summary["dark_family_singletons"] == "2"
     assert summary["dark_family_singletons_with_edge"] == "1"
 
 
