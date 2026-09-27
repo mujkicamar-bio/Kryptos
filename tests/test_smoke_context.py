@@ -334,7 +334,7 @@ def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir
     """A mandatory component of a complete system and a neutral component of a fragment
     are different evidence; MacSyFinder's hit_status and sys_wholeness say which."""
     out = fixture_dir / "defence_systems.tsv"
-    phase2 = out.parent / "phase2" / "run"
+    phase2 = out.parent / "phase2" / "RM"
     phase2.mkdir(parents=True)
     write_tsv(phase2 / "best_solution.tsv",
               ["replicon", "hit_id", "gene_name", "hit_pos", "model_fqn", "sys_id",

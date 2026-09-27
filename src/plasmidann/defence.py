@@ -1,11 +1,12 @@
 """S8a: DefenseFinder's two phases, each on the representation it needs.
 
-Phase 1 is an HMM search (1,887 profiles) that asks per protein whether it looks like a
-defence component; it does not depend on gene order, so it runs once on the dereplicated
-proteins. Phase 2 is MacSyFinder system calling (711 models), whose quorum and
-co-localisation rules (e.g. inter_gene_max_space="3") count intervening genes, so it runs on
-every ORF of a plasmid in genomic order. Between the two, component hits are propagated to
-every ORF sharing the sequence, and plasmids without a component are left out of phase 2,
+Phase 1 is an HMM search with the profiles of the DefenseFinder, RM and CasFinder models
+that asks per protein whether it looks like a defence component; it does not depend on gene
+order, so it runs once on the dereplicated proteins. Phase 2 is MacSyFinder system calling
+with the 554 models of the same three families, whose quorum and co-localisation rules
+(e.g. inter_gene_max_space="3") count intervening genes, so it runs on every ORF of a
+plasmid in genomic order. Between the two, component hits are propagated to every ORF
+sharing the sequence, and plasmids without a component are left out of phase 2,
 since they cannot satisfy any model's quorum.
 
 Phase 2 and CONJScan read MacSyFinder's gembase format: one FASTA holding many replicons,

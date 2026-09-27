@@ -5,14 +5,18 @@ does not pass `--replicon-topology` and 94% of these plasmids are circular; unde
 topology a system spanning the origin is not found. `--db-type gembase` holds every
 candidate replicon in one database and still treats each separately.
 
-One MacSyFinder process searches all candidate replicons, with the cores given to
---worker. HMMER's independent e-value is the p-value times the number of sequences in the
+The model families and their options are those of `defense-finder run` (DefenseFinder
+3.0.0, Tesson et al. 2022): the 486 DefenseFinder and 24 RM models with --coverage-profile
+0.4 and --exchangeable-weight 1, and the 44 CasFinder models without options, so that the
+CasFinder package's own configuration applies. The AntiDefenseFinder models, which
+DefenseFinder searches only on request, are not searched. Other thresholds and the quorum
+and co-localisation rules are those of MacSyFinder (Abby et al. 2014) and of each model.
+
+Each family is one MacSyFinder process over all candidate replicons, with the cores given
+to --worker. HMMER's independent e-value is the p-value times the number of sequences in the
 database, and MacSyFinder keeps a hit only below --i-evalue-sel (0.001, its default), so
 splitting the database into per-core chunks would make the calls depend on the core count.
 The e-values still depend on the size of the candidate set, as for any single database.
-
-Thresholds and the quorum and co-localisation rules are those of MacSyFinder (Abby et al.
-2014) and the 711 shipped DefenseFinder models (Tesson et al. 2022), not overridden.
 
 Output: defence_systems.tsv, one row per system component with MacSyFinder's hit_status
 (mandatory, accessory, neutral) and sys_wholeness, status SUCCESS; or one row with status
@@ -32,6 +36,14 @@ COLUMNS = ["orf_id", "plasmid_id", "gembase_id", "system", "system_id", "compone
            "hit_evalue", "hit_status", "sys_wholeness", "hit_gene_ref", "hit_profile_cov",
            "status"]
 outdir = pathlib.Path(snakemake.output.tsv).parent / "phase2"
+# Output directory -> MacSyFinder options, as `defense-finder run` passes them.
+FAMILIES = {
+    "DefenseFinder": ["--models", "defense-finder-models/DefenseFinder", "all",
+                      "--coverage-profile", "0.4", "--exchangeable-weight", "1"],
+    "RM": ["--models", "defense-finder-models/RM", "all",
+           "--coverage-profile", "0.4", "--exchangeable-weight", "1"],
+    "Cas": ["--models", "CasFinder", "all"],
+}
 
 
 def write_table(rows):
@@ -54,13 +66,14 @@ if not snakemake.params.get("skip_run", False):
     # A rerun starts clean: results from an interrupted run would be read below.
     shutil.rmtree(outdir, ignore_errors=True)
     outdir.mkdir(parents=True)
-    subprocess.run(
-        f"macsyfinder --models-dir {snakemake.params.models_dir} "
-        f"--models defense-finder-models all "
-        f"--sequence-db {snakemake.input.faa} "
-        f"--db-type gembase --replicon-topology circular "
-        f"--worker {snakemake.threads} --out-dir {outdir / 'run'} --mute",
-        shell=True, check=True)
+    for family, options in FAMILIES.items():
+        subprocess.run(
+            ["macsyfinder", "--models-dir", str(models_dir), *options,
+             "--sequence-db", snakemake.input.faa,
+             "--db-type", "gembase", "--replicon-topology", "circular",
+             "--worker", str(snakemake.threads), "--out-dir", str(outdir / family),
+             "--mute"],
+            check=True)
 
 back = {}
 with open(snakemake.input.map, newline="") as fh:
