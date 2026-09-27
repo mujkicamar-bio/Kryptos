@@ -88,7 +88,8 @@ def test_host_counts_say_how_many_plasmids_had_a_host(fixture_dir):
 
 def test_clonal_registry_takes_the_host_from_three_sources(fixture_dir):
     """PLSDB species first, then PlasmidScope's per-record host (IMG/PR's among them),
-    then the GenBank/RefSeq organism. A name that is not an organism is no host."""
+    then the GenBank/RefSeq organism. A name that is not an organism is no host, and the
+    organism of a metagenomic record names the sampled host, never the plasmid's."""
     master = fixture_dir / "master.tsv"
     write_tsv(master, ["plasmid_id", "mob_cluster", "plsdb_species", "mob_host_range",
                        "topology", "size_bp", "hab_top"],
@@ -96,17 +97,19 @@ def test_clonal_registry_takes_the_host_from_three_sources(fixture_dir):
                 "Host-associated"],
                ["b", "", "", "", "circular", 5000, "Environmental"],
                ["c", "M2", "", "", "linear", 5000, "Environmental"],
-               ["d", "M3", "", "Bacteroides", "circular", 5000, "Environmental"]])
+               ["d", "M3", "", "Bacteroides", "circular", 5000, "Environmental"],
+               ["e", "M4", "", "", "circular", 5000, "Host-associated"]])
     ids_file = fixture_dir / "ids.txt"
-    ids_file.write_text("a\nb\nc\nd\n")
+    ids_file.write_text("a\nb\nc\nd\ne\n")
     prov = fixture_dir / "complete_provenance.tsv"
     write_tsv(prov, ["plasmid_id", "host"],
               [["a", "Escherichia coli"], ["b", "Acidipila rosea"],
-               ["c", "human gut metagenome"], ["d", "-"]])
+               ["c", "human gut metagenome"], ["d", "-"], ["e", ""]])
     ws = fixture_dir / "working_set.tsv"
     write_tsv(ws, ["plasmid_id", "lifestyle", "organism"],
               [["a", "isolate", ""], ["b", "metagenomic", ""],
-               ["c", "isolate", "Acinetobacter sp. X1"], ["d", "metagenomic", ""]])
+               ["c", "isolate", "Acinetobacter sp. X1"], ["d", "metagenomic", ""],
+               ["e", "metagenomic", "Homo sapiens"]])
     out = fixture_dir / "registry.tsv"
 
     run_script("clonal_registry.py", FakeSnakemake(
@@ -122,6 +125,7 @@ def test_clonal_registry_takes_the_host_from_three_sources(fixture_dir):
     assert (rows["c"]["species"], rows["c"]["genus"], rows["c"]["host_source"]) == \
         ("", "Acinetobacter", "organism")
     assert rows["d"]["genus"] == "" and rows["d"]["host_source"] == ""
+    assert (rows["e"]["species"], rows["e"]["host_source"]) == ("", "")
     # MOB-suite's predicted range is its own column, never the host.
     assert rows["d"]["predicted_host_range"] == "Bacteroides"
     # MOB-suite assigned b no cluster: the column stays empty, so no count treats it as one.
