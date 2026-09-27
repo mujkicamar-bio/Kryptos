@@ -213,7 +213,7 @@ def _resolve_fixture(fixture_dir):
     write_tsv(spans, ["seq_id", "qlen", "intervals", "explained_fraction"],
               [["P1", 100, "1-90", 0.9], ["P2", 100, "", 0.0]])
 
-    faa = fixture_dir / "cascade_input.faa"
+    faa = fixture_dir / "query.faa"
     write_fasta(faa, [("P1", "M" * 100), ("P2", "K" * 100)])
     return hits, str(spans), faa
 
@@ -356,7 +356,7 @@ def test_every_informative_label_survives_into_the_resolved_row(fixture_dir):
     spans = fixture_dir / "spans.tsv"
     write_tsv(spans, ["seq_id", "qlen", "intervals", "explained_fraction"],
               [["P1", 100, "1-95", 0.95]])
-    faa = fixture_dir / "cascade_input.faa"
+    faa = fixture_dir / "query.faa"
     write_fasta(faa, [("P1", "M" * 100)])
     prot = fixture_dir / "protein_annotation.tsv"
 
