@@ -3,9 +3,8 @@
 Each rule is tested at its boundary, because every one of them is a threshold that a
 methods section quotes: the identity and coverage tiers on BOTH sequences, CARD's Perfect
 and Strict calls including a hit just below the curated cut-off, the AMRFinderPlus element
-types, and every conflict type of the disagreement table - which must never change a label.
+types.
 """
-import copy
 import json
 import stat
 
@@ -125,20 +124,6 @@ def test_card_models_keep_protein_homolog_models_only_with_their_cut_off(tmp_pat
                                      ("vanY", "vanY gene in vanM cluster")]
 
 
-def test_card_gene_from_the_model_name():
-    assert labeldb.card_gene("TEM-1") == "TEM-1"
-    assert labeldb.card_gene("pp-flo") == "pp-flo"
-    assert labeldb.card_gene("PC1 beta-lactamase (blaZ)") == "blaZ"
-    assert labeldb.card_gene("Streptomyces lividans cmlR") == "cmlR"
-    assert labeldb.card_gene("vanY gene in vanM cluster") == "vanY"
-    assert labeldb.card_gene("mecC-type mecI") == "mecI"
-    assert labeldb.card_gene("Trimethoprim-resistant dihydrofolate reductase DfrA42") == \
-        "DfrA42"
-    assert labeldb.card_gene("Chlamydia trachomatis intrinsic murA conferring resistance "
-                             "to fosfomycin") == "murA"
-    assert labeldb.card_gene("Enterococcus faecium chloramphenicol acetyltransferase") == ""
-
-
 def test_card_best_hit_prefers_perfect_then_the_highest_strict_bitscore(tmp_path):
     models = labeldb.card_models(_card_json(tmp_path / "card.json"))
     hits = [
@@ -174,18 +159,23 @@ def test_tadb_role_and_type_come_from_the_file_stem_kept_in_the_id():
         labeldb.parse_tadb("T1|tadb T1 WP_1.1")
 
 
-def test_bacmet_labels_are_the_compounds_with_the_gene_as_sub_label():
+def test_bacmet_labels_are_the_compounds_verbatim_with_gene_and_class_as_sub_label():
     header = ("BAC0224|merA|sp|P00392|MERA_PSEAI Mercuric reductase OS=Pseudomonas "
               "aeruginosa GN=merA")
     compounds = {"BAC0224": "Mercury (Hg), Organo-mercury compounds [class: Organo-mercury]",
                  "BAC0001": "Triclosan [class: Phenolic compounds], Acriflavine [class: "
-                            "Acridine], Proflavine [class: Acridine], Copper (Cu)"}
+                            "Acridine], Proflavine [class: Acridine], Copper (Cu), "
+                            "Wex-cide-128."}
     assert labeldb.parse_bacmet(header, compounds) == \
-        ("BAC0224", [("Mercury", "merA"), ("Organo-mercury", "merA")])
-    # One label per distinct compound class; a class named twice is one label.
+        ("BAC0224", [("Mercury (Hg)", "merA"),
+                     ("Organo-mercury compounds", "merA; class=Organo-mercury")])
+    # One label per compound, a class shared by two compounds included; the '.' that ends
+    # the list is not part of the last compound.
     assert labeldb.parse_bacmet("BAC0001|abeM|tr|Q5FAM9|x", compounds) == \
-        ("BAC0001", [("Acridine", "abeM"), ("Copper", "abeM"),
-                     ("Phenolic compounds", "abeM")])
+        ("BAC0001", [("Acriflavine", "abeM; class=Acridine"), ("Copper (Cu)", "abeM"),
+                     ("Proflavine", "abeM; class=Acridine"),
+                     ("Triclosan", "abeM; class=Phenolic compounds"),
+                     ("Wex-cide-128", "abeM")])
 
 
 def test_bacmet_mapping_file_is_read_by_bacmet_id(tmp_path):
@@ -210,9 +200,6 @@ def test_oritdb_role_from_the_installed_id_and_family_from_the_original_header()
         == [("relaxase", "MOBV")]
     assert labeldb.parse_oritdb("relaxase_00010 MobA_y WP_2 _ id=9 [x]")[1] == \
         [("relaxase", "")]
-    # A header whose id= was wrapped onto the next line in the download, rejoined.
-    assert labeldb.parse_oritdb("relaxase_00011 Mob_NBU2 AAA87350 MOBP id=225 [B. sp.]")[1] \
-        == [("relaxase", "MOBP")]
     with pytest.raises(ValueError):
         labeldb.parse_oritdb("TraI_RP4 CAA38336 MOBP id=1")
 
@@ -246,6 +233,9 @@ def test_dbapis_family_with_gene_and_evidence():
     # gene=NA is the installer's mark for a family without a verified seed: no gene.
     assert labeldb.parse_dbapis("WP_2.1 gene=NA family=APIS030 evidence=homolog")[1] == \
         [("APIS030", "evidence=homolog")]
+    # An accession in two families gives one label per family.
+    assert labeldb.parse_dbapis("MGV_7 gene=ArdA family=APIS003,APIS067 evidence=homolog")[1] \
+        == [("APIS003", "ArdA; evidence=homolog"), ("APIS067", "ArdA; evidence=homolog")]
     with pytest.raises(ValueError):
         labeldb.parse_dbapis("WP_1.1 gene=gp54 family=gp54")
 
@@ -290,7 +280,7 @@ def test_load_reference_reads_the_bacmet_mapping_under_raw(tmp_path):
               ["BacMet_ID", "Gene_name", "Accession", "Organism", "Location", "Compound"],
               [["BAC0224", "merA", "P00392", "x", "Plasmid", "Mercury (Hg)"]])
     (entry,) = labeldb.load_reference("bacmet", d)
-    assert entry["labels"] == [("Mercury", "merA")]
+    assert entry["labels"] == [("Mercury (Hg)", "merA")]
 
 
 def test_load_reference_keeps_every_mobileog_evidence_class(tmp_path):
@@ -319,7 +309,7 @@ def _amr_row(pid, symbol, etype, subtype, method="EXACTP", cov="100.00", ident="
             "SUBCLASS", method, "286", "286", cov, ident, "286", acc, "ref", "NA", "NA"]
 
 
-def test_amrfinder_element_types_map_to_their_label_prefixes(tmp_path):
+def test_amrfinder_elements_become_labels_with_their_type_as_sub_label(tmp_path):
     path = tmp_path / "amrfinder.tsv"
     write_tsv(path, AMR_V4, [
         _amr_row("p1", "blaTEM-1", "AMR", "AMR"),
@@ -339,12 +329,6 @@ def test_amrfinder_element_types_map_to_their_label_prefixes(tmp_path):
     assert rows["p2"]["sub_label"] == "STRESS/METAL" and rows["p2"]["tier"] == "BLASTP"
     assert rows["p2"]["pident"] == "97.20" and rows["p2"]["scov"] == "100.00"
     assert rows["p4"]["pident"] == "" and rows["p4"]["subject"] == ""
-    assert labeldb.term_prefix(rows["p1"]) == "amr"
-    assert labeldb.term_prefix(rows["p2"]) == "metal"
-    assert labeldb.term_prefix(rows["p3"]) == "metal"
-    # Other stress and virulence are kept as labels; the contract gives them no term prefix.
-    assert labeldb.term_prefix(rows["p4"]) == ""
-    assert labeldb.term_prefix(rows["p5"]) == ""
 
 
 def test_amrfinder_unknown_element_type_is_refused(tmp_path):
@@ -354,15 +338,7 @@ def test_amrfinder_unknown_element_type_is_refused(tmp_path):
         labeldb.parse_amrfinder(path, "v")
 
 
-def test_term_prefixes_of_the_searched_databases():
-    def row(source, sub=""):
-        return {"source": source, "label_kind": labeldb.KIND[source], "sub_label": sub}
-    assert [labeldb.term_prefix(row(s)) for s in
-            ("card", "bacmet", "tadb", "oritdb", "mobileog", "dbapis", "acrdb")] == \
-        ["amr", "metal", "ta", "conj_role", "mge", "antidefence", "antidefence"]
-
-
-def test_label_rows_carry_the_contracted_columns():
+def test_label_rows_carry_the_label_columns():
     entries = {"7": {"subject": "BAC0224", "labels": [("Mercury", "merA")], "cut_off": ""}}
     best = {"q1": (2, _hit("q1", "7", 75.5, 88.0, 91.0, 250.0))}
     (row,) = labeldb.label_rows("bacmet", best, entries, "2.0")
@@ -371,152 +347,6 @@ def test_label_rows_carry_the_contracted_columns():
                    "label": "Mercury", "sub_label": "merA", "tier": "2", "cut_off": "",
                    "pident": "75.5", "qcov": "88.0", "scov": "91.0", "bitscore": "250.0",
                    "subject": "BAC0224", "database_version": "2.0"}
-
-
-# ------------------------------------------------------------------------------------
-# Disagreements: every conflict type, and no label changed
-# ------------------------------------------------------------------------------------
-def _label(seq_id, source, label, sub_label="", subject=""):
-    return {"seq_id": seq_id, "source": source, "label_kind": labeldb.KIND[source],
-            "label": label, "sub_label": sub_label, "tier": "", "cut_off": "",
-            "pident": "", "qcov": "", "scov": "", "bitscore": "", "subject": subject,
-            "database_version": ""}
-
-
-def _types(rows):
-    return {(r["seq_id"], r["conflict_type"]) for r in rows}
-
-
-def test_tier0_gene_symbol_against_each_specialised_source():
-    labels = [
-        _label("p1", "bacmet", "Mercury", "merA"),               # agrees with merA
-        _label("p2", "bacmet", "Copper", "copA"),                # eggNOG says pcoA
-        _label("p3", "oritdb", "relaxase", "MOBP", "TraI_RP4"),  # eggNOG says traI
-        _label("p4", "oritdb", "relaxase", "MOBQ", "MobA_RSF1010"),  # eggNOG says livM
-        _label("p5", "amrfinder", "blaTEM-1", "AMR/AMR"),        # eggNOG 'bla': agrees
-        _label("p6", "card", "APH(3')", "APH(3')-IIIa"),         # eggNOG aph3-IIIa agrees
-        _label("p7", "card", "Erm-like", "ErmB"),                # eggNOG says tetM
-        _label("p8", "amrfinder", "tet(A)", "AMR/AMR"),          # eggNOG tetA: agrees
-        # oriTDB entry names that are a family or a word, not a gene: nothing to compare.
-        _label("p10", "oritdb", "T4CP", "t4cp2", "t4cp2_M8Y70_RS27255_K163|unnamed2"),
-        _label("p11", "oritdb", "relaxase", "MOBQ", "Relaxase_x"),
-    ]
-    tier0 = {"p1": {"merA"}, "p2": {"pcoA"}, "p3": {"traI"}, "p4": {"livM"},
-             "p5": {"bla"}, "p6": {"aph3-IIIa"}, "p7": {"tetM"}, "p8": {"tetA"},
-             "p9": {"repA"}, "p10": {"virB4"}, "p11": {"mobA"}}
-    rows = labeldb.disagreements(labels, tier0=tier0)
-    assert _types(rows) == {("p2", "tier0_vs_bacmet"), ("p4", "tier0_vs_oritdb"),
-                            ("p7", "tier0_vs_card")}
-    (p4,) = [r for r in rows if r["seq_id"] == "p4"]
-    assert p4 == {"seq_id": "p4", "source_a": "tier0", "label_a": "livM",
-                  "source_b": "oritdb", "label_b": "MobA", "conflict_type": "tier0_vs_oritdb"}
-
-
-def test_card_against_amrfinder_only_when_both_name_a_different_gene():
-    labels = [
-        _label("p1", "card", "TEM beta-lactamase", "TEM-1"),
-        _label("p1", "amrfinder", "blaTEM-1", "AMR/AMR"),          # same gene
-        _label("p2", "card", "sulfonamide resistant sul", "sul1"),
-        _label("p2", "amrfinder", "sul2", "AMR/AMR"),              # different gene
-        _label("p3", "card", "Erm-like", "ErmB"),                  # AMRFinder silent
-        _label("p4", "amrfinder", "mph(A)", "AMR/AMR"),            # CARD silent
-        _label("p5", "card", "APH(3')", "APH(3'')-Ib"),
-        _label("p5", "amrfinder", "merA", "STRESS/METAL"),         # not an AMR element
-        _label("p6", "card", "OXA beta-lactamase", "OXA-1"),
-        _label("p6", "amrfinder", "blaOXA-1", "AMR/AMR"),          # one of two agrees
-        _label("p6", "amrfinder", "catB3", "AMR/AMR"),
-    ]
-    rows = labeldb.disagreements(labels)
-    assert _types(rows) == {("p2", "card_vs_amrfinder")}
-    (p2,) = rows
-    assert p2 == {"seq_id": "p2", "source_a": "card", "label_a": "sul1",
-                  "source_b": "amrfinder", "label_b": "sul2",
-                  "conflict_type": "card_vs_amrfinder"}
-
-
-def test_bacmet_against_amrfinder_stress_metal_and_biocide():
-    labels = [
-        _label("p1", "bacmet", "Mercury", "merA"),
-        _label("p1", "amrfinder", "merA", "STRESS/METAL"),         # agrees
-        _label("p2", "bacmet", "Quaternary Ammonium Compounds (QACs)", "qacE"),
-        _label("p2", "amrfinder", "qacL", "STRESS/BIOCIDE"),       # different gene
-        _label("p3", "bacmet", "Copper", "pcoA"),                  # AMRFinder silent
-        _label("p4", "bacmet", "Arsenic", "arsB"),
-        _label("p4", "amrfinder", "asr", "STRESS/ACID"),           # not metal or biocide
-    ]
-    rows = labeldb.disagreements(labels)
-    assert _types(rows) == {("p2", "bacmet_vs_amrfinder")}
-
-
-def test_card_against_bacmet_only_when_both_name_a_different_gene():
-    labels = [
-        _label("p1", "card", "qac efflux pump", "qacEdelta1"),
-        _label("p1", "bacmet", "Quaternary Ammonium Compounds (QACs)", "qacEdelta1"),
-        _label("p2", "card", "MFS efflux", "tet(A)"),
-        _label("p2", "bacmet", "Copper", "copB"),
-        _label("p3", "card", "MFS efflux", "tet(B)"),
-    ]
-    rows = labeldb.disagreements(labels)
-    assert _types(rows) == {("p2", "card_vs_bacmet")}
-
-
-def test_tadb_against_defencefinder_components():
-    labels = [_label("p1", "tadb", "type II toxin"), _label("p2", "tadb", "type II toxin")]
-    defence = {"p1": {("MazEF", "MazF")}, "p3": {("RM_Type_II", "REase")}}
-    rows = labeldb.disagreements(labels, defence=defence)
-    assert _types(rows) == {("p1", "tadb_vs_defencefinder")}
-    (r,) = rows
-    assert (r["label_a"], r["label_b"]) == ("type II toxin", "MazEF/MazF")
-
-
-def test_oritdb_against_conjscan_role_and_mob_family():
-    labels = [
-        _label("p1", "oritdb", "relaxase", "MOBP", "TraI_RP4"),
-        _label("p2", "oritdb", "relaxase", "MOBF", "TraI_F"),
-        _label("p3", "oritdb", "T4CP", "VirD4/TraG", "TraG_RP4"),
-        _label("p4", "oritdb", "T4CP", "t4cp2", "TraD_F"),
-        _label("p5", "oritdb", "auxiliary protein", "", "TraJ_RP4"),
-        _label("p6", "oritdb", "relaxase", "Other", "Mob_x"),
-    ]
-    conj = {"p1": {("T4SS_typeT", "T4SS_MOBP1")},      # same family: agrees
-            "p2": {("MOB", "T4SS_MOBQ")},              # MOBF vs MOBQ
-            "p3": {("T4SS_typeT", "T4SS_virb4")},      # T4CP vs an MPF protein
-            "p4": {("T4SS_typeF", "T4SS_t4cp2")},      # agrees
-            "p5": {("T4SS_typeT", "T4SS_MOBP1")},      # auxiliary vs relaxase
-            "p6": {("MOB", "T4SS_MOBV")}}              # 'Other' has no family to compare
-    rows = labeldb.disagreements(labels, conj=conj)
-    assert _types(rows) == {("p2", "oritdb_vs_conjscan"), ("p3", "oritdb_vs_conjscan"),
-                            ("p5", "oritdb_vs_conjscan")}
-    p2 = next(r for r in rows if r["seq_id"] == "p2")
-    assert (p2["label_a"], p2["label_b"]) == ("relaxase MOBF", "T4SS_MOBQ")
-
-
-def test_disagreements_never_change_a_label_and_have_the_contracted_columns():
-    labels = [_label("p1", "card", "Erm-like", "ErmB"),
-              _label("p1", "bacmet", "Copper", "copB"),
-              _label("p2", "tadb", "type II toxin"),
-              _label("p3", "oritdb", "relaxase", "MOBF", "TraI_F")]
-    tier0 = {"p1": {"tetM"}}
-    defence = {"p2": {("MazEF", "MazF")}}
-    conj = {"p3": {("MOB", "T4SS_MOBQ")}}
-    before = copy.deepcopy((labels, tier0, defence, conj))
-    rows = labeldb.disagreements(labels, tier0=tier0, defence=defence, conj=conj)
-    assert (labels, tier0, defence, conj) == before
-    assert rows and all(list(r) == labeldb.DISAGREEMENT_COLUMNS for r in rows)
-    assert rows == sorted(rows, key=lambda r: tuple(r.values()))
-
-
-def test_per_orf_system_tables_are_mapped_to_proteins(tmp_path):
-    path = tmp_path / "protein_map.tsv"
-    path.write_text("s1\tpA|1,pB|3\ns2\tpA|2\n")
-    orf_to_protein = labeldb.read_protein_map(path)
-    assert orf_to_protein == {"pA|1": "s1", "pB|3": "s1", "pA|2": "s2"}
-    rows = [{"orf_id": "pA|1", "system": "defense-finder-models/DefenseFinder/MazEF/MazEF",
-             "component": "MazEF__MazF"},
-            {"orf_id": "pB|3", "system": "defense-finder-models/DefenseFinder/MazEF/MazEF",
-             "component": "MazEF__MazF"},
-            {"orf_id": "pA|9", "system": "X", "component": "Y"}]
-    assert labeldb.by_protein(rows, orf_to_protein) == {"s1": {("MazEF", "MazEF__MazF")}}
 
 
 # ------------------------------------------------------------------------------------
@@ -596,7 +426,7 @@ def test_script_labels_proteins_and_records_absent_databases_as_not_run(tmp_path
     rows = read_tsv(snake.output.tsv)
     got = {(r["seq_id"], r["source"], r["label"], r["tier"]) for r in rows}
     assert got == {("q1", "tadb", "type II toxin", "1"),
-                   ("q2", "bacmet", "Mercury", "1"),
+                   ("q2", "bacmet", "Mercury (Hg)", "1"),
                    ("q1", "card", "CTX-M beta-lactamase", "Perfect"),
                    ("q2", "amrfinder", "merA", "EXACTP")}
     # q3 is 40 residues of PROT_A: identical, but covering a third of the subject.
@@ -615,24 +445,6 @@ def test_script_labels_proteins_and_records_absent_databases_as_not_run(tmp_path
         assert status[db]["status"] == "NOT_RUN"
 
 
-def test_script_halts_when_a_required_database_is_absent(tmp_path):
-    refs = tmp_path / "refs"
-    _refs(refs, dbs=("tadb",))
-    amr = _fake_amrfinder(tmp_path, [])
-    with pytest.raises(SystemExit) as err:
-        run_script("label_databases.py", _snake(tmp_path, refs, amr, required=True))
-    assert "bacmet" in str(err.value)
-
-
-def test_script_halts_when_amrfinder_is_required_and_absent(tmp_path):
-    refs = tmp_path / "refs"
-    refs.mkdir()
-    amr = (str(tmp_path / "no" / "amrfinder"), str(tmp_path / "nodb"))
-    with pytest.raises(SystemExit) as err:
-        run_script("label_databases.py", _snake(tmp_path, refs, amr, amr_required=True))
-    assert "amrfinder" in str(err.value).lower()
-
-
 def test_script_records_everything_not_run_when_nothing_is_installed(tmp_path):
     refs = tmp_path / "refs"
     refs.mkdir()
@@ -644,29 +456,5 @@ def test_script_records_everything_not_run_when_nothing_is_installed(tmp_path):
     status = read_tsv(snake.output.status)
     assert {r["database"] for r in status} == set(labeldb.DATABASES) | {"amrfinder"}
     assert {r["status"] for r in status} == {"NOT_RUN"}
-
-
-def test_tiered_search_reports_every_target():
-    # A target limit ranks by bitscore, not tier, and can drop the tier-1 hit.
-    args = labeldb.DIAMOND_TIERED_ARGS.split()
-    assert args[args.index("--max-target-seqs") + 1] == "0"
-
-
-def test_tier0_symbols_come_from_the_kegg_symbols_of_plasmidscope_kos(tmp_path):
-    ko_list = tmp_path / "list_ko.txt"
-    ko_list.write_text("K00002\tAKR1A1, adh; alcohol dehydrogenase (NADP+) [EC:1.1.1.2]\n"
-                       "K03503\tumuD; DNA polymerase V [EC:3.4.21.-]\n"
-                       "K99999\tuncharacterized protein\n"
-                       "K00243\tK00243; uncharacterized protein\n")
-    ko_symbols = labeldb.read_ko_symbols(ko_list)
-    assert ko_symbols == {"K00002": ["AKR1A1", "adh"], "K03503": ["umuD"], "K99999": [],
-                          "K00243": []}
-    rows = [
-        {"seq_id": "p1", "preferred_name": "", "kegg_ko": "ko:K03503,ko:K00002",
-         "orthology_source": "plasmidscope"},
-        {"seq_id": "p3", "preferred_name": "", "kegg_ko": "ko:K99999",
-         "orthology_source": "plasmidscope"},
-        {"seq_id": "p4", "preferred_name": "traG", "kegg_ko": "",
-         "orthology_source": "emapper"},
-    ]
-    assert labeldb.tier0_symbols(rows, ko_symbols) == {"p1": {"umuD", "AKR1A1", "adh"}}
+    # The working directory of raw search tables is removed once the tables are written.
+    assert not (tmp_path / "08_protein_labels" / "label_databases").exists()

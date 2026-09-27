@@ -51,8 +51,9 @@ import _ctx  # noqa: F401
 
 from darkorf import status
 from darkorf.ids import family_id as cluster_family_id
-from plasmidann import integration, labeldb
+from plasmidann import integration
 from plasmidann.context import overlapping_islands
+from plasmidann.context_terms import label_term
 from plasmidann.cooccurrence import family_partners
 from plasmidann.evidence import darkness_state, reality_lines, reality_thresholds
 
@@ -290,8 +291,8 @@ with open(snakemake.input.clusters_close) as fh:
         if cid in close_rows:
             close_of_seq[member] = cid
 
-# Per protein, the plasmid label databases' labels (S4d) by term type, as 'source:label':
-# the ORF's own labels, in the vocabulary the context terms use (plasmidann.labeldb).
+# Per protein, the labels of label_databases by term type, as 'source:label':
+# the ORF's own labels, in the vocabulary the context terms use (context_terms.label_term).
 # AMRFinderPlus VIRULENCE and STRESS acid/heat elements have no term type and no column.
 LABEL_COLS = {"amr": "amr_labels", "metal": "metal_labels", "ta": "ta_labels",
               "conj_role": "conj_role_labels", "mge": "mge_labels",
@@ -299,9 +300,10 @@ LABEL_COLS = {"amr": "amr_labels", "metal": "metal_labels", "ta": "ta_labels",
 labels_of_seq = collections.defaultdict(lambda: collections.defaultdict(set))
 with open(snakemake.input.labels_plasmid, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
-        prefix = labeldb.term_prefix(r)
-        if prefix:
-            labels_of_seq[r["seq_id"]][LABEL_COLS[prefix]].add(f"{r['source']}:{r['label']}")
+        term = label_term(r["label_kind"], r["label"], r["sub_label"])
+        if term:
+            labels_of_seq[r["seq_id"]][LABEL_COLS[term.split(":", 1)[0]]].add(
+                f"{r['source']}:{r['label']}")
 
 # Per ORF, its CONJScan system and component (S8f); per plasmid, its mobility class.
 conj_of_orf = collections.defaultdict(lambda: {"conj_system": set(), "conj_component": set()})

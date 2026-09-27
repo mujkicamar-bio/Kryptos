@@ -168,8 +168,7 @@ def _operative_text(path):
 
 def test_the_pipeline_never_uses_plasann_labels_or_kegg_context_terms():
     """User decision 2026-09-25: PlasAnn's database and labels are not used (only its
-    published tier thresholds), and KEGG gives no context term. The KEGG KO list maps Tier 0
-    KOs to gene symbols for the disagreement table, and nothing else."""
+    published tier thresholds), and KEGG gives no context term."""
     from plasmidann import context_terms
     code = [WORKFLOW / "Snakefile", *sorted((WORKFLOW / "rules").glob("*.smk")),
             *sorted((WORKFLOW / "scripts").glob("*.py")),
@@ -179,13 +178,9 @@ def test_the_pipeline_never_uses_plasann_labels_or_kegg_context_terms():
                  if "plasann" in _operative_text(p).lower()]
     assert not offenders, f"PlasAnn referenced operatively in: {offenders}"
 
-    # KEGG: no context term type, and the KO list reaches only protein_labels.
+    # KEGG: no context term type.
     assert not any("kegg" in t.lower() for t in context_terms.TERM_PREFIX.values())
     assert not any("kegg" in k.lower() for k in context_terms.TERM_PREFIX)
-    readers = [p.name for p in code if "kegg_ko_list" in _operative_text(p)
-               and p.suffix != ".yaml"]
-    assert readers == ["annotation_cascade.smk"], readers
-    assert "kegg_ko_list" in _rule("protein_labels")
     context_code = _operative_text(WORKFLOW / "scripts" / "context_features.py") \
         + _operative_text(ROOT / "src" / "plasmidann" / "context_terms.py")
     assert "kegg" not in context_code.lower(), "KEGG reaches the context terms"
@@ -195,8 +190,7 @@ def test_the_pipeline_never_uses_plasann_labels_or_kegg_context_terms():
 # empty stand-ins for them, so the test needs no reference data.
 EXTERNAL_INPUTS = [("input", "master_table"), ("input", "fasta"),
                    ("input", "plasmidscope_proteins"), ("input", "host_provenance"),
-                   ("input", "working_set"), ("references", "pfam_dat"),
-                   ("references", "kegg_ko_list")]
+                   ("input", "working_set"), ("references", "pfam_dat")]
 
 
 @pytest.fixture(scope="module")
@@ -249,9 +243,8 @@ def test_every_rule_is_reached_by_all(rule_graph):
     ("cascade_selection", "tier_search"),
     # The dark set is the target-eligible proteins.
     ("target_eligibility", "dark_set"),
-    # The label table merges the label databases, defence and CONJScan components.
-    ("label_databases", "protein_labels"), ("defence_systems", "protein_labels"),
-    ("conjugation_systems", "protein_labels"),
+    # The label table merges the label databases.
+    ("label_databases", "protein_labels"),
     # Context terms: the labels, the systems, every family and the lineages.
     ("protein_labels", "context_features"), ("conjugation_systems", "context_features"),
     ("protein_families", "context_features"), ("plasmid_lineage", "context_features"),
