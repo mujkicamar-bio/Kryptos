@@ -1,48 +1,17 @@
-"""The deliverable: one complete annotation table, and one complete family table.
+"""The report: every annotation the run produced, as two CSV tables.
 
-WHAT THIS IS FOR
+annotation_complete.csv has one row per ORF: the cascade call, the dark evidence, the
+orthology terms, the plasmid label database labels of its protein, its CONJScan system, its
+plasmid's host, mobility class and geNomad phage-plasmid label, the synteny of its close
+cluster and, for an ORF in a dark family, that family's evidence. dark_families_complete.csv has one row per dark family
+with every measurement of the family side by side and the evidence dimensions measured for
+it (plasmidann.integration). family_context_terms.tsv, written by context_features, holds
+the context terms per family counted over lineages.
 
-The pipeline's output is not a shortlist. It is every annotation the run could produce, in a
-form you can open, sort and filter yourself, so that selecting candidates is YOUR step and
-not a decision baked into a Snakemake rule.
-
-Two files, because there are two natural units:
-
-  annotation_complete.csv     one row per ORF - 9.3M of them. What the cascade called it,
-                              how much of it that explained, what the dark evidence says,
-                              its orthology terms, the plasmid label databases' labels of
-                              its protein (amr, metal, ta, conj_role, mge, antidefence), its
-                              CONJScan system and its plasmid's mobility class, its
-                              plasmid's geNomad phage-plasmid label, the close-level
-                              synteny of its close cluster, and - where the ORF is dark -
-                              the evidence assembled for its family.
-  dark_families_complete.csv  one row per dark family. The selection surface: every piece
-                              of evidence the run produced, side by side - annotation,
-                              evolution, context, structure, distribution (Stage 7),
-                              synteny (Stage 9), the dark sequences its members travel
-                              with (S8g), rarity (Stage 14) and the Stage 15 evidence
-                              dimensions.
-
-WHAT CONTEXT HOLDS is not a column here: 12_context_and_structure/family_context_terms.tsv
-is the long table of context terms per family (amr:, metal:, defence:, conj: ...), counted
-over lineages. It carries no top term and no confidence; the family table carries the
-descriptive rates (cons_*) only, beside the co-occurrence partners from
-dark_cooccurrence.tsv, which are pairs of dark protein sequences rather than context terms.
-
-CSV, not TSV, because these are the files that get opened in a spreadsheet. Every field is
-quoted by csv.writer where it needs to be, which matters: a DIAMOND stitle is free text and
-routinely contains commas.
-
-NOTHING IS FILTERED AND NOTHING IS RANKED HERE
-
-Every ORF appears, including artefact-flagged ones. Every dark family appears, including
-ORPHANs and families that failed every test. Absence of evidence is written as an explicit
-status - TOO_FEW_MEMBERS, TOO_SHORT, NO_SIGNAL - never as a blank that reads as a failed
-test. Choosing what to do with all that is the report's job, and the report is you.
-
-There is no score, rank or candidate column. evidence_dimension_count counts the distinct
-measurements present (plasmidann.integration); supporting_observations_count is reported
-beside it and labelled, in the column name itself, as not independent.
+Nothing is filtered and nothing is ranked: every ORF and every family appears, and a missing
+measurement is written as a status (TOO_FEW_MEMBERS, TOO_FEW_LINEAGES ...), not a blank.
+CSV because the tables are opened in spreadsheets; csv quoting keeps fields that contain
+commas, such as DIAMOND titles, intact.
 """
 import collections
 import csv
@@ -75,7 +44,7 @@ evolution = index(snakemake.input.evolution, "family_id")
 recheck = index(snakemake.input.recheck, "family_id")
 context = index(snakemake.input.context, "family_id")
 
-# IS elements (S8e) as intervals per plasmid, for the per-ORF is_element column. The
+# IS elements (is_elements) as intervals per plasmid, for the per-ORF is_element column. The
 # family view already carries them through the context table as cons_is_element.
 is_elements = collections.defaultdict(list)
 with open(snakemake.input.is_elements, newline="") as fh:
@@ -91,7 +60,7 @@ recurrence = index(snakemake.input.recurrence, "family_id")
 synteny = index(snakemake.input.synteny, "family_id")
 rarity = index(snakemake.input.rarity, "family_id")
 
-# S8g: pairs of dark sequences that share a plasmid in more lineages than chance predicts.
+# dark_cooccurrence: pairs of dark sequences that share a plasmid in more lineages than chance predicts.
 # The pair table holds the reported pairs only; a family none of whose members is in one
 # had no member together with another sequence in cooccurrence.min_lineages_together
 # lineages.
@@ -116,11 +85,37 @@ for fid, fam in families.items():
         family_of_seq[member] = fid
 partners = family_partners(pairs, cooc_cfg["fdr"], family_of_seq)
 
+# The measured fields the evidence dimensions are counted from, per family member: whether
+# the artefact screen and the cascade reached it, and its informative database hits.
+screened = set()
+with open(snakemake.input.artefact, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        if r["seq_id"] in family_of_seq and r["artefact_flag"] != "":
+            screened.add(r["seq_id"])
+searched, informative_hits = set(), collections.Counter()
+with open(snakemake.input.prot, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        fid = family_of_seq.get(r["seq_id"])
+        if fid and r["functional_class"] not in ("", "NOT_SEARCHED"):
+            searched.add(r["seq_id"])
+            informative_hits[fid] += int(r["n_informative_hits"] or 0)
+# The representatives' lengths. Every representative is a dark protein.
+length = {}
+with open(snakemake.input.dark_faa) as fh:
+    for line in fh:
+        if line[0] == ">":
+            sid = line[1:].split()[0]
+            length[sid] = 0
+        else:
+            length[sid] += len(line.strip())
+# structure_search queries every family representative, unless it recorded NOT_RUN.
+structure_searched = int(structure.get("", {}).get("status") != status.NOT_RUN)
+
 # ------------------------------------------------------------------------------------
 # The family table: the selection surface.
 # ------------------------------------------------------------------------------------
 FAMILY_COLS = [
-    "family_id", "representative", "family_class",
+    "family_id", "representative", "representative_length_aa", "family_class",
     "n_members", "n_orfs", "n_plasmids", "n_mob_clusters",
     "dark_member_count", "annotated_member_count", "percentage_dark_in_family", "dark_only",
     # small plasmids and large ones; the small_ columns below repeat a
@@ -136,14 +131,13 @@ FAMILY_COLS = [
     "consensus_status", "consensus_hit", "consensus_label", "collectively_novel",
     # what it might do
     "darkness_state", "structural_match", "structural_description", "structure_evalue",
-    # S8c: the fraction of the family's plasmids on which a member has each context
+    # context_features: the fraction of the family's plasmids on which a member has each context
     # feature. Descriptive rates; there is no enrichment test.
     "cons_defence", "cons_integron", "cons_is_element",
     "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
     "cons_conj",
-    # Stage 7: SEVEN counts, never collapsed. A family on forty copies of one
-    # redeposited plasmid is one observation, and reading only the first of these numbers
-    # is how a reader concludes otherwise.
+    # recurrence: the distribution counts, each kept separate, because database record
+    # counts are not independent biological observations.
     "plasmid_occurrence_count", "unique_plasmid_count",
     "independent_plasmid_cluster_count", "independent_cluster_status",
     "host_count", "genus_count", "n_plasmids_with_host",
@@ -151,10 +145,10 @@ FAMILY_COLS = [
     "predicted_host_range_count",
     "predicted_host_ranges", "MOB_count", "habitat_count",
     "database_source_count",
-    # Stage 9: six conservation measurements, kept apart because they fail
-    # apart - a conserved left neighbour with a variable right one is a real arrangement
-    # that a single averaged context score would hide. Counted over Stage 6 lineages, one
-    # vote per lineage; the family table carries the primary-level (family) rows.
+    # synteny: six conservation measurements, kept apart because a conserved left
+    # neighbour with a variable right one is a real arrangement that an average would
+    # hide. Counted over plasmid lineages, one vote per lineage; the family table carries
+    # the primary-level (family) rows.
     "context_recurrence", "n_occurrences", "n_lineages", "n_lineages_discordant",
     "lineage_left_conservation", "lineage_right_conservation",
     "lineage_neighborhood_conservation", "lineage_operon_like_conservation",
@@ -165,7 +159,7 @@ FAMILY_COLS = [
     "small_lineage_right_conservation", "small_lineage_neighborhood_conservation",
     "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
     "small_modal_left", "small_modal_right", "small_modal_synteny", "small_synteny_status",
-    # S8g: the dark sequences this family's dark members travel with. A partner sequence
+    # dark_cooccurrence: the dark sequences this family's dark members travel with. A partner sequence
     # counts when it shares a plasmid with a member in more lineages than chance predicts
     # (q <= fdr); the best partner (lowest q) is named whether significant or not, with its
     # q and the fraction of the member's lineages in which the two share a plasmid.
@@ -174,21 +168,20 @@ FAMILY_COLS = [
     "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
     "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
     "cooccurrence_fdr", "cooccurrence_min_lineages",
-    # Stage 14: descriptors, not a ranking. RARE is not better than
-    # WIDESPREAD.
+    # rarity: descriptors, not a ranking. RARE is not better than WIDESPREAD.
     "rarity_labels",
-    # Stage 15: dimensions counted, never scored.
+    # evidence dimensions: counted, never scored.
     "evidence_dimensions_present", "evidence_dimension_count",
     "supporting_observations_count", "supporting_observations_are_not_independent",
 ]
 
-# Stage 7 and Stage 14 both report the distribution counts, because each stage needs them.
-# The report takes them from Stage 7, which is where they are computed; taking rarity's
+# recurrence and rarity both report the distribution counts. The report takes them from
+# recurrence, which is where they are computed; taking rarity's
 # copies as well would put the same number in the row twice under one name, and whichever
 # was merged last would win silently if the two ever disagreed.
 RARITY_COLS = ("rarity_labels",)
 
-# S9 writes a bare `status`. Every stage does, which is exactly why it cannot be merged
+# synteny writes a bare `status`. Every stage does, which is exactly why it cannot be merged
 # under that name: the family row already carries dnds_status and independent_cluster_status
 # and a third would overwrite by accident rather than by decision.
 SYNTENY_COLS = ("n_occurrences", "context_recurrence", "n_lineages", "n_lineages_discordant",
@@ -232,6 +225,7 @@ with open(snakemake.output.families, "w", newline="") as out:
                   "n_members": fam["n_members"],
                   "structural_match": struct.get("target", "")}
         n, fired, implied = reality_lines(record, THRESHOLDS)
+        members = fam["members"].split(",")
         syn = synteny.get(fid, {})
         rar = rarity.get(fid, {})
         row = {**fam, **evo, **recheck.get(fid, {}), **ctx,
@@ -264,9 +258,16 @@ with open(snakemake.output.families, "w", newline="") as out:
                "darkness_state": darkness_state(record),
                "structural_match": struct.get("target", ""),
                "structural_description": struct.get("target_description", ""),
-               "structure_evalue": struct.get("evalue", "")}
+               "structure_evalue": struct.get("evalue", ""),
+               "representative_length_aa": length.get(fam["representative"], ""),
+               "artefact_screened": int(any(m in screened for m in members)),
+               "cascade_searched": int(any(m in searched for m in members)),
+               "eggnog_searched": int(any(m in orthology for m in members)),
+               "structure_searched": structure_searched,
+               "n_informative_hits": informative_hits[fid]}
 
-        # Stage 15 reads the assembled row, so it sees exactly the evidence a reader sees.
+        # The dimensions are read from the assembled row, so they describe exactly the
+        # evidence a reader sees.
         # Computing it from the source tables instead would let the two drift, and the
         # dimension count is a claim ABOUT this row.
         row.update(integration.evidence_summary(row))
@@ -278,7 +279,7 @@ with open(snakemake.output.families, "w", newline="") as out:
 # The ORF table: everything, with the family evidence joined on where it exists.
 # ------------------------------------------------------------------------------------
 # Per ORF, the close-level (90% identity) synteny row of the ORF's close cluster, where
-# Stage 9 measured one - that is, where the cluster holds a dark small-plasmid member.
+# synteny measured one - that is, where the cluster holds a dark small-plasmid member.
 CLOSE_COLS = {"close_family_id": "family_id", "close_n_lineages": "n_lineages",
               "close_lineage_synteny_conservation": "lineage_synteny_conservation",
               "close_modal_synteny": "modal_synteny", "close_synteny_status": "status"}
@@ -305,7 +306,8 @@ with open(snakemake.input.labels_plasmid, newline="") as fh:
             labels_of_seq[r["seq_id"]][LABEL_COLS[term.split(":", 1)[0]]].add(
                 f"{r['source']}:{r['label']}")
 
-# Per ORF, its CONJScan system and component (S8f); per plasmid, its mobility class.
+# Per ORF, its CONJScan system and component (conjugation_systems); per plasmid, its
+# mobility class.
 conj_of_orf = collections.defaultdict(lambda: {"conj_system": set(), "conj_component": set()})
 with open(snakemake.input.conjugation, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
@@ -315,7 +317,7 @@ conj_class = {}
 with open(snakemake.input.conjugation_class, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
         conj_class[r["plasmid_id"]] = r["class"]
-# Per plasmid, its phage-plasmid label from geNomad (S8h).
+# Per plasmid, its phage-plasmid label from geNomad (phage_plasmids).
 with open(snakemake.input.phage_plasmids, newline="") as fh:
     phage_plasmid = {r["plasmid_id"]: r["phage_plasmid"]
                      for r in csv.DictReader(fh, delimiter="\t")}
@@ -380,7 +382,6 @@ with open(snakemake.input.annotation, newline="") as fh:
                 n_dark += 1
                 fam = family_rows[fid]
                 row.update({c: fam.get(c, "") for c in CARRIED})
-                row["family_id"] = fid
             w.writerow(row)
 
 print(f"annotation_complete.csv: {n_orfs} ORFs ({n_dark} in a dark family)")

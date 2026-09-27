@@ -1,71 +1,48 @@
-"""Stage 15: evidence dimensions counted without a score (plasmidann.integration)."""
+"""Evidence dimensions counted without a score (plasmidann.integration), on the keys the
+family row of annotation_report carries."""
 from plasmidann import integration
 
-
-def test_four_sequence_databases_are_one_dimension_not_four():
-    """Pfam, Swiss-Prot, nr and pharokka share evolutionary information, so their hits
-    fill one dimension, not four."""
-    record = {"pfam_searched": 1, "swissprot_searched": 1, "nr_searched": 1,
-              "pharokka_searched": 1, "annot_tier": "T1"}
-
-    present = integration.dimensions_present(record)
-
-    assert present.count("SEQUENCE_HOMOLOGY") == 1
-    assert len(present) == 1, f"four databases produced {len(present)} dimensions"
+# A searched dark family with every stage measured, as annotation_report assembles it.
+MEASURED = {"artefact_screened": 1, "cascade_searched": 1, "eggnog_searched": 1,
+            "cons_annotated_neighbour": "0.0", "synteny_status": "TOO_FEW_LINEAGES",
+            "cooccurrence_status": "TOO_FEW_LINEAGES", "dnds_status": "TOO_SHORT",
+            "rnacode_status": "TOO_FEW_MEMBERS", "independent_cluster_status": "SUCCESS",
+            "structure_searched": 1, "representative_length_aa": 120,
+            "n_informative_hits": 0}
 
 
-def test_structure_is_a_separate_dimension_from_sequence():
-    """Structure reaches further back than sequence, so a structural match is its own
-    dimension."""
-    record = {"annot_tier": "T1", "structural_match": "1abc_A"}
-
-    present = integration.dimensions_present(record)
-
-    assert "SEQUENCE_HOMOLOGY" in present
-    assert "STRUCTURAL_RELATIONSHIP" in present
+def test_every_dimension_is_present_when_every_stage_measured_it():
+    """A search that found nothing, a rate of 0 and a status without a value are all
+    measurements, which is what a dark family is made of."""
+    assert integration.dimensions_present(MEASURED) == list(integration.DIMENSIONS)
 
 
-def test_a_dimension_is_present_when_measured_not_when_positive():
-    """A search that ran and found nothing is a measurement, and it is exactly the
-    measurement a dark protein is made of. Requiring a positive result would make the dark
-    set look evidence-free by construction."""
-    record = {"dnds_status": "TOO_SHORT", "rnacode_status": "TOO_FEW_MEMBERS"}
-
-    assert "EVOLUTIONARY_CONSERVATION" in integration.dimensions_present(record)
-
-
-def test_the_summary_contains_no_score_or_rank():
-    summary = integration.evidence_summary({"annot_tier": "T1", "protein_length": 120})
-
-    for forbidden in ("score", "rank", "novelty", "candidate", "priority"):
-        assert not any(forbidden in key.lower() for key in summary), (
-            f"the evidence summary contains a {forbidden} field")
+def test_a_stage_that_did_not_measure_leaves_its_dimension_out():
+    for key, dim in (("artefact_screened", "ORF_QC"),
+                     ("cascade_searched", "SEQUENCE_HOMOLOGY"),
+                     ("eggnog_searched", "ORTHOLOGY"),
+                     ("structure_searched", "STRUCTURAL_RELATIONSHIP"),
+                     ("representative_length_aa", "PROTEIN_PROPERTIES")):
+        record = {**MEASURED, key: 0}
+        assert dim not in integration.dimensions_present(record), key
+    assert "DISTRIBUTION" not in integration.dimensions_present(
+        {**MEASURED, "independent_cluster_status": "TOO_FEW_MEMBERS"})
 
 
-def test_the_observation_count_is_labelled_non_independent():
-    """It counts database hits, so it rewards being well studied; the flag travels with
-    the column."""
-    summary = integration.evidence_summary({"n_informative_hits": 7})
+def test_too_few_lineages_is_not_a_context_measurement():
+    """TOO_FEW_LINEAGES says no synteny or co-occurrence test was made."""
+    no_context = {**MEASURED, "cons_annotated_neighbour": ""}
+    assert "GENOMIC_CONTEXT" not in integration.dimensions_present(no_context)
+    for key in ("synteny_status", "cooccurrence_status"):
+        assert "GENOMIC_CONTEXT" in integration.dimensions_present(
+            {**no_context, key: "SUCCESS"}), key
 
+
+def test_the_summary_counts_and_labels_the_observations_and_holds_no_score():
+    summary = integration.evidence_summary({**MEASURED, "n_informative_hits": 7})
+
+    assert summary["evidence_dimension_count"] == len(integration.DIMENSIONS)
     assert summary["supporting_observations_count"] == 7
     assert summary["supporting_observations_are_not_independent"] == 1
-
-
-def test_every_emitted_dimension_is_declared():
-    record = {"artefact_flag": 0, "annot_tier": "T1", "cog_category": "L",
-              "cons_annotated_neighbour": 0.5, "dnds_status": "SUCCESS",
-              "independent_cluster_status": "SUCCESS", "structural_match": "x",
-              "protein_length": 100}
-
-    assert set(integration.dimensions_present(record)) <= set(integration.DIMENSIONS)
-
-
-def test_cooccurrence_is_genomic_context_and_not_a_new_dimension():
-    """S8g asks which dark families share a plasmid: that is genomic context, so it
-    fills GENOMIC_CONTEXT once, alone or beside synteny, and adds no ninth dimension."""
-    alone = integration.dimensions_present({"cooccurrence_status": "TOO_FEW_LINEAGES"})
-    both = integration.dimensions_present({"cooccurrence_status": "SUCCESS",
-                                           "synteny_status": "SUCCESS"})
-
-    assert alone == ["GENOMIC_CONTEXT"]
-    assert both == ["GENOMIC_CONTEXT"]
+    for forbidden in ("score", "rank", "novelty", "candidate", "priority"):
+        assert not any(forbidden in key.lower() for key in summary), forbidden

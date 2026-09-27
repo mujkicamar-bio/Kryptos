@@ -2,7 +2,7 @@
 # refused, so a misspelt key fails at load time instead of falling back to a default.
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
-required: [input, outdir, orf, discovery, qc, seed,
+required: [input, outdir, orf, seed,
            references, labels, amrfinder, genomad, foldseek_db, prostt5_model]
 additionalProperties: false
 properties:
@@ -27,16 +27,10 @@ properties:
     properties:
       min_call_length_aa: {type: integer, minimum: 1}
       min_terminal_repeat_bp: {type: integer, minimum: 1}
-  discovery:
-    type: object
-    required: [min_dark_candidate_length_aa]
-    additionalProperties: false
-    properties:
-      min_dark_candidate_length_aa: {type: integer, minimum: 1}
   references:
     type: object
     required: [pfam_dat, pfam_version, swissprot_version, nr_version, eggnog_version,
-               pharokka_db_version, macsyfinder_models, conjscan_models, kegg_ko_list]
+               pharokka_db_version, macsyfinder_models, conjscan_models]
     additionalProperties: false
     properties:
       pfam_dat: {type: string}
@@ -47,8 +41,7 @@ properties:
       pharokka_db_version: {type: string}
       macsyfinder_models: {type: string}
       conjscan_models: {type: string}
-      kegg_ko_list: {type: string}
-  # S4d label databases and AMRFinderPlus (rule label_databases).
+  # The label databases and AMRFinderPlus (rule label_databases).
   labels:
     type: object
     required: [dir, required]
@@ -71,12 +64,6 @@ properties:
     properties:
       executable: {type: string}
       database: {type: string}
-  qc:
-    type: object
-    required: [max_opposite_strand_overlap_fraction]
-    additionalProperties: false
-    properties:
-      max_opposite_strand_overlap_fraction: {type: number, minimum: 0, maximum: 1}
   seed: {type: integer}
   foldseek_db: {type: string}
   prostt5_model: {type: string}

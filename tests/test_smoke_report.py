@@ -21,7 +21,7 @@ def _report_fixture(fixture_dir):
     write_tsv(fams, ["family_id", "representative", "n_members", "n_orfs", "n_plasmids",
                      "n_mob_clusters", "family_class", "members"],
               [["F1", "S2", 1, 1, 1, 1, "ORPHAN", "S2"],
-               ["F2", "S3", 4, 9, 9, 3, "FAMILY", "S3"]])
+               ["F2", "S3", 4, 9, 9, 3, "FAMILY", "S3,S4"]])
     evo = fixture_dir / "evo.tsv"
     write_tsv(evo, ["family_id", "dnds_median", "dnds_status", "under_purifying_selection",
                     "rnacode_p", "rnacode_status", "coding_signal"],
@@ -40,7 +40,8 @@ def _report_fixture(fixture_dir):
     orth = fixture_dir / "orth.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description"],
-              [["S1", "L", "ko03430", "mobA", "Relaxase"]])
+              [["S1", "L", "ko03430", "mobA", "Relaxase"],
+               ["S4", "L", "", "", ""]])
     recur = fixture_dir / "recurrence.tsv"
     write_tsv(recur, ["family_id", "family_resolution", "representative",
                       "plasmid_occurrence_count", "unique_plasmid_count",
@@ -122,6 +123,18 @@ def _run_report(fixture_dir, *tables):
                      "fraction_of_b", "expected_together", "p_value", "q_value"],
               [["S3", "S9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01],
                ["S3", "S8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3]])
+    # The measured fields of the families: S2 (F1) was not searched by the cascade; S3
+    # (F2) was searched and found nothing, and its co-member S4 is named with two
+    # informative hits. Every protein went through the artefact screen.
+    prot = fixture_dir / "protein_annotation.tsv"
+    write_tsv(prot, ["seq_id", "functional_class", "n_informative_hits"],
+              [["S1", "FUNCTIONAL", 3], ["S2", "NOT_SEARCHED", ""], ["S3", "NONE", 0],
+               ["S4", "FUNCTIONAL", 2]])
+    artefact = fixture_dir / "artefact_flags.tsv"
+    write_tsv(artefact, ["seq_id", "artefact_flag"],
+              [["S1", 0], ["S2", 1], ["S3", 0], ["S4", 0]])
+    dark_faa = fixture_dir / "dark_proteins.faa"
+    dark_faa.write_text(">S2\nMKV\n>S3\nMKVLA\nAGG\n")
     out_ann = fixture_dir / "annotation_complete.csv"
     out_fam = fixture_dir / "dark_families_complete.csv"
     run_script("annotation_report.py", FakeSnakemake(
@@ -133,7 +146,8 @@ def _run_report(fixture_dir, *tables):
                "registry": str(registry), "clusters_close": str(clusters_close),
                "labels_plasmid": str(labels_plasmid), "conjugation": str(conj),
                "conjugation_class": str(conj_class), "cooccurrence": str(cooc),
-               "phage_plasmids": str(phage)},
+               "phage_plasmids": str(phage),
+               "prot": str(prot), "artefact": str(artefact), "dark_faa": str(dark_faa)},
         output={"annotation": str(out_ann), "families": str(out_fam)},
         params={"evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5},
                 "cooccurrence": {"min_lineages_together": 2, "fdr": 0.05}}))
@@ -176,7 +190,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     # The column sets are the contract, asserted by equality, so an added, renamed or
     # removed column fails here. It also keeps any score or rank column out of the report.
     FAMILY_COLUMNS = [
-        "family_id", "representative", "family_class",
+        "family_id", "representative", "representative_length_aa", "family_class",
         "n_members", "n_orfs", "n_plasmids", "n_mob_clusters",
         "dark_member_count", "annotated_member_count", "percentage_dark_in_family",
         "dark_only",
@@ -299,16 +313,31 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     # --- Stage 14: labels are descriptors -------------------------------------------
     assert fam_rows["F1"]["rarity_labels"] == "RARE,LINEAGE_SPECIFIC"
 
-    # --- Stage 15: dimensions counted, never scored ----------------------------------
-    dims = fam_rows["F2"]["evidence_dimensions_present"].split(",")
-    assert "EVOLUTIONARY_CONSERVATION" in dims, "dnds_status is a measurement"
-    assert "DISTRIBUTION" in dims, "independent_cluster_status is a measurement"
-    assert "GENOMIC_CONTEXT" in dims, "the context rates are a measurement"
-    assert fam_rows["F2"]["cons_defence"] == "0.8"
-    assert fam_rows["F2"]["evidence_dimension_count"] == str(len(dims))
-    assert fam_rows["F2"]["supporting_observations_are_not_independent"] == "1", (
+    # --- evidence dimensions counted, never scored ------------------------------------
+    # F2 was measured on every axis; its informative hits are those of its member S4.
+    assert (f2["evidence_dimensions_present"], f2["evidence_dimension_count"],
+            f2["supporting_observations_count"], f2["representative_length_aa"]) == (
+        "ORF_QC,SEQUENCE_HOMOLOGY,ORTHOLOGY,GENOMIC_CONTEXT,EVOLUTIONARY_CONSERVATION,"
+        "DISTRIBUTION,STRUCTURAL_RELATIONSHIP,PROTEIN_PROPERTIES", "8", "2", "8")
+    # F1: not searched by the cascade, no eggNOG row, and TOO_FEW_LINEAGES synteny and
+    # co-occurrence with no context rates, which is no context measurement.
+    assert (f1["evidence_dimensions_present"], f1["evidence_dimension_count"],
+            f1["supporting_observations_count"], f1["representative_length_aa"]) == (
+        "ORF_QC,EVOLUTIONARY_CONSERVATION,DISTRIBUTION,STRUCTURAL_RELATIONSHIP,"
+        "PROTEIN_PROPERTIES", "5", "0", "3")
+    assert f2["supporting_observations_are_not_independent"] == "1", (
         "the observation count must carry its own warning, because a column selected "
         "into a downstream ranking takes the warning with it")
+
+
+def test_a_structure_search_that_did_not_run_is_not_a_structural_measurement(fixture_dir):
+    import csv as _csv
+    tables = _report_fixture(fixture_dir)
+    write_tsv(tables[6], ["seq_id", "target", "target_description", "evalue", "status"],
+              [["", "", "", "", "NOT_RUN"]])
+    _, out_fam = _run_report(fixture_dir, *tables)
+    for row in _csv.DictReader(open(out_fam)):
+        assert "STRUCTURAL_RELATIONSHIP" not in row["evidence_dimensions_present"]
 
 
 def test_the_report_names_the_is_family_of_an_orf_inside_an_element(fixture_dir):
