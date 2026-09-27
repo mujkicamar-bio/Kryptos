@@ -55,8 +55,8 @@ if not (models_dir.is_dir() and any(models_dir.iterdir())):
     sys.exit(0)
 
 # defense-finder runs MacSyFinder once per model family, in turn, and stops at the first
-# failure; each run writes its all_systems.tsv under the preserved raw output. Tables left
-# by an earlier run are removed first, so that only this run's tables are read.
+# failure; each run writes its all_systems.tsv under the preserved raw output. The raw
+# output directory is emptied first, so that only tables written by this search are read.
 raw = outdir / "defense-finder-tmp"
 shutil.rmtree(raw, ignore_errors=True)
 completed = subprocess.run(
