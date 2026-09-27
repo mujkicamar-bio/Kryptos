@@ -79,7 +79,6 @@ rule all:
         f"{OUT}/15_report/annotation_complete.csv",     # every ORF, every annotation
         f"{OUT}/15_report/dark_families_complete.csv",  # every dark family, every evidence
         f"{OUT}/08_protein_labels/protein_labels.tsv",         # every tool label, per protein
-        f"{OUT}/08_protein_labels/label_disagreements.tsv",    # S4d cross-source conflicts
         f"{OUT}/12_context_and_structure/family_context_terms.tsv",  # S8c context terms
         f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",  # S8f mobility
         f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",  # S8g families together

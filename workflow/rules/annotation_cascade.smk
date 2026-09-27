@@ -290,25 +290,17 @@ rule label_databases:
 
 
 rule protein_labels:
-    """S4c: every functional label every tool produced, one long table, no role assigned;
-    and the cross-source label disagreements."""
+    """Every functional label every tool produced, one long table, no role assigned."""
     input:
         hits=expand(f"{OUT}/05_annotation_cascade/{{tier}}/hits.tsv", tier=TIER_IDS),
         orthology=f"{OUT}/07_orthology/orthology.tsv",
         pfam_dat=config["references"]["pfam_dat"],
         # Search-cluster members take their representative's labels.
         selection=f"{OUT}/03_dereplication/selection.tsv",
-        # S4d: the plasmid label databases, merged in as their own kinds.
+        # The plasmid label databases (label_databases), merged in as their own kinds.
         labels_plasmid=f"{OUT}/08_protein_labels/protein_labels_plasmid.tsv",
-        # For the disagreement table: Tier 0 gene symbols (orthology + the KEGG KO list),
-        # DefenseFinder and CONJScan components per protein (via the protein map).
-        ko_list=config["references"]["kegg_ko_list"],
-        defence=f"{OUT}/12_context_and_structure/defence_systems.tsv",
-        conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
-        map=f"{OUT}/03_dereplication/protein_map.tsv",
     output:
         tsv=f"{OUT}/08_protein_labels/protein_labels.tsv",
-        disagreements=f"{OUT}/08_protein_labels/label_disagreements.tsv",
     params:
         pfam_version=config["references"]["pfam_version"],
         swissprot_version=config["references"]["swissprot_version"],
