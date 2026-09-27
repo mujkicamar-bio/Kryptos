@@ -1,36 +1,12 @@
-"""Annotation cascade: deciding what a protein is, and whether it is worth screening.
+"""Annotation cascade: what a protein is, and how much of it is explained.
 
-This module holds the intellectual core of the pipeline. Everything here answers one of
-three questions about a single protein:
-
-  1. Did anything *name* it?            -> is_informative, UNINFORMATIVE
-  2. How much of it is *explained*?     -> explained_fraction, informative_spans
-  3. What class does it therefore fall in, and how deep did we have to dig?
-                                        -> classify
-
-Three design commitments run through all of it, each of which was a defect once:
-
-  * A class is a property of the PROTEIN, not of one alignment. A replication initiator
-    carrying RepA_N and Bac_RepA_C is completely annotated even though neither domain
-    alone covers half of it. Classifying per hit called 17% of Pfam-hit proteins
-    DOMAIN_ONLY at >=50% explained, and DOMAIN_ONLY is target-eligible - so the plasmid
-    backbone was walking into the screening pool.
-
-  * The E-value gates whether a hit EXISTS; coverage then decides the class among the
-    survivors. The dangerous case is a high-coverage hit with a weak E-value: a spurious
-    long alignment silently removes a genuine dark protein from the pool, and no
-    downstream stage can recover it. That is the worst error this project can make.
-
-  * A "hypothetical protein" hit is a HOMOLOG, not an ANNOTATION. It never explains
-    anything, however well it aligns, and it never stops the cascade - but it is recorded
-    rather than discarded, because a protein several independent databases call
-    hypothetical is real, widespread and genuinely uncharacterised, which is evidence FOR
-    screening it, not against.
-
-No function here reads a module-level threshold. Every threshold arrives as an argument
-from config/cascade.yaml, is schema-validated, and is stamped into the output row it
-governs (design principle P4). Module constants were how three of the six thresholds
-escaped the config in v1.
+Every function answers one of three questions about a single protein: did a hit name it
+(is_informative), how much of it do the naming hits cover (explained_fraction), and which
+class does it therefore fall in (classify). The E-value decides whether a hit exists at
+all; coverage merged over every naming hit of the protein then decides the class. A hit
+with an uninformative label ("hypothetical protein") explains nothing and never stops the
+cascade, but it is kept as evidence that the protein is real. The class thresholds arrive
+as arguments from config/cascade.yaml and are written into the output rows they govern.
 """
 import re
 
@@ -40,13 +16,9 @@ import re
 
 # A hit to any of these is a HOMOLOG, not an ANNOTATION.
 #
-# Recall matters far more than precision here, and the asymmetry is worth stating: a
-# missed pattern silently promotes an unknown protein to FUNCTIONAL and removes it from
-# the screening set forever. A false positive merely keeps a named protein in the pool a
-# little longer, where later evidence will demote it. Recall is measured against a
-# labelled 25-case set in tests/test_uninformative_labels.py and CI fails if it drops.
-#
-# Patterns are deliberately verbose (re.X) so each can be read and argued with.
+# Recall matters more than precision: a missed pattern promotes an unknown protein to
+# FUNCTIONAL and removes it from the dark set, while a false positive keeps a named protein
+# in it. Checked case by case in tests/test_uninformative_labels.py.
 UNINFORMATIVE = re.compile(
     r"""
       hypothetical                # 'hypothetical protein', the canonical case
@@ -77,12 +49,10 @@ DOMAIN_NAMED = re.compile(r"domain[- ]containing\ protein|\bfamily\ protein\b", 
 def is_informative(label):
     """True when a label names a function, rather than recording that someone saw it.
 
-    A missing label counts as UNINFORMATIVE, not informative. The inverse - which is what
-    v1 did, because `not UNINFORMATIVE.search(None or "")` evaluates to True - silently
-    promoted proteins out of the dark set whenever a parser produced no label. Failing
-    toward "we do not know" is the safe direction for a discovery pipeline.
+    A missing or blank label is uninformative: a parser that produced no label must leave
+    the protein unknown, not promote it out of the dark set.
     """
-    if not label:
+    if not (label or "").strip():
         return False
     return not UNINFORMATIVE.search(label)
 
@@ -144,37 +114,17 @@ def _evalue_of(hit):
 def classify(hits, explained, min_coverage, tier_order):
     """Resolve one protein against all of its cascade hits.
 
-    Arguments
-    ---------
-    hits         every hit for this protein, from every tier, already significance-filtered
-    explained    merged INFORMATIVE coverage of the protein, from explained_fraction
-    min_coverage threshold above which the protein counts as functionally annotated
-    tier_order   the configured tier ids in cascade order, e.g. ["T1","T2","T3","T4","T5"]
+    hits         every significant hit for this protein, from every tier
+    explained    merged coverage of the protein by its informative hits (explained_fraction)
+    min_coverage explained fraction from which the protein counts as FUNCTIONAL
+    tier_order   the configured tier ids in cascade order, which is authority order
 
-    The class comes from `explained`, not from any single hit's coverage. This is the fix
-    for the backbone-contamination defect described in the module docstring: coverage is
-    merged across informative hits before any decision is taken.
-
-    The label comes from the most AUTHORITATIVE tier that named the protein - tier order,
-    which config/cascade.yaml declares to be authority order - and within that tier from
-    the most significant hit, not the widest one. Spec section 20: automated transfer must
-    not outrank curated evidence. Ranking on E-value alone across tiers let an nr free-text
-    title take the label from an informative Swiss-Prot hit on 39% of the proteins that had
-    one in the nr benchmark. Within a tier, E-value: a longer alignment is not a better
-    identification (ABC_membrane at E=1e-23 was once chosen over Peptidase_C39 at
-    E=6.5e-40 purely because it aligned further). The label with the best E-value across
-    all tiers is still reported, as best_evalue_label and best_evalue_tier.
-
-    A protein whose only informative names are domain-level (DOMAIN_NAMED) is DOMAIN_ONLY
-    whatever their coverage; named_by_domain_only records it, so the FUNCTIONAL count can
-    be reported with and without the rule.
-
-    functional_class is deliberately not a boolean. UNCHARACTERIZED_HOMOLOG - a protein
-    whose only homologs are themselves unnamed - is the class worth screening: certainly
-    real, certainly unknown.
-
-    `tier_order` is passed in rather than read from a constant so that a four-tier cascade
-    reports depths on a four-tier scale. v1 indexed into a hardcoded eight-tier list.
+    Class: FUNCTIONAL when `explained` reaches min_coverage or an informative hit has no
+    span; DOMAIN_ONLY otherwise, and whenever every informative name is domain-level
+    (DOMAIN_NAMED); UNCHARACTERIZED_HOMOLOG when no hit is informative; NONE without hits.
+    Label: from the most authoritative tier that named the protein, and within it the hit
+    with the best E-value, so that automated transfer does not outrank curated evidence;
+    the label with the best E-value over all tiers is reported beside it.
     """
     if not hits:
         return {"annot_tier": None, "annot_label": None, "functional_class": "NONE",
@@ -184,17 +134,13 @@ def classify(hits, explained, min_coverage, tier_order):
                 "named_by_domain_only": 0, "span_measured": 1}
 
     informative = [h for h in hits if is_informative(h.get("label"))]
-    # A hit with no coordinates is a FAMILY-LEVEL assignment from a tool that reports no
-    # alignment span - the pharokka tier, whose families are whole-protein clusters and
-    # whose raw alignments are deleted on exit. It says the whole protein belongs to a
-    # named family. Classing it DOMAIN_ONLY because `explained` is 0 would say "a fragment
-    # matched", the opposite of what was reported. So such a hit is FUNCTIONAL on its own,
-    # and the row records that its completeness was NOT measured rather than measured as 0.
+    # A hit without coordinates comes from the pharokka tier, which reports no alignment
+    # span. It is taken as a family assignment of the whole protein and makes the protein
+    # FUNCTIONAL on its own; span_measured then records that completeness was not measured.
     family_level = [h for h in informative if not _has_span(h)]
     domain_only = bool(informative) and all(DOMAIN_NAMED.search(h["label"])
                                             for h in informative)
     if informative:
-        # The most authoritative tier wins; within it, the strongest hit.
         best = min(informative, key=lambda h: (tier_order.index(h["tier"]), _evalue_of(h)))
         strongest = min(informative,
                         key=lambda h: (_evalue_of(h), tier_order.index(h["tier"])))
@@ -211,33 +157,23 @@ def classify(hits, explained, min_coverage, tier_order):
         depth_from = hits
 
     return {
+        # annot_tier: the most authoritative tier that named the protein.
         "annot_tier": best["tier"],
         "annot_label": best["label"],
         "functional_class": cls,
-        # HOW DEEP THE CASCADE HAD TO DIG, which is not the same question as which hit
-        # named the protein best, and answering both with one field was a regression
-        # introduced by ranking labels on E-value.
-        #
-        #   annot_tier      where the winning LABEL came from - the strongest alignment
-        #   homology_depth  the SHALLOWEST tier that recognised this protein at all
-        #
-        # A protein Pfam named at T1 is a shallow, well-characterised protein even when nr
-        # later produces a better E-value for the same assignment. Depth is used downstream
-        # to describe how obscure a protein is, so it must be a property of the cascade
-        # rather than of whichever database happened to align best.
+        # homology_depth: the shallowest tier with an informative hit, or with any hit when
+        # none is informative - how far the cascade had to search to recognise the protein.
         "homology_depth": min(tier_order.index(h["tier"]) for h in depth_from) + 1,
         "annot_qcov": best["coverage"],
         "annot_tcov": best.get("target_coverage"),
         "annot_evalue": best.get("evalue"),
-        # 0.9 explained by one domain and 0.9 explained by six fragments are different
-        # claims. Reported so the reader of the table can tell them apart.
+        # Tells 0.9 explained by one domain apart from 0.9 explained by six fragments.
         "n_informative_hits": len(informative),
         "best_evalue_label": strongest["label"],
         "best_evalue_tier": strongest["tier"],
         "named_by_domain_only": int(domain_only),
-        # 0 when the class rests on a family-level assignment alone: explained_fraction
-        # is then 0 because nothing MEASURED it, not because nothing matched, and
-        # cascade_resolve reports completeness as NOT_MEASURED on that signal.
+        # 0 when the class rests on span-less hits alone: explained is then 0 because
+        # nothing measured it, and cascade_resolve reports completeness as NOT_MEASURED.
         "span_measured": int(not (family_level and explained == 0)),
     }
 
@@ -245,10 +181,8 @@ def classify(hits, explained, min_coverage, tier_order):
 def _has_span(hit):
     """Whether a hit carries alignment coordinates.
 
-    hits.tsv always has the start and end columns; a tier that reports no span writes them
-    EMPTY, and csv.DictReader hands that back as ''. So the signal is an explicitly empty
-    coordinate. A hit dict with no such key at all is treated as spanned - that is the
-    shape of every hit before the column existed, and of the fixtures written for it.
+    hits.tsv writes start and end empty for a tier that reports no span, and csv.DictReader
+    returns them as ''. A hit without the keys at all counts as spanned.
     """
     return hit.get("start", 0) != "" and hit.get("end", 0) != ""
 
@@ -258,33 +192,15 @@ def _has_span(hit):
 # ---------------------------------------------------------------------------------
 
 def narrow_by_explained(all_ids, explained, threshold):
-    """Ids still worth searching: those not yet explained past `threshold`.
+    """Ids still worth searching: those explained less than `threshold`.
 
-    Narrowing on explained fraction rather than on "got any hit" is what stops a 15%
-    domain match from terminating the search over the other 85% of a protein.
-
-    IMPORTANT - which threshold belongs here. The caller must pass `narrow_at`, NOT
-    `min_explained`. They are two different numbers doing two different jobs:
-
-      narrow_at (0.7)      how finished a protein must be before we stop searching it
-      min_explained (0.5)  how explained a protein must be before we REPORT it as such
-
-    v1 used one number for both. Because a protein removed at T2 has no T5 result, that
-    made the threshold unsweepable: the counterfactual does not exist, and answering
-    "what if it had been 0.7?" would need a full re-run per value. Measured, 0.3 -> 0.8
-    moved the deep-tier set by 76%, and 0.5 sat exactly at the 25th percentile of the
-    observed distribution - the densest possible place to put a hard cut.
-
-    Keeping narrow_at above min_explained means every protein explained below narrow_at
-    was searched by every tier, so min_explained can be swept up to narrow_at without a
-    re-run; the sweep cohort measures what stopping at narrow_at costs. narrow_at 0.7 is
-    a user decision (2026-09-25). See also check_thresholds, which enforces narrow_at >=
-    min_explained.
+    The caller passes narrow_at (how explained a protein must be before it is no longer
+    searched), not min_explained (how explained it must be to be reported as such).
+    Because narrow_at >= min_explained (check_thresholds), every protein explained below
+    narrow_at was searched by every tier, and min_explained can be varied up to narrow_at
+    without a re-run. Narrowing on explained fraction rather than on "any hit" keeps a
+    protein with a 15% domain match in the search for the other 85%.
     """
-    unknown = set(explained) - set(all_ids)
-    if unknown:
-        raise ValueError(f"explained fractions for {len(unknown)} id(s) never queried, "
-                         f"e.g. {sorted(unknown)[:3]}")
     return [i for i in all_ids if explained.get(i, 0.0) < threshold]
 
 
@@ -299,11 +215,8 @@ def explained_fraction(length, intervals):
     at 8-337 and 263-387 is 97% explained, not 168%. Summing would let a protein exceed
     full coverage and would make the narrowing threshold meaningless.
 
-    This is the metric that finds dark regions inside otherwise-annotated proteins, and it
-    is used for two different populations depending on which spans are passed in:
-
-      informative_spans(hits)   -> explained_fraction, for annotated proteins
-      uninformative_spans(hits) -> dark_covered_fraction, for dark proteins
+    Given the spans of informative hits it is the explained fraction of an annotated
+    protein; given uninformative_spans(hits) it is the dark_covered_fraction of a dark one.
 
     The algorithm is a single sweep over sorted intervals, tracking the furthest right
     edge seen so far; `end` starts at 0 because coordinates are 1-based and inclusive.
@@ -321,16 +234,11 @@ def explained_fraction(length, intervals):
 
 
 def completeness(fraction, full_at, partial_at):
-    """Band an explained fraction. A 0.51 explanation is not a 0.99 one.
+    """Band an explained fraction into FULL, PARTIAL, FRAGMENT or NONE.
 
-    Thresholds are arguments rather than module constants because in v1 they were
-    FULL_AT/PARTIAL_AT literals in this file - two of the three thresholds that escaped
-    config and schema entirely, and so could never be swept or recorded (P4).
-
-    Note this field is informative about ANNOTATED proteins only. For the dark set it is
-    constant NONE by construction, since explained_fraction there is built from
-    informative spans and a dark protein has none. Measured 71/71 and 703/703. The
-    discriminating axis for dark proteins is dark_covered_fraction.
+    For the dark set the explained fraction is 0 by construction (a dark protein has no
+    informative span), so this band is NONE for every dark protein; dark_covered_fraction
+    is the discriminating measure there.
     """
     if fraction >= full_at:
         return "FULL"
@@ -341,30 +249,12 @@ def completeness(fraction, full_at, partial_at):
     return "NONE"
 
 
-def informative_spans(hits):
-    """Alignment intervals from hits that actually name a function.
-
-    A 'hypothetical protein' hit explains nothing, however well it aligns, so it must not
-    count toward explained_fraction and must not stop the cascade. Another database may
-    still name the protein, and the whole point of the cascade is to give it that chance.
-    """
-    return [(h["start"], h["end"]) for h in hits if is_informative(h.get("label"))]
-
-
 def uninformative_spans(hits):
-    """Alignment intervals from hits that named nothing - the dark protein's own coverage.
+    """Alignment intervals of the hits that named nothing - the dark protein's coverage.
 
-    This is the evidence v1 threw away. Uninformative hits were kept as LABELS but their
-    coordinates were discarded, which collapsed a real distinction:
-
-      95% of the protein covered by 'hypothetical protein' across three databases
-        -> a real, conserved, full-length protein that nobody has named. Strong target.
-
-      one 20-aa 'hypothetical' fragment hit
-        -> weak evidence, possibly a spurious call. Weak target.
-
-    Fed through explained_fraction this yields dark_covered_fraction, the analogue of
-    annot_completeness for the population the pipeline actually exists to characterise.
+    95% of a protein covered by 'hypothetical protein' hits is a conserved, full-length
+    protein nobody has named; one 20-aa fragment hit is weak evidence. Fed through
+    explained_fraction these spans give dark_covered_fraction, which separates the two.
     """
     return [(h["start"], h["end"]) for h in hits if not is_informative(h.get("label"))]
 
@@ -384,22 +274,15 @@ def n_dark_databases(hits):
 # The dark evidence ladder
 # ---------------------------------------------------------------------------------
 
-# How strongly the databases support this being a real protein, kept deliberately separate
-# from the fact that its function is unknown. EVERY rung means "function unknown"; they
-# differ only in the risk that there is no protein there at all.
-#
-# WEAK SIGNAL ONLY. This is a low-weight ranking feature at S9, never a gate: a
-# PREDICTED_ONLY protein is not excluded from screening, and a CURATED_FAMILY protein is
-# arguably LESS novel, since Pfam already recognised the family. Using it as a filter
-# would invert its meaning.
+# How strongly the databases support this being a real protein, kept separate from the
+# fact that its function is unknown. EVERY rung means "function unknown"; they differ only
+# in the risk that there is no protein there at all. The column is descriptive and is not
+# used to filter: a CURATED_FAMILY protein is arguably less novel, since Pfam already
+# recognised the family. How widely a protein occurs is measured by the pipeline itself,
+# from the plasmids its family occurs on, not from database title prefixes.
 _EVIDENCE_RUNGS = [
     # A curator built and named a family for it. Strongest evidence of reality.
     ("CURATED_FAMILY", re.compile(r"\bDUF\d*\b|\bUPF\d+", re.I)),
-    # There used to be a MULTISPECIES rung here, read from NCBI's "MULTISPECIES:" title
-    # prefix. It is removed: ClusteredNR titles are one representative's, and carry the
-    # prefix in 1.8% of titles against 19.0% in full nr, so the rung would have measured
-    # the database rather than the protein. Occurrence across hosts is measured by the
-    # pipeline itself, from the plasmids a family occurs on (recurrence, rarity).
     # Homologs exist; no function.
     ("CONSERVED", re.compile(r"\bconserved\b", re.I)),
     # One algorithm's output and nothing more.
@@ -459,15 +342,17 @@ def check_thresholds(cfg):
             "bands overlap and FULL is unreachable")
 
 
-# Tolerance on the declared -Z relative to the actual analysis-set size. -Z exists to fix
-# the reference so an E-value means the same thing on every tier; it does not have to
-# equal the input to the last sequence. 2% is well inside the noise of an E-value while
-# being far tighter than any change a re-run of S1 would produce.
+# Tolerance on the declared -Z relative to the actual analysis-set size. This is a
+# consistency check on the configuration, not a scientific threshold, so it is a constant
+# rather than a config value. -Z exists to hold the reference constant so that an E-value
+# means the same thing on every tier; it does not have to equal the input to the last
+# sequence. 2% is well inside the noise of an E-value while being far tighter than any
+# change a re-run of S1 would produce.
 HMMER_Z_TOLERANCE = 0.02
 
 
 def check_hmmer_z(declared, actual, tolerance=HMMER_Z_TOLERANCE):
-    """Refuse a declared -Z that no longer describes the data it was computed from.
+    """Refuse a declared -Z that does not describe the data it was computed from.
 
     hmmer_z is pinned in config so that E-values are comparable across tiers and across
     runs. But it is DERIVED from the analysis set: it is the number of unique protein
