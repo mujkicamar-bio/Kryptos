@@ -24,10 +24,9 @@ Two files, because there are two natural units:
 
 WHAT CONTEXT HOLDS is not a column here: 12_context_and_structure/family_context_terms.tsv
 is the long table of context terms per family (amr:, metal:, defence:, conj: ...), counted
-over lineages. It carries no top term and no confidence, because the thresholds that would
-make a term a prediction are calibrated after the run (tools/calibrate_context.py); the
-family table carries the descriptive rates (cons_*) only, beside the S8g co-occurrence
-partners, which are pairs of dark families rather than context terms.
+over lineages. It carries no top term and no confidence; the family table carries the
+descriptive rates (cons_*) only, beside the S8g co-occurrence partners, which are pairs of
+dark families rather than context terms.
 
 CSV, not TSV, because these are the files that get opened in a spreadsheet. Every field is
 quoted by csv.writer where it needs to be, which matters: a DIAMOND stitle is free text and

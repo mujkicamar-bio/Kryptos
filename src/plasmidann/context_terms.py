@@ -58,7 +58,7 @@ SUCCESS = "SUCCESS"
 # Conservation across one lineage is a single observation, not a conservation.
 MIN_LINEAGES = 2
 
-COLUMNS = ["family_id", "family_set", "term_type", "term", "n_lineages",
+COLUMNS = ["family_id", "term_type", "term", "n_lineages",
            "n_lineages_with_term", "conservation", "status",
            "window_covers_plasmid_fraction"]
 
@@ -119,7 +119,7 @@ def window_covers_plasmid(near, n_genes):
     return len(set(near)) == n_genes - 1
 
 
-def family_term_rows(family_id, family_set, occurrences, family_of_orf, lineage_of):
+def family_term_rows(family_id, occurrences, family_of_orf, lineage_of):
     """One row per term in a family's context, in COLUMNS order.
 
     `occurrences` holds (orf_id, sources, covers) for every ORF of the family's members,
@@ -150,7 +150,7 @@ def family_term_rows(family_id, family_set, occurrences, family_of_orf, lineage_
     covers_fraction = round(n_covers / len(occurrences), 6) if occurrences else 0.0
     measured = n >= MIN_LINEAGES
     return [{
-        "family_id": family_id, "family_set": family_set,
+        "family_id": family_id,
         "term_type": term.split(":", 1)[0], "term": term,
         "n_lineages": n, "n_lineages_with_term": len(with_term[term]),
         "conservation": round(len(with_term[term]) / n, 6) if measured else "",

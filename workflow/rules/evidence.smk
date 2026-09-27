@@ -621,8 +621,7 @@ rule context_features:
     conjugation, integron and IS element membership, annotated neighbours, operons), and
     the context terms per family counted over lineages (family_context_terms.tsv): the
     plasmid label databases and the defence and conjugation systems, never KEGG. Rows for
-    the dark families and for every known family at the primary resolution, which is the
-    benchmark tools/calibrate_context.py reads after the run. No enrichment test."""
+    the dark families. No enrichment test."""
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
         families=f"{OUT}/10_clustering/dark_families.tsv",
@@ -631,7 +630,7 @@ rule context_features:
         conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
         # The terms: each protein's labels (kind, label, sub_label).
         labels=f"{OUT}/08_protein_labels/protein_labels.tsv",
-        # Every family at the primary resolution, for the known-family benchmark rows.
+        # Every family at the primary resolution, for the tandem-paralogue exclusion.
         all_families=f"{OUT}/10_clustering/protein_families.tsv",
         lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
         integrons=f"{OUT}/12_context_and_structure/integrons.tsv",
