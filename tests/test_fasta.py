@@ -5,6 +5,8 @@ one reader serves them all and is tested once here.
 """
 import gzip
 
+import pytest
+
 from plasmidann import fasta
 
 
@@ -56,3 +58,11 @@ def test_split_fasta_keeps_every_record_once_and_balances_length(tmp_path):
     assert max(totals) <= 900
     # Fewer records than chunks: only the chunks that received one are returned.
     assert len(fasta.split_fasta(src, 20, tmp_path / "many")) == 8
+
+
+def test_an_empty_header_names_the_file_and_line(tmp_path):
+    path = tmp_path / "e.fna"
+    path.write_text(">p1\nACGT\n>\nACGT\n")
+
+    with pytest.raises(ValueError, match="e.fna line 3"):
+        list(fasta.iter_fasta([path]))

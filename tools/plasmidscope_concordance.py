@@ -26,14 +26,17 @@ import random
 import statistics
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+import yaml
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
 from darkorf import genecall  # noqa: E402
 from plasmidann.dereplicate import _seq_id  # noqa: E402
 from plasmidann.fasta import iter_fasta  # noqa: E402
 
 ps_orfs, fasta, analysis_set, cascade, n_sample, seed = sys.argv[1:7]
-MIN_AA = 20      # config/config.yaml orf.min_call_length_aa
+MIN_AA = yaml.safe_load(open(ROOT / "config/config.yaml"))["orf"]["min_call_length_aa"]
 csv.field_size_limit(sys.maxsize)
 
 
@@ -59,7 +62,7 @@ eligible = sorted(p for p in topology if p in ps_by_plasmid)
 sample = set(random.Random(int(seed)).sample(eligible, int(n_sample)))
 
 records = [((pid, seq), topology[pid]) for pid, seq in iter_fasta([fasta]) if pid in sample]
-with multiprocessing.Pool(16, initializer=genecall.configure,
+with multiprocessing.Pool(initializer=genecall.configure,
                           initargs=((MIN_AA + 1) * 3,)) as pool:
     called = pool.map(genecall.call_record, records, chunksize=16)
 

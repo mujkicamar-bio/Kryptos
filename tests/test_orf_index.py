@@ -16,7 +16,7 @@ def test_ids_follow_coordinate_order_not_input_order():
 
 
 def test_reindexing_an_already_indexed_set_is_refused():
-    """The 2026-08-28 defect: a subset renumbered from 1 silently diverges from the full set."""
+    """A subset must not be renumbered from 1."""
     orfs = [
         {"plasmid_id": "p1", "start": 100, "end": 400},
         {"plasmid_id": "p1", "start": 500, "end": 800},

@@ -1,9 +1,10 @@
 """S0: the analysis set - which plasmids are in scope - as an id list and as sequence.
 
-The scope is decided ONCE, here, from the master table's locked exclusion. Every stage
-that needs sequence reads the FASTA written by this script rather than the configured
-input, so the configured input may be the whole working set: a record that is not in the
-analysis set never reaches gene calling, lineage clustering or the feature files.
+The scope is decided ONCE, here: a plasmid is in the analysis set when the master table's
+locked exclusion keeps it and the configured FASTA holds its sequence. Every stage that
+needs sequence reads the FASTA written by this script rather than the configured input,
+so the configured input may be the whole working set, and a test run may give a FASTA
+holding only a sample of the master table.
 
 The study is about SMALL plasmids (size_bp below input.max_plasmid_size_bp), but every
 plasmid is in the analysis set: large-plasmid proteins are clustered with the small ones,
@@ -28,45 +29,51 @@ from plasmidann.fasta import iter_fasta
 exclude = set(snakemake.params.exclude)
 max_size = snakemake.params.max_size_bp
 min_repeat = snakemake.params.min_terminal_repeat_bp
-keep, small, circular = set(), set(), set()
-with open(snakemake.input.master, newline="") as fh, open(snakemake.output.ids, "w") as out, \
-        open(snakemake.output.small_ids, "w") as small_out:
+in_scope = {}                                   # plasmid_id -> (circular, small)
+with open(snakemake.input.master, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
         if row["hab_top"] not in exclude:
-            keep.add(row["plasmid_id"])
-            if is_circular(row.get("topology")):
-                circular.add(row["plasmid_id"])
-            out.write(row["plasmid_id"] + "\n")
-            if int(row["size_bp"]) < max_size:
-                small.add(row["plasmid_id"])
-                small_out.write(row["plasmid_id"] + "\n")
+            in_scope[row["plasmid_id"]] = (is_circular(row.get("topology")),
+                                           int(row["size_bp"]) < max_size)
 
-n_seen = n_written = n_trimmed = 0
+n_seen = n_small = n_trimmed = 0
+written = set()
 with open(snakemake.output.fasta, "w") as out, \
+        open(snakemake.output.ids, "w") as ids, \
+        open(snakemake.output.small_ids, "w") as small_ids, \
         open(snakemake.output.repeats, "w") as rep, \
         open(snakemake.output.lengths, "w") as lengths:
     rep.write("plasmid_id\trecord_bp\trepeat_bp\tmolecule_bp\n")
     lengths.write("plasmid_id\tlength_bp\n")
     for pid, seq in iter_fasta([snakemake.input.fasta]):
         n_seen += 1
-        if pid in keep:
-            n_written += 1
-            k = terminal_repeat_length(seq.upper(), min_repeat) if pid in circular else 0
-            if k:
-                n_trimmed += 1
-                rep.write(f"{pid}\t{len(seq)}\t{k}\t{len(seq) - k}\n")
-                seq = seq[:-k]
-            out.write(f">{pid}\n{seq}\n")
-            lengths.write(f"{pid}\t{len(seq)}\n")
+        if pid not in in_scope:
+            continue
+        if pid in written:
+            raise SystemExit(f"analysis_set: {pid} occurs twice in {snakemake.input.fasta}")
+        written.add(pid)
+        circular, small = in_scope[pid]
+        k = terminal_repeat_length(seq.upper(), min_repeat) if circular else 0
+        if k:
+            n_trimmed += 1
+            rep.write(f"{pid}\t{len(seq)}\t{k}\t{len(seq) - k}\n")
+            seq = seq[:-k]
+        out.write(f">{pid}\n{seq}\n")
+        lengths.write(f"{pid}\t{len(seq)}\n")
+        ids.write(pid + "\n")
+        if small:
+            n_small += 1
+            small_ids.write(pid + "\n")
 
 # An in-scope set with no sequence is never a legitimate result: every later stage would
 # succeed while writing well-formed empty tables.
-if n_written == 0:
+if not written:
     raise SystemExit(
-        f"analysis_set: none of the {n_seen} records in {snakemake.input.fasta} is in the "
-        f"analysis set of {len(keep)} plasmids. Check that the FASTA identifiers are the "
+        f"analysis_set: none of the {n_seen} records in {snakemake.input.fasta} is among "
+        f"the {len(in_scope)} in-scope plasmids. Check that the FASTA identifiers are the "
         "master table's plasmid_id.")
-print(f"analysis set: {len(keep)} plasmids in scope, {len(small)} of them small "
-      f"(size_bp < {max_size}); {n_written} of {n_seen} FASTA records retained; "
+print(f"analysis set: {len(written)} plasmids, {n_small} of them small "
+      f"(size_bp < {max_size}); {len(in_scope) - len(written)} in-scope plasmids of the "
+      f"master table have no record in the FASTA; {n_seen} FASTA records read; "
       f"{n_trimmed} circular records carried a terminal repeat of >= {min_repeat} bp, "
       "one copy removed")

@@ -67,11 +67,8 @@ def test_controls_with_uninformative_titles_are_excluded(fixture_dir):
 
 
 def test_a_scripts_output_reaches_its_declared_log(fixture_dir):
-    """Every rule declares `log:`, and for `script:` rules Snakemake does not redirect
-    stdout there - it only creates the path. So all 26 log files stayed empty and every
-    diagnostic the scripts print (hit counts, rejected hits, background rates) went to the
-    single SLURM output file interleaved across 1,481 concurrent jobs, where it cannot be
-    attributed to a rule."""
+    """Snakemake does not redirect a script's stdout to the rule's `log:`; _ctx does, so
+    each rule's diagnostics can be attributed to it."""
     master = fixture_dir / "master.tsv"
     write_tsv(master, ["plasmid_id", "hab_top", "size_bp"],
               [["p1", "Unknown", 4], ["p2", "Unknown", 4]])
@@ -116,6 +113,29 @@ def test_analysis_set_keeps_every_plasmid_and_lists_the_small_ones(fixture_dir):
     assert [l[1:].strip() for l in open(out["fasta"]) if l.startswith(">")] == [
         "small", "edge", "large"]
     assert open(out["small_ids"]).read().split() == ["small"]
+
+
+def test_analysis_set_lists_only_plasmids_with_a_sequence(fixture_dir):
+    """An in-scope plasmid with no FASTA record would enter the small-plasmid denominators
+    without any genes; a record given twice would contribute its genes twice."""
+    master = fixture_dir / "master.tsv"
+    write_tsv(master, ["plasmid_id", "hab_top", "size_bp"],
+              [["p1", "Unknown", 4], ["p2", "Unknown", 4]])
+    fasta = fixture_dir / "in.fna"
+    out = {k: str(fixture_dir / f"{k}.out")
+           for k in ("ids", "fasta", "small_ids", "repeats", "lengths")}
+    snake = FakeSnakemake(
+        input={"master": str(master), "fasta": str(fasta)}, output=out,
+        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20})
+
+    write_fasta(fasta, [("p1", "ATGC")])
+    run_script("analysis_set.py", snake)
+    assert open(out["ids"]).read().split() == ["p1"]
+    assert open(out["small_ids"]).read().split() == ["p1"]
+
+    write_fasta(fasta, [("p1", "ATGC"), ("p1", "ATGC")])
+    with pytest.raises(SystemExit, match="twice"):
+        run_script("analysis_set.py", snake)
 
 
 def test_a_circular_records_terminal_repeat_is_written_once(fixture_dir):
@@ -200,29 +220,31 @@ def test_the_artefact_screen_uses_antifams_curated_thresholds(fixture_dir):
 
 
 def test_orf_call_reconstructs_a_gene_across_the_origin(fixture_dir):
-    """tests/test_circular.py proves resolve_origin_genes in isolation. This proves the
-    script actually drives it: the same plasmid cut inside a gene must yield the same
-    protein set as the uncut plasmid, with the straddling gene written start > end and
-    flagged spans_origin=1 in orf_index.tsv."""
+    """orf_call drives the origin repair: a plasmid cut inside a gene yields the same
+    proteins as the uncut plasmid, with the gene written start > end and spans_origin=1.
+    The second pair carries a gene longer than half the molecule."""
     import random
     pytest.importorskip("pyrodigal")
-    from darkorf.circular import rotate
 
-    random.seed(11)
-    sense = [a + b + c for a in "ACGT" for b in "ACGT" for c in "ACGT"
-             if a + b + c not in ("TAA", "TAG", "TGA")]
-    def background(n):
-        return "".join(random.choice("ACGT") for _ in range(n))
-    gene = "ATG" + "".join(random.choice(sense) for _ in range(300)) + "TAA"
-    uncut = background(1_000) + gene + background(1_000)
-    cut = rotate(uncut, 1_000 + len(gene) // 2)   # the new origin lies mid-gene
+    def planted(seed, n_codons, left, right, cut):
+        rng = random.Random(seed)
+        sense = [a + b + c for a in "ACGT" for b in "ACGT" for c in "ACGT"
+                 if a + b + c not in ("TAA", "TAG", "TGA")]
+        gene = "ATG" + "".join(rng.choice(sense) for _ in range(n_codons)) + "TAA"
+        flank = "".join(rng.choice("ACGT") for _ in range(left + right))
+        uncut = flank[:left] + gene + flank[left:]
+        cut_at = left + cut                         # the new origin lies inside the gene
+        return uncut, uncut[cut_at:] + uncut[:cut_at]
 
+    short_uncut, short_cut = planted(11, 300, 1_000, 1_000, 453)
+    long_uncut, long_cut = planted(5, 400, 700, 0, 100)
+    records = [("uncut", short_uncut), ("cut", short_cut),
+               ("long_uncut", long_uncut), ("long_cut", long_cut)]
     master = fixture_dir / "master.tsv"
-    write_tsv(master, ["plasmid_id", "topology"],
-              [["uncut", "circular"], ["cut", "circular"]])
-    fasta = fixture_dir / "shard.fna"
-    write_fasta(fasta, [("uncut", uncut), ("cut", cut)])
-    out = fixture_dir / "orf_index.tsv"
+    write_tsv(master, ["plasmid_id", "topology"], [[pid, "circular"] for pid, _ in records])
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, records)
+    out = fixture_dir / "orfs.tsv"
 
     run_script("orf_call.py", FakeSnakemake(
         input={"fasta": str(fasta), "master": str(master)},
@@ -231,17 +253,17 @@ def test_orf_call_reconstructs_a_gene_across_the_origin(fixture_dir):
 
     rows = read_tsv(out)
     proteins = {pid: sorted(r["seq"] for r in rows if r["plasmid_id"] == pid)
-                for pid in ("uncut", "cut")}
+                for pid, _ in records}
     assert proteins["uncut"] == proteins["cut"], "protein set depends on the cut point"
+    assert proteins["long_uncut"] == proteins["long_cut"], "long gene depends on the cut"
 
-    planted = [r for r in rows if r["plasmid_id"] == "cut" and len(r["seq"]) == 301]
-    assert len(planted) == 1, "the planted gene was not called exactly once on the cut record"
-    assert planted[0]["spans_origin"] == "1"
-    assert int(planted[0]["start"]) > int(planted[0]["end"]), "wrapped end not applied"
-    assert planted[0]["partial"] == "0"
-    assert not any(r["partial"] == "1" for r in rows), (
-        "a left-edge stub survived alongside the gene it is a fragment of")
-    # The translation table is recorded on every gene (open issue: table 4 in meta mode).
+    for pid, n_aa in (("cut", 301), ("long_cut", 401)):
+        gene = [r for r in rows if r["plasmid_id"] == pid and len(r["seq"]) == n_aa]
+        assert len(gene) == 1, f"the planted gene was not called exactly once on {pid}"
+        assert gene[0]["spans_origin"] == "1"
+        assert int(gene[0]["start"]) > int(gene[0]["end"]), "wrapped end not applied"
+        assert gene[0]["partial"] == "0"
+    assert not any(r["partial"] == "1" for r in rows), "a left-edge stub survived"
     assert {r["translation_table"] for r in rows} <= {"11", "4"}, rows[0]
 
 
@@ -353,28 +375,15 @@ def test_plasmidscope_import_keeps_only_our_proteins(fixture_dir):
     assert rows[0]["ps_class"] == "ANNOTATED" and rows[0]["pfams"] == "RHH_1"
 
 
-def test_prepare_control_leaves_plasmidscope_annotated_proteins_out(fixture_dir):
-    """Annotated by PlasmidScope: not searched. Dark in PlasmidScope: searched. The
-    controls and decoys still enter, so the gate measures the cascade that actually ran."""
-    raw = fixture_dir / "raw.faa"
-    body = "MKVLATTLLGAAFAASSALAQ" * 4
-    write_fasta(raw, [("sp|P00001|A_ECOLI Beta-lactamase TEM OS=Escherichia coli", body)])
-    faa = fixture_dir / "unique.faa"
-    write_fasta(faa, [("known", body), ("dark", body), ("absent", body)])
-    decoys = fixture_dir / "negative_control.faa"
-    write_fasta(decoys, [("DECOY_shuf_00000", "M" * 60)])
-    ps = _ps_table(fixture_dir, [["known", "ANNOTATED", "", "", "", "", "RHH_1", "", "",
-                                  "Prodigal:2.6", 1],
-                                 ["dark", "NONE", "S", "", "", "", "", "", "",
-                                  "Prodigal:2.6", 1]])
-    spiked = fixture_dir / "cascade_input.faa"
-
-    run_script("prepare_control.py", FakeSnakemake(
-        input={"faa": str(faa), "raw": str(raw), "decoys": str(decoys), "ps": ps},
-        output={"control": str(fixture_dir / "control.faa"), "spiked": str(spiked)},
-        params={"n_controls": 1, "min_controls": 1, "seed": 1}))
-
-    ids = [l[1:].strip() for l in open(spiked) if l.startswith(">")]
-    assert "known" not in ids, "a PlasmidScope-annotated protein was sent to the cascade"
-    assert {"dark", "absent"} <= set(ids)
-    assert any(i.startswith("CTRL_") for i in ids) and "DECOY_shuf_00000" in ids
+def test_make_test_set_refuses_a_master_without_hab_top(fixture_dir):
+    """Without the column the locked exclusion cannot be applied, so the tool must fail
+    rather than sample simulated records."""
+    import subprocess
+    import sys
+    master = fixture_dir / "master.tsv"
+    write_tsv(master, ["plasmid_id", "topology", "size_bp"], [["p1", "circular", 4000]])
+    tool = pathlib.Path(__file__).resolve().parents[1] / "tools" / "make_test_set.py"
+    r = subprocess.run([sys.executable, str(tool), "--master", str(master),
+                        "--fasta", "unused.fna.gz", "--out", str(fixture_dir / "out.fna")],
+                       capture_output=True, text=True)
+    assert r.returncode != 0 and "hab_top" in r.stderr
