@@ -96,7 +96,7 @@ def test_preflight_fails_when_a_downstream_tool_is_missing(fixture_dir, monkeypa
                     "structure": {"required": False},
                     "foldseek_db": "", "prostt5": "", **_s4d_params(fixture_dir)}))
     assert "mafft" in str(exc.value), "a missing mafft must be named by pre-flight"
-    assert "S7b" in str(exc.value), "pre-flight must say which stage the tool belongs to"
+    assert "family_evolution" in str(exc.value), "pre-flight must name the rule that needs it"
 
 
 def _preflight_s4d(fixture_dir, **s4d):
@@ -230,7 +230,7 @@ def test_cascade_resolve_takes_the_explained_fraction_from_the_last_tier(fixture
         input={"hits": hits, "spans": spans, "faa": str(faa),
                "selection": _selection(fixture_dir), "ps": _ps_table(fixture_dir)},
         output=[str(out)],
-        params={"thresholds": {"narrow_at": 0.9, "min_explained": 0.5, "min_coverage": 0.5,
+        params={"thresholds": {"narrow_at": 0.9, "min_coverage": 0.5,
                                "full_at": 0.8, "partial_at": 0.5},
                 "tier_order": ["T1", "T2"]}))
 
@@ -267,8 +267,8 @@ def test_a_diamond_tier_without_an_evalue_criterion_runs(fixture_dir):
     out.parent.mkdir()
 
     run_script("tier_search.py", FakeSnakemake(
-        input={"faa": str(faa), "spans": [], "sweep": "",
-               "preflight": ""},
+        input={"faa": str(faa), "spans": [], "preflight": "",
+               "artefact": _artefact_flags(fixture_dir)},
         output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
                 "spans": str(out.parent / "spans.tsv")},
         params={"spec": {"id": "T3", "method": "diamond", "source": "swissprot", "db": str(db),
@@ -299,8 +299,8 @@ def test_a_protein_pfam_or_swissprot_named_is_not_searched_in_nr(fixture_dir):
     out.parent.mkdir()
 
     run_script("tier_search.py", FakeSnakemake(
-        input={"faa": str(faa), "spans": [], "sweep": "", "preflight": "",
-               "named": [str(earlier)]},
+        input={"faa": str(faa), "spans": [], "preflight": "", "named": [str(earlier)],
+               "artefact": _artefact_flags(fixture_dir)},
         output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
                 "spans": str(out.parent / "spans.tsv")},
         params={"spec": {"id": "T5", "method": "diamond", "source": "nr", "db": str(db),
@@ -325,7 +325,8 @@ def test_a_tier_carries_forward_what_it_could_not_explain(fixture_dir):
     out.parent.mkdir()
 
     run_script("tier_search.py", FakeSnakemake(
-        input={"faa": str(faa), "spans": [], "sweep": "", "preflight": ""},
+        input={"faa": str(faa), "spans": [], "preflight": "",
+               "artefact": _artefact_flags(fixture_dir)},
         output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
                 "spans": str(out.parent / "spans.tsv")},
         params={"spec": {"id": "T3", "method": "diamond", "source": "swissprot", "db": str(db),
@@ -365,7 +366,7 @@ def test_every_informative_label_survives_into_the_resolved_row(fixture_dir):
                "selection": _selection(fixture_dir),
                "ps": _ps_table(fixture_dir)},
         output=[str(prot)],
-        params={"thresholds": {"narrow_at": 0.9, "min_explained": 0.5, "min_coverage": 0.5,
+        params={"thresholds": {"narrow_at": 0.9, "min_coverage": 0.5,
                                "full_at": 0.8, "partial_at": 0.5},
                 "tier_order": ["T1", "T2", "T3", "T4"]}))
 
@@ -379,8 +380,8 @@ def test_every_informative_label_survives_into_the_resolved_row(fixture_dir):
 @requires("diamond")
 def test_every_domain_of_a_multi_domain_protein_is_recorded(fixture_dir):
     """Every informative hit of a tier is kept, not only the best one, so that
-    n_informative_hits counts domains and explained_fraction can be recomputed from
-    hits.tsv as a cross-check of spans.tsv."""
+    n_informative_hits counts every reported hit and explained_fraction can be recomputed
+    from hits.tsv as a cross-check of spans.tsv."""
     import subprocess
     ref = fixture_dir / "ref.faa"
     # Two clearly distinct domains, joined into one query protein.
@@ -397,7 +398,8 @@ def test_every_domain_of_a_multi_domain_protein_is_recorded(fixture_dir):
     out.parent.mkdir()
 
     run_script("tier_search.py", FakeSnakemake(
-        input={"faa": str(faa), "spans": [], "sweep": "", "preflight": ""},
+        input={"faa": str(faa), "spans": [], "preflight": "",
+               "artefact": _artefact_flags(fixture_dir)},
         output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
                 "spans": str(out.parent / "spans.tsv")},
         params={"spec": {"id": "T3", "method": "diamond", "source": "swissprot", "db": str(db),
@@ -440,15 +442,13 @@ def test_tier_search_keeps_the_subject_accession(fixture_dir):
     write_fasta(faa, [("q1", prot)])
     spans = fixture_dir / "spans_in.tsv"
     write_tsv(spans, ["seq_id", "qlen", "intervals", "explained_fraction"], [])
-    sweep = fixture_dir / "sweep.txt"
-    sweep.write_text("")
     preflight = fixture_dir / "preflight.tsv"
     write_tsv(preflight, ["check", "status"], [["stub", "SUCCESS"]])
 
     hits = fixture_dir / "hits.tsv"
     run_script("tier_search.py", FakeSnakemake(
-        input={"faa": str(faa), "spans": str(spans), "sweep": str(sweep),
-               "preflight": str(preflight)},
+        input={"faa": str(faa), "spans": str(spans), "preflight": str(preflight),
+               "artefact": _artefact_flags(fixture_dir)},
         output={"hits": str(hits), "unresolved": str(fixture_dir / "un.faa"),
                 "spans": str(fixture_dir / "spans_out.tsv")},
         params={"spec": {"id": "T3", "method": "diamond", "source": "swissprot", "db": str(dmnd),
@@ -468,8 +468,7 @@ def test_tier_search_keeps_the_subject_accession(fixture_dir):
 def test_a_family_level_hit_resolves_functional_with_completeness_not_measured(fixture_dir):
     """The pharokka tier reports a family, an annotation and an E-value and no coordinates.
     A protein named by it alone comes out FUNCTIONAL, and what depends on a measured span
-    reads as not measured: completeness NOT_MEASURED, not NONE, and meets_min_explained
-    empty, not 0."""
+    reads as not measured: completeness NOT_MEASURED, not NONE."""
     hits = fixture_dir / "phage_hits.tsv"
     write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
                      "evalue", "informative", "is_best", "start", "end", "tier", "source",
@@ -489,7 +488,7 @@ def test_a_family_level_hit_resolves_functional_with_completeness_not_measured(f
                "selection": _selection(fixture_dir),
                "ps": _ps_table(fixture_dir)},
         output=[str(out)],
-        params={"thresholds": {"min_coverage": 0.5, "min_explained": 0.5,
+        params={"thresholds": {"min_coverage": 0.5,
                                "narrow_at": 0.9, "full_at": 0.8, "partial_at": 0.5},
                 "tier_order": ["T1", "T2", "T3", "T4"]}))
 
@@ -499,8 +498,6 @@ def test_a_family_level_hit_resolves_functional_with_completeness_not_measured(f
     assert row["annot_completeness"] == "NOT_MEASURED", (
         f"completeness must say it was not measured, got {row['annot_completeness']!r}")
     assert row["explained_fraction"] == "0.0"
-    assert row["meets_min_explained"] == "", (
-        "an unmeasured explained fraction must not read as 'below min_explained'")
 
 
 def test_cascade_resolve_adds_plasmidscope_rows_as_functional(fixture_dir):
@@ -518,7 +515,7 @@ def test_cascade_resolve_adds_plasmidscope_rows_as_functional(fixture_dir):
         input={"hits": hits, "spans": spans, "faa": str(faa),
                "selection": _selection(fixture_dir), "ps": ps},
         output=[str(out)],
-        params={"thresholds": {"narrow_at": 0.9, "min_explained": 0.5, "min_coverage": 0.5,
+        params={"thresholds": {"narrow_at": 0.9, "min_coverage": 0.5,
                                "full_at": 0.8, "partial_at": 0.5},
                 "tier_order": ["T1", "T2"]}))
 
@@ -616,7 +613,7 @@ def test_cascade_resolve_gives_members_their_representatives_result(fixture_dir)
         input={"hits": hits, "spans": spans, "faa": str(faa), "selection": selection,
                "ps": _ps_table(fixture_dir)},
         output=[str(out)],
-        params={"thresholds": {"narrow_at": 0.9, "min_explained": 0.5, "min_coverage": 0.5,
+        params={"thresholds": {"narrow_at": 0.9, "min_coverage": 0.5,
                                "full_at": 0.8, "partial_at": 0.5},
                 "tier_order": ["T1", "T2"]}))
 
@@ -636,8 +633,8 @@ def test_antifam_flagged_proteins_are_in_no_tier_query_set(fixture_dir):
     """A protein AntiFam flags skips every annotation tier. s_art would otherwise be
     searched (an unexplained small-plasmid protein, its own family's representative);
     here it is not, and it does not open its family for l_rel either. ps_art is annotated
-    by Tier 0 and flagged: the flag wins. s_lc is flagged for low complexity only, which
-    is no reason to skip, so it is searched."""
+    by Tier 0 and flagged: the flag wins. s_lc is flagged for low complexity only: it is
+    selected, and only the DIAMOND tiers skip it (tier_search)."""
     import random
     rng = random.Random(5)
     aa = "ACDEFGHIKLMNPQRSTVWY"
@@ -694,7 +691,7 @@ def test_an_antifam_skipped_protein_is_not_searched_and_never_dark(fixture_dir):
         input={"hits": hits, "spans": spans, "faa": str(faa), "selection": selection,
                "ps": ps},
         output=[str(out)],
-        params={"thresholds": {"narrow_at": 0.7, "min_explained": 0.5, "min_coverage": 0.5,
+        params={"thresholds": {"narrow_at": 0.7, "min_coverage": 0.5,
                                "full_at": 0.8, "partial_at": 0.5},
                 "tier_order": ["T1", "T2"]}))
 
@@ -739,7 +736,7 @@ def test_a_dark_protein_named_only_by_a_span_less_family_has_dark_completeness_n
         input={"hits": [str(hits)], "spans": str(spans), "faa": str(faa),
                "selection": _selection(fixture_dir), "ps": _ps_table(fixture_dir)},
         output=[str(out)],
-        params={"thresholds": {"min_coverage": 0.5, "min_explained": 0.5,
+        params={"thresholds": {"min_coverage": 0.5,
                                "narrow_at": 0.9, "full_at": 0.8, "partial_at": 0.5},
                 "tier_order": ["T1", "T2", "T3", "T4"]}))
 
@@ -748,30 +745,12 @@ def test_a_dark_protein_named_only_by_a_span_less_family_has_dark_completeness_n
     assert row["dark_completeness"] == "NOT_MEASURED", row["dark_completeness"]
 
 
-def _sweep_cohort(fixture_dir, ids, name):
-    faa = fixture_dir / f"{name}.faa"
-    write_fasta(faa, [(i, "MKV") for i in ids])
-    out = fixture_dir / f"{name}_cohort.txt"
-    run_script("sweep_cohort.py", FakeSnakemake(
-        input={"faa": str(faa)}, output=[str(out)],
-        params={"fraction": 0.2, "seed": 7}))
-    return out.read_text().split()
-
-
-def test_the_sweep_cohort_does_not_depend_on_the_fasta_order(fixture_dir):
-    """The query FASTA is written in MMseqs2 representative order, which can change
-    between versions and thread counts; the cohort must be the same set regardless."""
-    ids = [f"p{i:03d}" for i in range(100)]
-    forward = _sweep_cohort(fixture_dir, ids, "forward")
-    assert len(forward) == 20
-    assert forward == _sweep_cohort(fixture_dir, ids[::-1], "reverse")
-
-
-def _run_tier(fixture_dir, faa, spec, sweep="", narrow_at=0.9, hmmer_z=1000, tag="t"):
+def _run_tier(fixture_dir, faa, spec, artefact=(), narrow_at=0.9, hmmer_z=1000, tag="t"):
     out = fixture_dir / tag / "hits.tsv"
     out.parent.mkdir()
     run_script("tier_search.py", FakeSnakemake(
-        input={"faa": str(faa), "spans": [], "sweep": sweep, "preflight": ""},
+        input={"faa": str(faa), "spans": [], "preflight": "",
+               "artefact": _artefact_flags(fixture_dir, artefact)},
         output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
                 "spans": str(out.parent / "spans.tsv")},
         params={"spec": spec, "narrow_at": narrow_at, "hmmer_z": hmmer_z,
@@ -783,24 +762,22 @@ def _run_tier(fixture_dir, faa, spec, sweep="", narrow_at=0.9, hmmer_z=1000, tag
 
 
 @requires("diamond")
-def test_a_sweep_cohort_protein_is_carried_forward_however_well_explained(fixture_dir):
-    """Two proteins identical to a named database sequence are fully explained; only the
-    one outside the cohort stops here."""
+def test_a_diamond_tier_does_not_search_an_artefact_flagged_protein(fixture_dir):
+    """Two proteins identical to a named database sequence; the one the artefact screen
+    flagged for low complexity is not searched and is carried forward unexplained."""
     db = _tiny_diamond_db(fixture_dir)
     faa = fixture_dir / "q.faa"
-    write_fasta(faa, [("in_cohort", "MKVLATTLLGAAFAASSALAQKKWLVRD"),
-                      ("outside", "MKVLATTLLGAAFAASSALAQKKWLVRD")])
-    sweep = fixture_dir / "sweep.txt"
-    sweep.write_text("in_cohort\n")
+    write_fasta(faa, [("flagged", "MKVLATTLLGAAFAASSALAQKKWLVRD"),
+                      ("clean", "MKVLATTLLGAAFAASSALAQKKWLVRD")])
 
-    _, spans, carried = _run_tier(
-        fixture_dir, faa, sweep=str(sweep),
+    hits, _, carried = _run_tier(
+        fixture_dir, faa, artefact=[["flagged", 1, "", "", 0.7, "low_complexity"],
+                                    ["clean", 0, "", "", 0.0, ""]],
         spec={"id": "T4", "method": "diamond", "source": "swissprot", "db": str(db),
               "args": "--very-sensitive", "max_evalue": 1e-5})
 
-    assert {r["seq_id"]: float(r["explained_fraction"]) for r in spans} == {
-        "in_cohort": 1.0, "outside": 1.0}
-    assert carried == {"in_cohort"}
+    assert {r["query"] for r in hits} == {"clean"}
+    assert carried == {"flagged"}
 
 
 @requires("hmmbuild", "hmmsearch")
@@ -846,7 +823,8 @@ def test_the_hmmer_tier_reads_domain_coordinates_accession_and_i_evalue(fixture_
 def test_the_pharokka_tier_turns_the_merged_table_into_span_less_hits(fixture_dir):
     """A script standing in for pharokka writes its merged table: the family hit
     reaches hits.tsv with empty coordinates, the protein length comes from the table, and
-    an unexplained protein is carried forward."""
+    a protein named only by a span-less family hit is still carried forward, because it
+    adds nothing to the explained fraction."""
     from test_pharokka import BOTH, HEADER
     table = fixture_dir / "merged.tsv"
     table.write_text(HEADER + BOTH)

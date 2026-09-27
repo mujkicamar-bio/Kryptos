@@ -43,7 +43,7 @@ for entry in required_tools(structure_required=structure_required,
     resolved[entry["name"]] = path
     if path is None:
         problems.append(
-            f"{entry['stage']}: executable {entry['name']!r} not found on PATH. "
+            f"executable {entry['name']!r} not found on PATH (rule {entry['stage']}). "
             f"{entry['why']}. Activate envs/plasmidann or load the module.")
 
 # ------------------------------------------------------------------------------------

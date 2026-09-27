@@ -27,10 +27,13 @@ UNINFORMATIVE = re.compile(
     | \bUPF\d+                    # UniProt uncharacterized protein family
     | unknown\ function
     | unnamed\ protein            # 'unnamed protein product', common in older GenBank
-    | predicted\ protein          # a gene caller's opinion, not an observation
-    | conserved\ protein          # conserved, but conserved as what?
-    | ^ORF$
-    | putative\ protein
+    # 'putative', 'predicted' or 'conserved protein' only as the whole name: at the start
+    # of the label, after the accession (the first token holding a digit), after ':' or
+    # 'Full=', and followed by the end, ';' or ' [organism]'. 'putative protein kinase'
+    # names a function.
+    | (?:^|^\S*\d\S*\s+|:\s*|Full=)
+      (?:putative|predicted|conserved)\ protein
+      \s*(?:$|;|\[)
     """,
     re.I | re.X,
 )
@@ -62,23 +65,10 @@ def is_informative(label):
 # ---------------------------------------------------------------------------------
 
 def passes_significance(evalue, max_evalue):
-    """Whether a hit is significant enough to contribute a span, a label or a row.
+    """Whether a hit passes the tier's E-value floor.
 
-    This is applied at parse time, before anything else looks at the hit, because an
-    insignificant hit must not be able to explain part of a protein and thereby withhold
-    it from deeper tiers. Measured on T2: 7.2% of its resolutions depended on domains
-    that were not individually significant, because `-E` sets only the SEQUENCE threshold
-    and every domain of a passing sequence then lands in the output.
-
-    `max_evalue` of None means "this tier has no E-value criterion" and everything passes.
-    That is not laziness: T1 uses Pfam's per-family gathering thresholds, chosen by hand
-    by each family's curator. For some short, low-information families GA corresponds to
-    an E-value looser than any global cut, so imposing a blanket floor would override
-    curation and degrade the highest-quality signal in the whole cascade.
-
-    An unparsable E-value where a floor WAS set is rejected: it means the parser and the
-    search tool disagree about the output format, and silently keeping such hits would
-    hide that.
+    None means the tier has no floor (T1 uses Pfam's curated GA thresholds). An unparsable
+    E-value fails when a floor is set.
     """
     if max_evalue is None:
         return True
@@ -167,7 +157,8 @@ def classify(hits, explained, min_coverage, tier_order):
         "annot_qcov": best["coverage"],
         "annot_tcov": best.get("target_coverage"),
         "annot_evalue": best.get("evalue"),
-        # Tells 0.9 explained by one domain apart from 0.9 explained by six fragments.
+        # Informative hits over all tiers, as the tools reported them: a domain that T1
+        # and T2 both report counts twice.
         "n_informative_hits": len(informative),
         "best_evalue_label": strongest["label"],
         "best_evalue_tier": strongest["tier"],
@@ -194,12 +185,11 @@ def _has_span(hit):
 def narrow_by_explained(all_ids, explained, threshold):
     """Ids still worth searching: those explained less than `threshold`.
 
-    The caller passes narrow_at (how explained a protein must be for the search on it to
-    stop), not min_explained (how explained it must be to be reported as such).
-    Because narrow_at >= min_explained (check_thresholds), every protein explained below
-    narrow_at was searched by every tier, and min_explained can be varied up to narrow_at
-    without a re-run. Narrowing on explained fraction rather than on "any hit" keeps a
-    protein with a 15% domain match in the search for the other 85%.
+    The caller passes narrow_at, how explained a protein must be for the search on it to
+    stop. Every protein explained below narrow_at reaches every tier, except where a tier skips it:
+    T5 skips proteins Pfam or Swiss-Prot named (skip_if_named_by) and the DIAMOND tiers
+    skip artefact-flagged proteins. Narrowing on explained fraction rather than on "any
+    hit" keeps a protein with a 15% domain match in the search for the other 85%.
     """
     return [i for i in all_ids if explained.get(i, 0.0) < threshold]
 
@@ -309,7 +299,7 @@ def dark_evidence(labels):
 # Threshold coherence
 # ---------------------------------------------------------------------------------
 
-REQUIRED_THRESHOLDS = ("narrow_at", "min_explained", "min_coverage", "full_at", "partial_at")
+REQUIRED_THRESHOLDS = ("narrow_at", "min_coverage", "full_at", "partial_at")
 
 
 def check_thresholds(cfg):
@@ -319,11 +309,10 @@ def check_thresholds(cfg):
     numbers make sense TOGETHER, which is where the interesting failures live. Raises
     ValueError with a message naming the offending pair.
 
-    narrow_at >= min_explained
-        narrow_at withholds a protein from deeper tiers; min_explained decides what counts
-        as explained in the output. If narrowing were the stricter of the two, the pipeline
-        would stop searching proteins it then reports as unexplained - and, because the
-        deeper tiers were never run on them, the contradiction could not be investigated.
+    narrow_at >= min_coverage
+        narrow_at withholds a protein from deeper tiers; min_coverage decides whether it is
+        FUNCTIONAL. If narrowing were the stricter, the pipeline would stop searching
+        proteins it then reports as DOMAIN_ONLY, without the deeper tiers' results.
 
     full_at >= partial_at
         Otherwise the completeness bands overlap and FULL becomes unreachable.
@@ -331,45 +320,29 @@ def check_thresholds(cfg):
     missing = [k for k in REQUIRED_THRESHOLDS if k not in cfg]
     if missing:
         raise ValueError(f"cascade config is missing threshold(s): {', '.join(missing)}")
-    if cfg["narrow_at"] < cfg["min_explained"]:
+    if cfg["narrow_at"] < cfg["min_coverage"]:
         raise ValueError(
-            f"narrow_at ({cfg['narrow_at']}) < min_explained ({cfg['min_explained']}): the "
-            "cascade would stop searching proteins it then reports as unexplained, and the "
-            "counterfactual could not be recovered")
+            f"narrow_at ({cfg['narrow_at']}) < min_coverage ({cfg['min_coverage']}): the "
+            "cascade would stop searching proteins it then reports as DOMAIN_ONLY")
     if cfg["full_at"] < cfg["partial_at"]:
         raise ValueError(
             f"full_at ({cfg['full_at']}) < partial_at ({cfg['partial_at']}): completeness "
             "bands overlap and FULL is unreachable")
 
 
-# Tolerance on the declared -Z relative to the actual analysis-set size. This is a
-# consistency check on the configuration, not a scientific threshold, so it is a constant
-# rather than a config value. -Z exists to hold the reference constant so that an E-value
-# means the same thing on every tier; it does not have to equal the input to the last
-# sequence. 2% is well inside the noise of an E-value while being far tighter than any
-# change a re-run of S1 would produce.
+# Allowed relative difference between hmmer_z and the unique-protein count. 2% is small
+# against the orders of magnitude an E-value spans.
 HMMER_Z_TOLERANCE = 0.02
 
 
-def check_hmmer_z(declared, actual, tolerance=HMMER_Z_TOLERANCE):
-    """Refuse a declared -Z that does not describe the data it was computed from.
-
-    hmmer_z is pinned in config so that E-values are comparable across tiers and across
-    runs. But it is DERIVED from the analysis set: it is the number of unique protein
-    sequences. Anything that changes the ORF set changes it - and S1 circular-origin repair
-    changes the ORF set substantially, by reconstructing ~160,000 genes that the
-    linearisation had broken in two.
-
-    A stale value would silently rescale every E-value in the run, in exactly the way -Z
-    was introduced to prevent. Raising here, with the correct number in the message, makes
-    the config edit a deliberate one-line act rather than a thing to remember.
-    """
+def check_hmmer_z(declared, actual):
+    """Raise when hmmer_z differs from the unique-protein count by more than
+    HMMER_Z_TOLERANCE; the message names the correct value."""
     if not actual:
         raise ValueError("cannot check hmmer_z against an empty protein set")
     drift = abs(declared - actual) / actual
-    if drift > tolerance:
+    if drift > HMMER_Z_TOLERANCE:
         raise ValueError(
             f"hmmer_z in config/cascade.yaml is {declared}, but the analysis set holds "
-            f"{actual} unique proteins ({drift:.1%} drift, tolerance {tolerance:.0%}). "
-            f"Set hmmer_z: {actual} and re-run - a stale -Z rescales every E-value in the "
-            "run, which is the failure -Z exists to prevent.")
+            f"{actual} unique proteins ({drift:.1%} drift, tolerance "
+            f"{HMMER_Z_TOLERANCE:.0%}). Set hmmer_z: {actual} and re-run.")
