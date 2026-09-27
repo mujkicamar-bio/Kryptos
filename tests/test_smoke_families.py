@@ -173,9 +173,10 @@ def test_database_sources_are_provenance_not_biology(fixture_dir):
 
 @requires("mmseqs")
 def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_dir):
-    """Two 50%-identity clusters of related sequences, one annotated and one dark, and an
-    unrelated dark protein. The network must link the first two, mark only the unrelated
-    one as unconnected, and say so in the summary."""
+    """Two 50%-identity clusters of related sequences, one annotated and one dark, an
+    unrelated dark protein and an unsearched one. The network must link the first two,
+    mark the unrelated dark one as unconnected, leave the unsearched one neither dark nor
+    bright, and say so in the summary."""
     import random
     rng = random.Random(3)
     aa = "ACDEFGHIKLMNPQRSTVWY"
@@ -184,20 +185,24 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
     # separate cluster, but still a significant full-length alignment.
     relative = "".join(c if rng.random() > 0.55 else rng.choice(aa) for c in base)
     loner = "".join(rng.choice(aa) for _ in range(180))
+    # unsearched is an AntiFam-flagged protein the cascade never searched: its brightness
+    # is unknown, so it is neither dark nor bright.
+    unsearched = "".join(rng.choice(aa) for _ in range(180))
     # refonly is a cluster of large-plasmid proteins alone: in MMseqs2's files but not in
     # the family table, so it must not become a node.
     reps = fixture_dir / "reps.fasta"
     write_fasta(reps, [("known", base), ("darkrel", relative), ("loner", loner),
-                       ("refonly", relative[::-1])])
+                       ("unsearched", unsearched), ("refonly", relative[::-1])])
     clusters = fixture_dir / "clusters.tsv"
     clusters.write_text("known\tknown\ndarkrel\tdarkrel\nloner\tloner\n"
-                        "refonly\trefonly\n")
+                        "unsearched\tunsearched\nrefonly\trefonly\n")
     prot = fixture_dir / "protein_annotation.tsv"
     write_tsv(prot, ["seq_id", "functional_class", "annot_label", "explained_fraction",
                      "annot_completeness"],
               [["known", "FUNCTIONAL", "Relaxase", 0.95, "FULL"],
                ["darkrel", "NONE", "", 0.0, "NONE"],
-               ["loner", "NONE", "", 0.0, "NONE"]])
+               ["loner", "NONE", "", 0.0, "NONE"],
+               ["unsearched", "NOT_SEARCHED", "", "", ""]])
     dark_ids = fixture_dir / "dark_ids.txt"
     dark_ids.write_text("darkrel\nloner\n")
     fams = fixture_dir / "protein_families.tsv"
@@ -207,9 +212,10 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
                for res in ("broad", "intermediate")
                for m, scope in (("known", "small_only_known"),
                                 ("darkrel", "mixed_unknown"),
-                                ("loner", "small_only_unknown"))])
+                                ("loner", "small_only_unknown"),
+                                ("unsearched", "small_only_unknown"))])
     pmap = fixture_dir / "map.tsv"
-    pmap.write_text("known\tp1|1\ndarkrel\tp2|1\nloner\tp3|1\n")
+    pmap.write_text("known\tp1|1\ndarkrel\tp2|1\nloner\tp3|1\nunsearched\tp4|1\n")
     out = {k: str(fixture_dir / f"network_{k}.tsv") for k in ("nodes", "edges", "summary")}
 
     run_script("family_network.py", FakeSnakemake(
@@ -222,7 +228,8 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
         threads=2))
 
     nodes = {r["node_id"]: r for r in read_tsv(out["nodes"])}
-    assert set(nodes) == {"known", "darkrel", "loner"}
+    assert set(nodes) == {"known", "darkrel", "loner", "unsearched"}
+    assert (nodes["unsearched"]["brightness"], nodes["unsearched"]["dark"]) == ("", "")
     assert nodes["darkrel"]["scope"] == "mixed_unknown"
     assert nodes["known"]["dark"] == "0" and nodes["known"]["label"] == "Relaxase"
     assert nodes["known"]["family_id"] == "intermediate:known"
@@ -230,6 +237,7 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
     assert nodes["darkrel"]["dark"] == "1" and nodes["darkrel"]["label"] == ""
     assert nodes["darkrel"]["degree"] == "1" and nodes["loner"]["degree"] == "0"
     summary = {r["metric"]: r["value"] for r in read_tsv(out["summary"])}
+    assert (summary["dark_nodes"], summary["nodes_not_measured"]) == ("2", "1")
     assert summary["dark_nodes_connected"] == "1"
     assert summary["dark_connected_to_bright"] == "1"
     assert summary["dark_family_singletons"] == "2"

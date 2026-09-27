@@ -67,8 +67,19 @@ def member_brightness(row):
 
 
 def node_brightness(member_rows):
-    """The brightness a cluster REACHES: the best-annotated member's coverage."""
-    return max((member_brightness(r) for r in member_rows), default=0.0)
+    """The brightness a cluster REACHES: the best-annotated member's coverage.
+
+    None when no member was searched or annotated (functional_class NOT_SEARCHED or no
+    row): the cluster's brightness was not measured, so it is neither dark nor bright.
+    """
+    measured = [r for r in member_rows
+                if r.get("functional_class", "NOT_SEARCHED") != "NOT_SEARCHED"]
+    return max(map(member_brightness, measured)) if measured else None
+
+
+def weight(evalue):
+    """Edge weight -log10(E), so a smaller E-value is a stronger link; 300 for E = 0."""
+    return -math.log10(evalue) if evalue > 0 else 300.0
 
 
 def communities(edges, nodes, seed):
@@ -80,9 +91,7 @@ def communities(edges, nodes, seed):
     g = nx.Graph()
     g.add_nodes_from(nodes)
     for (a, b), ev in edges.items():
-        # The weight is chosen here: -log10(E), so a smaller E-value is a stronger link,
-        # and 300 for E = 0.
-        g.add_edge(a, b, weight=-math.log10(ev) if ev > 0 else 300.0)
+        g.add_edge(a, b, weight=weight(ev))
     out = {}
     for i, comm in enumerate(sorted(nx.community.asyn_lpa_communities(
             g, weight="weight", seed=seed), key=lambda c: (-len(c), min(c)))):
