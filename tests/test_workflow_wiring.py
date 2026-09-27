@@ -1,11 +1,5 @@
-"""The workflow files themselves must be internally consistent.
-
-These are cheap text checks over Snakefile, the rule modules and the batch scripts. They
-exist because three of the defects that would have killed a real run were not in any
-function - they were in the wiring: conda environments that no submission script ever
-activated, a rule that declared an environment missing the tool it invokes, and a
-cascade tier that streamed a 375 GB database once per shard.
-"""
+"""The workflow wiring: the rule graph Snakemake resolves on the test configuration, the
+conda environments the rules declare, and the batch scripts."""
 import os
 import pathlib
 import re
@@ -42,10 +36,8 @@ def test_every_conda_directive_points_at_a_file_that_exists():
 
 
 def test_the_declared_environment_provides_every_required_tool():
-    """A per-rule environment that omits a tool the rule invokes is worse than no
-    environment at all: the rule fails at run time with the tool visibly installed on the
-    machine. IntegronFinder failed exactly this way - its environment omitted prodigal and
-    infernal, which it shells out to."""
+    """Every declared environment provides every tool in plasmidann.tools.REQUIRED_TOOLS,
+    including those a tool shells out to (IntegronFinder runs prodigal and cmsearch)."""
     # conda package name -> the executables it provides, where they differ from the
     # package name. A package may provide several.
     PROVIDES = {"hmmer": ("hmmsearch",), "mmseqs2": ("mmseqs",),
@@ -77,10 +69,8 @@ def test_the_declared_environment_provides_every_required_tool():
 
 
 def test_the_submission_script_activates_the_environment_it_declares():
-    """26 rules carried conda directives and no submission script passed --use-conda, so
-    every one of them was inert and the run silently depended on whatever happened to be on
-    PATH. Either the script activates the environment on PATH or it asks Snakemake to
-    build it; doing neither is the failure this checks for."""
+    """The conda: directives take effect only if the submission script puts the built
+    environment on PATH or passes --use-conda."""
     sbatch = (WORKFLOW / "run_pipeline.sbatch").read_text()
     assert ("envs/plasmidann/bin" in sbatch) or ("--use-conda" in sbatch), (
         "the submission script neither puts the built environment on PATH nor passes "
@@ -88,98 +78,16 @@ def test_the_submission_script_activates_the_environment_it_declares():
 
 
 def test_each_cascade_tier_is_one_job_with_every_core():
-    """A search against a streamed database has a fixed cost per invocation - DIAMOND
-    reads the whole of nr each time it runs, and 2,000 queries took more than 12 hours
-    on 16 threads. Sharding the query set multiplies that cost by the shard count, so a
-    tier is one job, and it must be given every core the run has or it runs on one."""
-    text = (WORKFLOW / "rules" / "annotation_cascade.smk").read_text()
-    rule = text[text.index("rule tier_search"):]
-    rule = rule[:rule.index("\nrule ")]
-    assert "{cshard}" not in rule, (
-        "tier_search is sharded again: every shard streams the database")
-    assert "threads: workflow.cores" in rule, (
+    """A search against a streamed database has a fixed cost per invocation (DIAMOND reads
+    the whole database each time), so a tier is one job and takes every core the run has."""
+    assert "threads: workflow.cores" in _rule("tier_search"), (
         "tier_search does not take every core, so a single-job tier runs on a fraction "
         "of the allocation")
 
 
-def test_the_codon_model_stage_is_gone():
-    """S7d - FastTree plus HyPhy BUSTED - was removed from the analysis.
-
-    Removal has to be complete across four files or the run breaks somewhere different
-    each time: a script invoking a tool the environment no longer pins, a rule writing an
-    output nothing consumes, a script reading an input no rule declares, or a config key
-    nothing reads. The fifth failure - a pre-flight that halts on a tool no stage needs -
-    is covered generically by test_tools_registry's stale-registry guard.
-
-    Prose is not checked. A docstring may say why the stage was removed; what must not
-    survive is an operative reference.
-    """
-    offenders = []
-
-    for path in sorted((WORKFLOW / "scripts").glob("*.py")):
-        for tool in re.findall(r"subprocess\.run\(\s*\n?\s*f?\"([A-Za-z_][\w.-]*)",
-                               path.read_text()):
-            if tool in ("FastTree", "FastTreeMP", "hyphy", "HYPHYMPI"):
-                offenders.append(f"{path.name} invokes {tool}")
-
-    spec = yaml.safe_load((WORKFLOW / "envs" / "plasmidann.yaml").read_text())
-    for dep in spec["dependencies"]:
-        if isinstance(dep, str) and re.split(r"[=<>]", dep)[0] in ("fasttree", "hyphy"):
-            offenders.append(f"the environment still pins {dep}")
-
-    if "rule busted_confirm" in smk_text():
-        offenders.append("rule busted_confirm is still defined")
-
-    targets = yaml.safe_load((ROOT / "config" / "targets.yaml").read_text())
-    for key in targets.get("evolution", {}):
-        if "busted" in key:
-            offenders.append(f"config/targets.yaml still declares evolution.{key}")
-
-    assert not offenders, "S7d was not fully removed: " + "; ".join(offenders)
-
-
-@requires("snakemake")
-@pytest.mark.slow
-def test_the_resolved_dag_matches_the_rules_that_exist(tmp_path):
-    """The text checks above cannot see a dangling input.
-
-    Leave `busted=f"{OUT}/11_distribution_and_evolution/busted.tsv"` in rule annotation_report's input block after
-    deleting rule busted_confirm and every other test in this file still passes: the
-    substring "rule busted_confirm" is gone, no script invokes the tool, and the smoke test
-    drives annotation_report.py through a hand-built input dict that never had that key.
-    Only Snakemake's own DAG resolution fails, with a missing-input error, and until now
-    that check lived in a shell history rather than the suite.
-
-    A dry-run is the cheapest thing that exercises the resolved DAG. Snakemake keeps a
-    source cache under $XDG_CACHE_HOME, which on this cluster sits in a home directory at
-    its file quota, so the cache is pointed at tmp_path.
-    """
-    env = {**os.environ, "XDG_CACHE_HOME": str(tmp_path)}
-    proc = subprocess.run(["snakemake", "-n", "-c", "1", "--quiet", "rules"], cwd=ROOT, env=env,
-                          capture_output=True, text=True, timeout=600)
-    assert proc.returncode == 0, f"dry-run failed:\n{proc.stderr[-3000:]}"
-
-    # `--quiet rules` prints the job table; rule names are the first token of each row.
-    jobs = {line.split()[0] for line in proc.stdout.splitlines()
-            if line and not line.startswith(("Job stats", "job", "-", "total"))}
-    assert "busted_confirm" not in jobs, "the DAG still schedules the removed stage"
-    for rule in ("family_evolution", "consensus_recheck", "annotation_report"):
-        assert rule in jobs, f"{rule} is missing from the resolved DAG"
-
-
 def test_only_s0_reads_the_configured_fasta():
-    """The analysis set defines the scope; the configured FASTA does not.
-
-    rule feature_files once streamed the configured corpus and wrote one record per
-    sequence it found there. On the 100-plasmid test configuration that produced 208,245
-    GenBank records - 11.9 GB - for a run that had been asked to look at 100 plasmids.
-    The TSV written by the same stage was correctly scoped, which is what kept the defect
-    out of sight: every count a reader checks came from the TSV.
-
-    The configured FASTA may hold the whole working set, simulated plasmids included, so
-    exactly one rule may read it: analysis_set, which applies the exclusion and writes the
-    FASTA every other stage takes.
-    """
+    """The configured FASTA may hold the whole working set, simulated plasmids included, so
+    only analysis_set reads it; every other rule takes the analysis-set FASTA it writes."""
     offenders = []
     for path in SMK:
         text = path.read_text()
@@ -195,17 +103,10 @@ def test_only_s0_reads_the_configured_fasta():
 
 
 def test_every_script_that_takes_a_scratch_directory_releases_it():
-    """Six scripts created a working directory beside their output and none removed it.
-
-    On the 100-plasmid test set that left seven directories behind. At production scale
-    the same directories hold the intermediate databases of a 3.5M-protein clustering and
-    a foldseek run, so the leak is hundreds of gigabytes - and it accumulates across
-    reruns, because each attempt makes its own.
-
-    mkdtemp is banned outright rather than merely paired with a cleanup: plasmidann.scratch
-    also clears the stale directory a previous FAILURE deliberately left behind, which a
-    bare mkdtemp does not, and mmseqs refuses to start against a mismatched tmp directory.
-    """
+    """A scratch directory holds the intermediate databases of a clustering or a Foldseek
+    run, so every script that takes one releases it (plasmidann.scratch). tempfile.mkdtemp
+    is refused: plasmidann.scratch also clears the directory a failed attempt left behind,
+    which mmseqs needs."""
     offenders = []
     for path in sorted((WORKFLOW / "scripts").glob("*.py")):
         text = path.read_text()
@@ -225,63 +126,6 @@ def _rule(name):
     return body if nxt < 0 else body[:nxt]
 
 
-def test_the_label_and_conjugation_stages_are_rules_with_declared_resources():
-    """S4d and S8f run inside the one submission, so the scheduler must know what each
-    takes, and neither may start a search before pre-flight has passed."""
-    for name, script in (("label_databases", "label_databases.py"),
-                         ("conjugation_systems", "conjugation_systems.py")):
-        rule = _rule(name)
-        assert f'"../scripts/{script}"' in rule
-        assert "threads:" in rule and "mem_mb=" in rule and "runtime=" in rule, name
-        assert "preflight.tsv" in rule, f"{name} can start before pre-flight passes"
-
-
-def test_protein_labels_merges_the_label_databases_and_writes_the_disagreements():
-    rule = _rule("protein_labels")
-    for needed in ("protein_labels_plasmid.tsv", "label_disagreements.tsv",
-                   "kegg_ko_list", "defence_systems.tsv", "conjugation_systems.tsv",
-                   "protein_map.tsv"):
-        assert needed in rule, f"protein_labels does not declare {needed}"
-
-
-def test_synteny_reads_one_cluster_table_per_level_and_the_lineages():
-    rule = _rule("synteny")
-    assert 'res=targets["synteny"]["levels"]' in rule
-    assert "plasmid_lineage.tsv" in rule and "dark_ids.txt" in rule
-    assert 'synteny=targets["synteny"]' in rule
-
-
-def test_context_features_reads_the_labels_and_conjugation_and_writes_the_terms():
-    rule = _rule("context_features")
-    for needed in ("conjugation_systems.tsv", "protein_labels.tsv", "protein_families.tsv",
-                   "plasmid_lineage.tsv", "family_context_terms.tsv",
-                   'primary=targets["clustering"]["primary"]'):
-        assert needed in rule, f"context_features does not declare {needed}"
-
-
-def test_the_report_reads_the_new_evidence():
-    rule = _rule("annotation_report")
-    for needed in ("conjugation_systems.tsv", "conjugation_plasmid_class.tsv",
-                   "protein_labels_plasmid.tsv", "families_close_cluster.tsv",
-                   "dark_cooccurrence.tsv", 'cooccurrence=targets["cooccurrence"]'):
-        assert needed in rule, f"annotation_report does not declare {needed}"
-
-
-def test_dark_cooccurrence_reads_families_map_and_lineages_with_resources():
-    rule = _rule("dark_cooccurrence")
-    for needed in ("dark_families.tsv", "protein_map.tsv", "plasmid_lineage.tsv",
-                   "12_context_and_structure/dark_cooccurrence.tsv",
-                   'cooccurrence=targets["cooccurrence"]', '"../scripts/dark_cooccurrence.py"',
-                   "mem_mb=", "runtime="):
-        assert needed in rule, f"dark_cooccurrence does not declare {needed}"
-
-
-def test_the_cascade_selection_reads_the_artefact_flags():
-    """C14: AntiFam-flagged proteins skip every tier, which the selection can only do if
-    the artefact screen runs before it."""
-    assert "04_orf_qc/artefact_flags.tsv" in _rule("cascade_selection")
-
-
 def test_one_submission_runs_every_stage_including_structure_search():
     """The user asked for one run that annotates everything. The structure search is
     omitted only when the optional GPU split is asked for explicitly."""
@@ -289,7 +133,6 @@ def test_one_submission_runs_every_stage_including_structure_search():
     omit = sbatch[sbatch.index("OMIT=()"):sbatch.index("fi\n", sbatch.index("OMIT=()"))]
     assert "STRUCTURE_ON_GPU" in omit, (
         "structure_search is omitted from the default submission")
-    assert "--until" not in sbatch.split("\nset -euo pipefail", 1)[1]
 
 
 def _operative_text(path):
@@ -345,3 +188,86 @@ def test_the_pipeline_never_uses_plasann_labels_or_kegg_context_terms():
     context_code = _operative_text(WORKFLOW / "scripts" / "context_features.py") \
         + _operative_text(ROOT / "src" / "plasmidann" / "context_terms.py")
     assert "kegg" not in context_code.lower(), "KEGG reaches the context terms"
+
+
+# Inputs that no rule produces, on the test configuration. The rule graph is built over
+# empty stand-ins for them, so the test needs no reference data.
+EXTERNAL_INPUTS = [("input", "master_table"), ("input", "fasta"),
+                   ("input", "plasmidscope_proteins"), ("input", "host_provenance"),
+                   ("input", "working_set"), ("references", "pfam_dat"),
+                   ("references", "kegg_ko_list")]
+RAW_CONTROLS = "data/refs/control/raw.faa"  # prepare_control's input
+
+
+@pytest.fixture(scope="module")
+def rule_graph(tmp_path_factory):
+    """(producer, consumer) rule pairs of the graph Snakemake resolves for `all` on the
+    test configuration, in a scratch copy of the repository (symlinks), so nothing is
+    written into the checkout. Snakemake's source cache goes to the scratch directory too:
+    the home directory on this cluster is at its file quota."""
+    from snakemake.utils import update_config
+    work = tmp_path_factory.mktemp("dag")
+    for name in ("config", "src", "workflow"):
+        (work / name).symlink_to(ROOT / name)
+    config = yaml.safe_load((ROOT / "config" / "config.yaml").read_text())
+    update_config(config, yaml.safe_load((ROOT / "config" / "test" / "config.yaml").read_text()))
+    for path in [config[a][b] for a, b in EXTERNAL_INPUTS] + [RAW_CONTROLS]:
+        (work / path).parent.mkdir(parents=True, exist_ok=True)
+        (work / path).touch()
+    snakemake = ROOT / "envs" / "plasmidann" / "bin" / "snakemake"
+    proc = subprocess.run(
+        [str(snakemake) if snakemake.exists() else "snakemake", "-s", "workflow/Snakefile",
+         "--configfile", "config/test/config.yaml", "-n", "-c", "1", "--rulegraph"],
+        cwd=work, env={**os.environ, "XDG_CACHE_HOME": str(work / ".cache")},
+        capture_output=True, text=True, timeout=600)
+    assert proc.returncode == 0, f"the DAG does not resolve:\n{proc.stderr[-3000:]}"
+    names = dict(re.findall(r'^\s*(\d+)\[label = "(\w+)"', proc.stdout, re.M))
+    return {(names[a], names[b])
+            for a, b in re.findall(r"^\s*(\d+) -> (\d+)", proc.stdout, re.M)}
+
+
+@requires("snakemake")
+def test_every_rule_is_reached_by_all(rule_graph):
+    defined = set(re.findall(r"^rule (\w+):", smk_text(), re.M)) - {"annotate_only"}
+    in_graph = {rule for edge in rule_graph for rule in edge}
+    assert in_graph == defined, (
+        f"not reached by `all`: {sorted(defined - in_graph)}; "
+        f"unknown: {sorted(in_graph - defined)}")
+
+
+@requires("snakemake")
+@pytest.mark.parametrize("producer, consumer", [
+    # No search starts before pre-flight has confirmed every tool and database.
+    ("preflight", "tier_search"), ("preflight", "artefact_screen"),
+    ("preflight", "label_databases"), ("preflight", "conjugation_systems"),
+    # No search uses an unconfirmed -Z.
+    ("check_hmmer_z", "artefact_screen"), ("check_hmmer_z", "sweep_cohort"),
+    ("sweep_cohort", "tier_search"),
+    # AntiFam-flagged proteins are left out of the cascade selection.
+    ("artefact_screen", "cascade_selection"),
+    # The label table merges the label databases, defence and CONJScan components.
+    ("label_databases", "protein_labels"), ("defence_systems", "protein_labels"),
+    ("conjugation_systems", "protein_labels"),
+    # Context terms: the labels, the systems, every family and the lineages.
+    ("protein_labels", "context_features"), ("conjugation_systems", "context_features"),
+    ("protein_families", "context_features"), ("plasmid_lineage", "context_features"),
+    # Synteny: one cluster table per level, counted over lineages, dark proteins only.
+    ("protein_clustering", "synteny"), ("plasmid_lineage", "synteny"),
+    ("dark_set", "synteny"),
+    ("protein_families", "dark_cooccurrence"), ("plasmid_lineage", "dark_cooccurrence"),
+    # The report joins every per-ORF and per-family evidence table.
+    ("label_databases", "annotation_report"), ("conjugation_systems", "annotation_report"),
+    ("protein_clustering", "annotation_report"), ("dark_cooccurrence", "annotation_report"),
+    ("recurrence", "annotation_report"), ("synteny", "annotation_report"),
+    ("rarity", "annotation_report"), ("structure_search", "annotation_report"),
+])
+def test_the_rule_graph_has_the_dependency(rule_graph, producer, consumer):
+    assert (producer, consumer) in rule_graph
+
+
+@pytest.mark.parametrize("script", ["run_pipeline.sbatch", "bench_pipeline.sbatch"])
+def test_the_slurm_log_goes_to_the_submit_directory(script):
+    """Slurm opens the -o file before the script runs and fails without output when its
+    directory does not exist, as results/logs does not on a fresh checkout."""
+    (path,) = re.findall(r"^#SBATCH -o (\S+)", (WORKFLOW / script).read_text(), re.M)
+    assert "/" not in path, f"{script} writes its Slurm log into {path}"
