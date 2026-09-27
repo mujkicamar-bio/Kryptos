@@ -1,7 +1,7 @@
 # JSON schema for config/cascade.yaml.
 #
 # This checks SHAPE and RANGE. It cannot check relationships between fields - that
-# narrow_at must not be stricter than min_explained, for instance - so every entry point
+# narrow_at must not be stricter than min_coverage, for instance - so every entry point
 # also calls plasmidann.cascade.check_thresholds(), which raises on incoherent
 # combinations. Together they ensure that no threshold reaches a search without having
 # been declared and validated.
@@ -16,15 +16,7 @@ properties:
     maximum: 1
     description: >
       Explained fraction at or above which a protein stops being searched by deeper tiers.
-      Deliberately permissive; must be >= min_explained (enforced by check_thresholds).
-
-  min_explained:
-    type: number
-    minimum: 0
-    maximum: 1
-    description: >
-      Reporting threshold, applied post hoc on the complete table. Freely sweepable
-      because narrowing no longer depends on it.
+      Must be >= min_coverage (enforced by check_thresholds).
 
   min_coverage:
     type: number
@@ -54,14 +46,6 @@ properties:
   max_target_seqs:
     type: integer
     minimum: 1
-
-  sweep_cohort_fraction:
-    type: number
-    minimum: 0
-    maximum: 1
-    description: >
-      Fraction of proteins that bypass narrowing and are searched by every tier, so the
-      cost of the narrowing threshold can be measured rather than assumed.
 
   search_clustering:
     type: object
@@ -135,12 +119,10 @@ properties:
 required:
   - search_clustering
   - narrow_at
-  - min_explained
   - min_coverage
   - full_at
   - partial_at
   - hmmer_z
   - max_target_seqs
-  - sweep_cohort_fraction
   - tiers
   - artefact_screen

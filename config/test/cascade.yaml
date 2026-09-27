@@ -16,13 +16,11 @@
 # Every other threshold is identical to production, deliberately: a smoke run that
 # used different thresholds would not be testing the pipeline that produces results.
 narrow_at: 0.7
-min_explained: 0.5
 min_coverage: 0.5
 full_at: 0.8
 partial_at: 0.5
 hmmer_z: 5297
 max_target_seqs: 25
-sweep_cohort_fraction: 0.02
 # Search clustering, as in config/cascade.yaml.
 search_clustering:
   min_seq_id: 0.9

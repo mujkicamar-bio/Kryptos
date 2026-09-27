@@ -8,7 +8,8 @@
 # S0  analysis set                     which plasmids are in scope
 # S1  gene calling                     with circular-origin repair
 # S2  dereplication                    exact identity, lossless
-# S2b artefact screen                  AntiFam + low complexity; AntiFam skips the tiers
+# S2b artefact screen                  AntiFam + low complexity; AntiFam skips the tiers,
+#                                      low complexity the DIAMOND tiers
 # S3  annotation cascade               T1..Tn, self-narrowing on narrow_at
 # S4  plasmid annotation, labels        the primary deliverable
 # S5  target eligibility              unnamed, searched, not artefact-flagged
@@ -43,7 +44,7 @@ targets = yaml.safe_load(open(config.get("targets_config", "config/targets.yaml"
 validate(targets, "../config/schemas/targets.schema.yaml")
 
 # The schema checks each threshold's shape and range. It cannot check the relationships
-# BETWEEN thresholds - that narrow_at must not be stricter than min_explained, for
+# BETWEEN thresholds - that narrow_at must not be stricter than min_coverage, for
 # instance - so validate those here, at load time, before any job is scheduled.
 sys.path.insert(0, "src")
 from plasmidann.cascade import check_thresholds  # noqa: E402
@@ -238,11 +239,11 @@ rule plasmidscope_import:
 
 
 rule protein_clustering:
-    """S2f: every unique protein into families at three resolutions, before annotation.
+    """Every unique protein into families at three resolutions, before annotation.
 
-    A family is a sequence cluster, so it needs only sequence and is made first: the
-    selection (S2s) reads the primary resolution, Stage 5 reads all three after the
-    cascade. Every protein is clustered, so no member is lost to an earlier filter.
+    A family is a sequence cluster, so it needs only sequence and is made first: rule
+    cascade_selection reads the primary resolution, rule protein_families reads all three
+    after the cascade. Every protein is clustered, so no member is lost to an earlier filter.
     """
     input:
         faa=f"{OUT}/03_dereplication/unique_proteins.faa",
@@ -268,7 +269,7 @@ rule protein_clustering:
 
 
 rule cascade_selection:
-    """S2s: which proteins the cascade annotates, and which of those it searches.
+    """Which proteins the cascade annotates, and which of those it searches.
 
     Selected: neither annotated by Tier 0 nor flagged by AntiFam, in a family (primary)
     holding a small-plasmid protein that is neither. Searched: the representatives of a 90%
@@ -281,7 +282,7 @@ rule cascade_selection:
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
         ps=f"{OUT}/03_dereplication/plasmidscope_proteins.tsv",
         families=f"{OUT}/10_clustering/families_{targets['clustering']['primary']}_cluster.tsv",
-        # S2b: AntiFam-flagged proteins are never searched.
+        # AntiFam-flagged proteins are never searched.
         artefact=f"{OUT}/04_orf_qc/artefact_flags.tsv",
     output:
         tsv=f"{OUT}/03_dereplication/selection.tsv",
@@ -312,7 +313,7 @@ rule artefact_screen:
     An AntiFam flag also skips every annotation tier (user decision, 2026-09-25):
     cascade_selection gives the protein role artefact_antifam, so it is in no tier's query
     set, and cascade_resolve writes it as NOT_SEARCHED with annot_source artefact_antifam.
-    A low-complexity flag skips nothing. No sequence is removed from any table: the flagged
+    A low-complexity flag skips the DIAMOND tiers only (tier_search). No sequence is removed from any table: the flagged
     protein keeps its row and its flag, and the skip is countable from both.
     """
     input:

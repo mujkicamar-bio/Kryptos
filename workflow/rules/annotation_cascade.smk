@@ -4,8 +4,8 @@
 # Each tier searches whatever the previous tier could not explain, and hands on the
 # residue. Tier order is authority order.
 #
-# Narrowing uses `narrow_at` (0.7), while `min_explained` (0.5) is applied post hoc at
-# cascade_resolve, so the reporting threshold can be swept without re-running a tier.
+# A protein stops being searched at the tier where its explained fraction reaches
+# `narrow_at`.
 # =====================================================================================
 
 rule preflight:
@@ -23,7 +23,8 @@ rule preflight:
         orthology=targets["orthology"],
         foldseek_db=config["foldseek_db"],
         prostt5=config["prostt5_model"],
-        # S4d and S8f: tools named by path in their own environments, and their databases.
+        # label_databases and conjugation_systems: tools named by path in their own
+        # environments, and their databases.
         labels=config["labels"],
         amrfinder=config["amrfinder"],
         conjugation=targets["conjugation"],
@@ -44,8 +45,8 @@ rule preflight:
 
 
 rule check_hmmer_z:
-    """S2z: refuse a declared -Z that does not describe the protein set, as soon as
-    dereplication has produced it - before the artefact screen or any tier searches."""
+    """Refuse a declared -Z that does not describe the protein set (unique_proteins.faa),
+    before the artefact screen or any tier searches."""
     input:
         unique=f"{OUT}/03_dereplication/unique_proteins.faa",
     output:
@@ -63,34 +64,6 @@ rule check_hmmer_z:
         "../scripts/check_hmmer_z.py"
 
 
-rule sweep_cohort:
-    """Proteins that bypass narrowing entirely, so the threshold's cost is measurable.
-
-    Roughly 2% of the compute buys the ability to state what narrow_at cost, with a
-    confidence interval. Everything else in the run has no counterfactual.
-    """
-    input:
-        faa=f"{OUT}/03_dereplication/search_representatives.faa",
-        # Every tier depends on this rule, so none searches with an unconfirmed -Z.
-        hmmer_z=f"{OUT}/03_dereplication/hmmer_z_checked.tsv",
-    output:
-        f"{OUT}/05_annotation_cascade/sweep_cohort.txt",
-    params:
-        fraction=cascade["sweep_cohort_fraction"],
-        seed=config["seed"],
-    conda:
-        "../envs/plasmidann.yaml"
-    resources:
-        mem_mb=8000,
-        runtime=30,
-    benchmark:
-        f"{OUT}/benchmarks/sweep_cohort.tsv"
-    log:
-        f"{OUT}/logs/05_annotation_cascade/sweep_cohort.log",
-    script:
-        "../scripts/sweep_cohort.py"
-
-
 rule tier_search:
     """Search one tier, then hand the next tier only what stayed unexplained.
 
@@ -103,7 +76,8 @@ rule tier_search:
         spans=tier_spans,
         # Earlier tiers' hits, where this tier skips what they named (skip_if_named_by).
         named=tier_named,
-        sweep=f"{OUT}/05_annotation_cascade/sweep_cohort.txt",
+        # The DIAMOND tiers skip artefact-flagged proteins.
+        artefact=f"{OUT}/04_orf_qc/artefact_flags.tsv",
         preflight=f"{OUT}/05_annotation_cascade/preflight.tsv",
     output:
         hits=f"{OUT}/05_annotation_cascade/{{tier}}/hits.tsv",
@@ -111,7 +85,6 @@ rule tier_search:
         spans=f"{OUT}/05_annotation_cascade/{{tier}}/spans.tsv",
     params:
         spec=lambda wc: TIER_BY_ID[wc.tier],
-        # narrow_at, NOT min_explained. See the module docstring in tier_search.py.
         narrow_at=cascade["narrow_at"],
         hmmer_z=cascade["hmmer_z"],
         max_target_seqs=cascade["max_target_seqs"],
@@ -145,11 +118,7 @@ rule tier_search:
 
 
 rule cascade_resolve:
-    """Assign functional_class per protein from every tier's hits.
-
-    min_explained is applied here, post hoc, on a table where every protein in the
-    interesting band has been seen by every tier - which is what makes it sweepable.
-    """
+    """Assign functional_class per protein from every tier's hits."""
     input:
         hits=expand(f"{OUT}/05_annotation_cascade/{{tier}}/hits.tsv", tier=TIER_IDS),
         # The last tier's spans carry the cumulative explained fraction for every protein
@@ -158,7 +127,7 @@ rule cascade_resolve:
         faa=f"{OUT}/03_dereplication/search_representatives.faa",
         # The proteins that skipped the cascade, so the table covers every protein.
         ps=f"{OUT}/03_dereplication/plasmidscope_proteins.tsv",
-        # Search-cluster members, and the proteins no selected family holds (S2s).
+        # Search-cluster members, and the proteins no selected family holds.
         selection=f"{OUT}/03_dereplication/selection.tsv",
     output:
         f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
