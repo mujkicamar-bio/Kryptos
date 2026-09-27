@@ -52,9 +52,6 @@ rule check_hmmer_z:
         f"{OUT}/03_dereplication/hmmer_z_checked.tsv",
     params:
         hmmer_z=cascade["hmmer_z"],
-        n_controls=(config["controls"]["positive"]["n"]
-                    + config["controls"]["negative"]["n_shuffled"]
-                    + config["controls"]["negative"]["n_reverse_complement"]),
     conda:
         "../envs/plasmidann.yaml"
     resources:
@@ -73,7 +70,7 @@ rule sweep_cohort:
     confidence interval. Everything else in the run has no counterfactual.
     """
     input:
-        faa=f"{OUT}/03_dereplication/cascade_input.faa",
+        faa=f"{OUT}/03_dereplication/search_representatives.faa",
         # Every tier depends on this rule, so none searches with an unconfirmed -Z.
         hmmer_z=f"{OUT}/03_dereplication/hmmer_z_checked.tsv",
     output:
@@ -158,7 +155,7 @@ rule cascade_resolve:
         # The last tier's spans carry the cumulative explained fraction for every protein
         # the cascade ever saw, because each tier writes forward everything it inherited.
         spans=f"{OUT}/05_annotation_cascade/{TIER_IDS[-1]}/spans.tsv",
-        faa=f"{OUT}/03_dereplication/cascade_input.faa",
+        faa=f"{OUT}/03_dereplication/search_representatives.faa",
         # The proteins that skipped the cascade, so the table covers every protein.
         ps=f"{OUT}/03_dereplication/plasmidscope_proteins.tsv",
         # Search-cluster members, and the proteins no selected family holds (S2s).

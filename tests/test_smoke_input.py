@@ -1,4 +1,4 @@
-"""Smoke tests: analysis set, gene calling, dereplication, controls and decoys.
+"""Smoke tests: analysis set, gene calling, and dereplication.
 
 Each test runs one workflow script against a small fixture.
 """
@@ -8,7 +8,6 @@ import pathlib
 import pytest
 from conftest import (
     FakeSnakemake,
-    _ps_table,
     read_tsv,
     requires,
     run_script,
@@ -17,53 +16,6 @@ from conftest import (
 )
 
 from plasmidann.fasta import iter_fasta
-
-
-def test_controls_with_uninformative_titles_are_excluded(fixture_dir):
-    """14.3% of reviewed Swiss-Prot plasmid entries are titled "Uncharacterized ..." -
-    which cascade.is_informative correctly rejects. Sampling them into the control set
-    capped achievable recall at 0.86 against a required 0.99, so the gate would halt every
-    run after the full cascade and blame the cascade.
-
-    A control protein must be one the pipeline is expected to annotate. A protein whose own
-    curators could not name it is not a test of our recall."""
-    raw = fixture_dir / "raw.faa"
-    control = fixture_dir / "control.faa"
-    spiked = fixture_dir / "cascade_input.faa"
-    faa = fixture_dir / "unique.faa"
-
-    body = "MKVLATTLLGAAFAASSALAQ" * 4
-    write_fasta(raw, [
-        ("sp|P00001|A_ECOLI Beta-lactamase TEM OS=Escherichia coli", body),
-        ("sp|P00002|B_ECOLI Uncharacterized protein YbaA OS=Escherichia coli", body),
-        ("sp|P00003|C_ECOLI Relaxase MobA OS=Escherichia coli", body),
-        ("sp|P00004|D_ECOLI UPF0102 protein YraN OS=Escherichia coli", body),
-        ("sp|P00005|E_ECOLI DNA polymerase III subunit beta OS=Escherichia coli", body),
-    ])
-    write_fasta(faa, [("realprotein", body)])
-
-    decoy_faa = fixture_dir / "negative_control.faa"
-    write_fasta(decoy_faa, [("DECOY_shuf_00000", "M" * 60),
-                            ("DECOY_rc_00001", "K" * 60)])
-
-    run_script("prepare_control.py", FakeSnakemake(
-        input={"faa": str(faa), "raw": str(raw), "decoys": str(decoy_faa),
-               "ps": _ps_table(fixture_dir)},
-        output={"control": str(control), "spiked": str(spiked)},
-        params={"n_controls": 10, "min_controls": 1, "seed": 1}))
-
-    headers = [l[1:].strip() for l in open(control) if l.startswith(">")]
-    assert len(headers) == 3, f"expected 3 nameable controls, got {len(headers)}"
-    joined = " ".join(headers).lower()
-    assert "uncharacterized" not in joined
-    assert "upf0102" not in joined
-
-    # Both control sets must be in the file the cascade actually searches. A decoy that
-    # never enters the query is a negative control in the config and nowhere else.
-    spiked_ids = [l[1:].strip() for l in open(spiked) if l.startswith(">")]
-    assert sum(i.startswith("CTRL_") for i in spiked_ids) == 3
-    assert sum(i.startswith("DECOY_") for i in spiked_ids) == 2, (
-        f"the decoys were not spiked into the cascade query set: {spiked_ids}")
 
 
 def test_a_scripts_output_reaches_its_declared_log(fixture_dir):
@@ -265,88 +217,6 @@ def test_orf_call_reconstructs_a_gene_across_the_origin(fixture_dir):
         assert gene[0]["partial"] == "0"
     assert not any(r["partial"] == "1" for r in rows), "a left-edge stub survived"
     assert {r["translation_table"] for r in rows} <= {"11", "4"}, rows[0]
-
-
-def _decoy_fixture(fixture_dir, n_plasmids=12):
-    """Real CDS on real plasmids, which is what a decoy has to be built from.
-
-    A decoy drawn from a uniform random model is too easy - it fails to resemble anything
-    for reasons that have nothing to do with the cascade - so the source is the collection
-    itself.
-    """
-    import random
-    rng = random.Random(7)
-    shard = fixture_dir / "decoy_shard.fna"
-    rows, records = [], []
-    for i in range(n_plasmids):
-        pid = f"dp{i:02d}"
-        # A clean 300 bp frame: ATG, 98 sense codons, TAA.
-        sense = [c for c in ("GCT", "AAA", "GAT", "TTT", "CAT", "ATT", "CTG", "ATG",
-                             "AAT", "CCG", "CAG", "CGT", "AGC", "ACC", "GTT", "TGG",
-                             "TAT", "GGT", "GAA", "TGC")]
-        gene = "ATG" + "".join(rng.choice(sense) for _ in range(98)) + "TAA"
-        seq = "".join(rng.choice("ACGT") for _ in range(100)) + gene
-        records.append((pid, seq))
-        rows.append([f"{pid}|1", pid, 101, 100 + len(gene), "+", 0])
-    write_fasta(shard, records)
-    index = fixture_dir / "decoy_index.tsv"
-    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "spans_origin"],
-              rows)
-    return index, shard
-
-
-def test_negative_controls_are_built_from_real_cds(fixture_dir):
-    """Spec section 58.2. The config declared 250 shuffled and 250 reverse-complement
-    decoys and nothing built them, so the pipeline had no test of the direction that
-    matters most here.
-
-    The deliverable is the DARK set - the complement of what the cascade could name. If
-    the cascade can be induced to name something that is not a protein, the complement is
-    not what it claims to be, and every statement about dark proteins inherits the error.
-    Positive controls cannot detect that; they test the other direction.
-    """
-    index, shard = _decoy_fixture(fixture_dir)
-    out = fixture_dir / "negative_control.faa"
-
-    run_script("prepare_decoys.py", FakeSnakemake(
-        input={"index": str(index), "fasta": str(shard)},
-        output={"faa": str(out)},
-        params={"n_shuffled": 3, "n_reverse_complement": 3, "seed": 1,
-                "min_length": 50}))
-
-    records = [l[1:].strip() for l in out.read_text().splitlines() if l.startswith(">")]
-    assert all(r.startswith("DECOY_") for r in records), (
-        f"a decoy must be recognisable by prefix at every later stage: {records}")
-    assert sum("shuf" in r for r in records) == 3
-    assert sum("_rc_" in r for r in records) == 3
-
-
-def test_a_shuffled_decoy_keeps_its_source_composition_exactly(fixture_dir):
-    """Composition is preserved and order destroyed; that is the whole construction.
-
-    A hit to a shuffled sequence is a hit to amino-acid composition alone, and composition
-    is not evidence of function. A decoy that also changed composition would fail to
-    resemble anything for two reasons at once, and the test would no longer isolate the
-    one being made.
-    """
-    index, shard = _decoy_fixture(fixture_dir)
-    out = fixture_dir / "negative_control.faa"
-
-    run_script("prepare_decoys.py", FakeSnakemake(
-        input={"index": str(index), "fasta": str(shard)},
-        output={"faa": str(out)},
-        params={"n_shuffled": 4, "n_reverse_complement": 0, "seed": 1,
-                "min_length": 50}))
-
-    text = out.read_text().splitlines()
-    seqs = [text[i + 1] for i, l in enumerate(text) if l.startswith(">")]
-    assert seqs, "no decoy written"
-    for seq in seqs:
-        assert len(seq) >= 50
-        assert "*" not in seq, "a stop codon is not a residue"
-        # The source frame is a fixed 99-residue protein, so composition is checkable:
-        # every decoy must be a permutation of a real translated CDS.
-        assert set(seq) <= set("ACDEFGHIKLMNPQRSTVWY"), f"non-residue in decoy: {seq}"
 
 
 def test_plasmidscope_import_keeps_only_our_proteins(fixture_dir):

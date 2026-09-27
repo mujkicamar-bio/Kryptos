@@ -5,7 +5,7 @@ input, so for it there is no deeper result and the effect of the threshold canno
 For the proteins in this cohort the deeper results exist, because every tier searches them
 whatever their explained fraction; comparing their results with and without the deeper
 tiers measures what narrowing at `narrow_at` changes. The cohort is a uniform random sample
-of `fraction` of the cascade query set (cascade_input.faa), drawn from the sorted ids, so it
+of `fraction` of the cascade query set (search_representatives.faa), drawn from the sorted ids, so it
 is the same for the same seed and the same query set, whatever the FASTA order.
 """
 import random

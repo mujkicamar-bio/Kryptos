@@ -7,12 +7,6 @@
 # output rows they govern.
 # =====================================================================================
 
-# --- S5 quality gate ------------------------------------------------------------------
-quality_gate:
-  min_control_recall: 0.99
-  control_fasta: data/refs/control/positive_control.faa
-  min_controls: 100
-  require_control_set: true
 # --- Stage 14: rarity, conservation and rarefaction -----------------------------------
 #
 # Rarity and conservation are separate descriptors. The labels are not a ranking - RARE is

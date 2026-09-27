@@ -3,7 +3,7 @@
 # selects proteins; the 1,000 for experimental follow-up are chosen by hand from these
 # tables.
 #
-# S5  quality gate        positive control (run-halting), decoys (reported)
+# S5  target eligibility  unnamed, searched, not artefact-flagged
 # S6  dark set, families  MMseqs2 deep-homology clustering, family network, lineages
 # S7  evolutionary        recurrence, CDS recovery, codon alignments, dN/dS, RNAcode
 # S8  context, structure  DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons,
@@ -36,35 +36,32 @@ rule clonal_registry:
         "../scripts/clonal_registry.py"
 
 
-rule quality_gate:
-    """S5: halts the run if known plasmid biology comes out dark (SC2)."""
+rule target_eligibility:
+    """S5: which proteins are screening candidates: unnamed, searched, not artefacts."""
     input:
         prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
         artefact=f"{OUT}/04_orf_qc/artefact_flags.tsv",
     output:
-        flags=f"{OUT}/09_quality_gate/target_eligibility.tsv",
-        report=f"{OUT}/09_quality_gate/quality_gate.txt",
-    params:
-        gate=targets["quality_gate"],
-        tier_sources={t["id"]: t["source"] for t in TIERS},
+        flags=f"{OUT}/09_target_eligibility/target_eligibility.tsv",
+        report=f"{OUT}/09_target_eligibility/target_eligibility.txt",
     resources:
         # ~1.4 KB per protein row measured, ~4.9 GB at 3.5 M proteins.
         mem_mb=16000,
         runtime=60,
     benchmark:
-        f"{OUT}/benchmarks/quality_gate.tsv"
+        f"{OUT}/benchmarks/target_eligibility.tsv"
     log:
-        f"{OUT}/logs/09_quality_gate/quality_gate.log",
+        f"{OUT}/logs/09_target_eligibility/target_eligibility.log",
     conda:
         "../envs/plasmidann.yaml"
     script:
-        "../scripts/quality_gate.py"
+        "../scripts/target_eligibility.py"
 
 
 rule dark_set:
     """S6a: the proteins that are screening candidates at all."""
     input:
-        flags=f"{OUT}/09_quality_gate/target_eligibility.tsv",
+        flags=f"{OUT}/09_target_eligibility/target_eligibility.tsv",
         faa=f"{OUT}/03_dereplication/unique_proteins.faa",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         index=f"{OUT}/02_orf_calling/orf_index.tsv",

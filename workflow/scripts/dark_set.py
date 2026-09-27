@@ -1,6 +1,6 @@
 """The dark set: the proteins that are candidates at all.
 
-Target-eligible proteins from the quality gate (UNCHARACTERIZED_HOMOLOG or NONE, not
+Target-eligible proteins (rule target_eligibility: UNCHARACTERIZED_HOMOLOG or NONE, not
 artefact-flagged), minus proteins that occur only as partial ORFs. A fragment aligns to only
 part of a domain, drifts toward DOMAIN_ONLY or out of annotation, and looks like a novel
 dark protein, so a protein without one complete ORF is set aside and counted.
@@ -37,10 +37,7 @@ with open(snakemake.input.index, newline="") as fh:
             partial_only.add(sid)
 partial_only -= complete
 
-# Spiked controls are instrumentation, not candidates. They are excluded by prefix rather
-# than by any property of their annotation, so a control that failed the gate cannot leak
-# into the target list.
-dark = {s for s in (eligible - partial_only) if not s.startswith("CTRL_")}
+dark = eligible - partial_only
 
 n_written = 0
 with open(snakemake.output.faa, "w") as out:

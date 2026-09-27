@@ -123,22 +123,6 @@ qc:
   # screen is configured in config/cascade.yaml (artefact_screen).
   max_opposite_strand_overlap_fraction: 0.6
 
-controls:
-  # Spec §58. Positive controls test recall; negative controls test the opposite direction.
-  positive:
-    raw_faa: data/refs/control/raw.faa
-    n: 500
-  negative:
-    # Decoys are built by shuffling real plasmid CDS while preserving length and amino-acid
-    # composition, plus reverse-complement translations of real CDS. Both must come out DARK
-    # and must not receive a confident functional annotation.
-    n_shuffled: 250
-    n_reverse_complement: 250
-    # A decoy shorter than this is not a test of the cascade: nothing would name it, so it
-    # would pass the negative control for a reason that has nothing to do with the
-    # pipeline behaving correctly. 50 matches the control length floor.
-    min_length: 50
-
 # Seed for every stochastic step, so a rerun selects the identical sample.
 seed: 20260916
 

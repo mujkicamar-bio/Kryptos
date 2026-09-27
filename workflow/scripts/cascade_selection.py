@@ -83,7 +83,7 @@ if selected:
         for line in fh:
             rep, mem = line.rstrip("\n").split("\t")
             representative_of[mem] = rep
-    # The FASTA of the representatives is the cascade's query (prepare_control).
+    # The FASTA of the representatives is the first tier's query.
     (work / "search_rep_seq.fasta").replace(snakemake.output.faa)
 else:
     open(snakemake.output.faa, "w").close()

@@ -34,7 +34,7 @@
 #
 # Query sets: exactly what the production nr tier receives - the proteins the earlier
 # tiers could not explain. results_test/05_annotation_cascade/T4/unresolved.faa of the
-# smoke run, minus the 100 decoys and 2 controls (data/bench/test100_unresolved.faa), and
+# smoke run, restricted to the smoke set's own proteins (data/bench/test100_unresolved.faa), and
 # its subset from five plasmids sampled with seed 20260922 (data/bench/test5_unresolved.faa,
 # plasmid ids in test5_plasmids.ids).
 set -u

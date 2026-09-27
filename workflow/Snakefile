@@ -9,10 +9,9 @@
 # S1  gene calling                     with circular-origin repair
 # S2  dereplication                    exact identity, lossless
 # S2b artefact screen                  AntiFam + low complexity; AntiFam skips the tiers
-# S2c positive control                 reviewed Swiss-Prot proteins spiked into the query
 # S3  annotation cascade               T1..Tn, self-narrowing on narrow_at
 # S4  plasmid annotation, labels        the primary deliverable
-# S5  quality gate                     positive and negative controls (run-halting)
+# S5  target eligibility              unnamed, searched, not artefact-flagged
 # S6  dark set and families            MMseqs2 deep-homology clustering
 # S7  evolutionary evidence            CDS recovery, codon alignments, dN/dS, RNAcode
 # S4d plasmid label databases          TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS,
@@ -93,7 +92,7 @@ rule all:
         f"{OUT}/15_report/dark_family_rarefaction.tsv", # Stage 14: saturation curve
         f"{OUT}/06_annotation_tables/plasmid_annotation.gff3",        # S4 feature files
         f"{OUT}/06_annotation_tables/plasmid_annotation.gbk",
-        f"{OUT}/09_quality_gate/quality_gate.txt",               # S5 the run-halting control
+        f"{OUT}/09_target_eligibility/target_eligibility.txt",   # S5 dark set counts
 
 
 rule annotate_only:
@@ -216,7 +215,7 @@ rule dereplicate:
 rule plasmidscope_import:
     """S2p: PlasmidScope's published eggNOG result for every protein of ours it contains.
 
-    Proteins it annotates skip the cascade (prepare_control) and enter
+    Proteins it annotates skip the cascade (cascade_selection) and enter
     protein_annotation.tsv as tier PS (cascade_resolve); their orthology terms come from
     here too (orthology). Joined on identical sequence only. See plasmidann.plasmidscope.
     """
@@ -303,81 +302,11 @@ rule cascade_selection:
         "scripts/cascade_selection.py"
 
 
-rule prepare_decoys:
-    """S2d: the negative controls (spec section 58.2).
-
-    config declared 250 shuffled and 250 reverse-complement decoys, plasmidann.decoys held
-    the construction, and no rule called it - so the pipeline ran with one of its two
-    controls missing and no output said so.
-
-    Built from this collection's own CDS, because a decoy from a uniform random model
-    fails to resemble anything for reasons unrelated to the cascade's thresholds.
-    """
-    input:
-        index=f"{OUT}/02_orf_calling/orf_index.tsv",
-        fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
-    output:
-        faa=f"{OUT}/03_dereplication/negative_control.faa",
-    params:
-        n_shuffled=config["controls"]["negative"]["n_shuffled"],
-        n_reverse_complement=config["controls"]["negative"]["n_reverse_complement"],
-        min_length=config["controls"]["negative"]["min_length"],
-        seed=config["seed"],
-    resources:
-        mem_mb=8000,
-        runtime=60,
-    benchmark:
-        f"{OUT}/benchmarks/prepare_decoys.tsv"
-    log:
-        f"{OUT}/logs/03_dereplication/prepare_decoys.log",
-    conda:
-        "envs/plasmidann.yaml"
-    script:
-        "scripts/prepare_decoys.py"
-
-
-rule prepare_control:
-    """S2c: build the spike-in positive control and the cascade's actual query set.
-
-    Controls are reviewed Swiss-Prot proteins of known function, independent of anything
-    this pipeline computed. They travel through every tier exactly as a real protein does,
-    so the gate at S5 tests the real code path - narrowing, thresholds and all.
-    """
-    input:
-        # The search representatives (S2s), not every unique protein.
-        faa=f"{OUT}/03_dereplication/search_representatives.faa",
-        # Proteins PlasmidScope annotates are left out of the query set.
-        ps=f"{OUT}/03_dereplication/plasmidscope_proteins.tsv",
-        raw=targets["quality_gate"]["control_fasta"].replace(
-            "positive_control.faa", "raw.faa"),
-        # Both control sets enter the query at the same point and in the same file: what
-        # makes a control a control is that it takes the identical code path.
-        decoys=f"{OUT}/03_dereplication/negative_control.faa",
-    output:
-        control=targets["quality_gate"]["control_fasta"],
-        spiked=f"{OUT}/03_dereplication/cascade_input.faa",
-    params:
-        n_controls=config["controls"]["positive"]["n"],
-        min_controls=targets["quality_gate"]["min_controls"],
-        seed=config["seed"],
-    resources:
-        mem_mb=8000,
-        runtime=30,
-    benchmark:
-        f"{OUT}/benchmarks/prepare_control.tsv"
-    log:
-        f"{OUT}/logs/03_dereplication/prepare_control.log",
-    conda:
-        "envs/plasmidann.yaml"
-    script:
-        "scripts/prepare_control.py"
-
-
 rule artefact_screen:
     """S2b: flag sequences that are probably not proteins at all.
 
     A shadow ORF passes every cascade tier cleanly - nothing named it, because it is not a
-    protein - so it would reach the dark set with a perfect record. The quality gate (S5)
+    protein - so it would reach the dark set with a perfect record. Rule target_eligibility (S5)
     marks a flagged protein as not target-eligible, so it does not enter the dark set.
 
     An AntiFam flag also skips every annotation tier (user decision, 2026-09-25):

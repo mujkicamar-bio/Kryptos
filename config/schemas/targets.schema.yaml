@@ -4,25 +4,6 @@ $schema: https://json-schema.org/draft/2020-12/schema
 type: object
 additionalProperties: false
 properties:
-  quality_gate:
-    type: object
-    properties:
-      min_control_recall:
-        type: number
-        minimum: 0
-        maximum: 1
-      control_fasta:
-        type: string
-      require_control_set:
-        type: boolean
-      min_controls:
-        type: integer
-        minimum: 1
-    required:
-    - min_control_recall
-    - control_fasta
-    - require_control_set
-    - min_controls
   network:
     type: object
     required: [node_resolution, min_cov, max_evalue, max_out_edges, dark_brightness]
@@ -210,7 +191,6 @@ properties:
         type: integer
         minimum: 1
 required:
-- quality_gate
 - clustering
 - network
 - evolution

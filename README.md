@@ -59,7 +59,7 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | S4b | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
 | S4c | `08_protein_labels` | every label from every source, normalised into one table, and the cross-source disagreements |
 | S4d | `08_protein_labels` | plasmid label databases: TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb and AMRFinderPlus |
-| S5 | `09_quality_gate` | positive and negative controls; halts the run on failure |
+| S5 | `09_target_eligibility` | target eligibility: unnamed, searched, not artefact-flagged |
 | S6 | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
 | S7 | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
 | S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, dark family co-occurrence (`dark_cooccurrence.tsv`: pairs of dark families sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
