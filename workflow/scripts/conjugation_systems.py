@@ -1,32 +1,29 @@
 """S8f: conjugation and mobilisation systems (CONJScan) on every plasmid.
 
-CONJScan 2.1.0 uses model grammar 2.1, which needs MacSyFinder >= 2.1.6; DefenseFinder pins
-MacSyFinder 2.1.4 and imports a package 2.1.6 no longer ships. CONJScan therefore runs from
-its own environment, named by path in config (`conjugation.exe`), as pharokka does.
+CONJScan 2.1.0 uses model grammar 2.1, which needs MacSyFinder >= 2.1.6, while
+DefenseFinder pins MacSyFinder 2.1.4. CONJScan therefore runs from its own environment,
+named by path in config (`conjugation.exe`).
 
-Unlike defence phase 2, the input is NOT pruned: the gembase holds every ORF of every
-plasmid in genomic order (the order_orfs / gembase_id helpers of the defence stage). On the
-100-plasmid test set, 31 of the 55 plasmids with a CONJScan system carry no defence
-component, so the defence gembase would miss them; and MacSyFinder counts intervening genes,
-so every ORF of a plasmid must be present.
+Input: the ORF index. Every ORF of every plasmid is written in genomic order as one gembase
+database (plasmidann.defence.gembase_records), not only the plasmids with a defence
+component: on the 100-plasmid test set 31 of the 55 plasmids with a CONJScan system carry no
+defence component. Models `CONJScan/Plasmids all`: the package recommends running all models
+of one set together, and the Plasmids set is the one built for plasmids (Coluzzi et al.
+2022). Topology is circular; a per-replicon topology file gave identical calls on the test
+set (212 of 212 ORFs), because the T4SS and dCONJ plasmid models allow up to 500
+intervening genes.
 
-Models `CONJScan/Plasmids all`: the package recommends running all models of one set
-together, and the Plasmids set is the one built for plasmids (Coluzzi et al. 2022). Topology
-is circular, as defence_systems.py passes; a per-replicon topology file gave identical calls
-on the test set (212 of 212 ORFs), because the T4SS and dCONJ plasmid models allow up to
-500 intervening genes.
+One MacSyFinder process searches the whole database, with the cores given to --worker.
+HMMER's independent e-value scales with the number of sequences in the database and
+MacSyFinder selects hits by it (--i-evalue-sel 0.001, its default): on the test set a
+16.9-bit T4SS_MOBP1 hit had i-evalue 0.0014 against all 5,673 ORFs and 0.00014 against a
+553-ORF chunk, so per-core chunks would make the calls depend on the core count.
 
-ONE DATABASE, NOT ONE CHUNK PER CORE. Defence phase 2 splits its input into one chunk of
-whole replicons per core. That split is not neutral here: HMMER's independent e-value scales
-with the number of target sequences in the database, and MacSyFinder selects hits by it
-(--i-evalue-sel 0.001, its default). On the test set a T4SS_MOBP1 hit with the same score
-(16.9 bits) had i-evalue 0.0014 against all 5,673 ORFs and 0.00014 against a 553-ORF chunk,
-so 8 chunks called 214 ORFs in 56 systems where one database called 212 in 55: the calls
-depended on the core count. One MacSyFinder process over the whole gembase, with --worker
-parallelising the 125 profile searches, gives calls that do not depend on -c; on 113,460
-ORFs it took 16.4 s with 16 workers against 87.7 s with one. The e-values still depend on
-the size of the collection searched, as with any single MacSyFinder database: the same
-113,460-ORF set called 211 of each copy's 212 ORFs.
+Outputs: conjugation_systems.tsv, one row per system component (status SUCCESS), and
+conjugation_plasmid_class.tsv, one mobility class per plasmid. When the models or the
+executable are absent and conjugation.required is false, the systems table holds one row
+with status NOT_RUN and no orf_id, and the class table is empty: pMOBless for every
+plasmid would be a claim the run has not made.
 """
 import collections
 import csv
@@ -38,9 +35,16 @@ import sys
 
 import _ctx  # noqa: F401
 
-from plasmidann.conjscan import (CLASS_COLUMNS, COLUMNS, MODEL_SET, installed_version,
-                                 plasmid_class, read_best_solution)
-from plasmidann.defence import gembase_id, order_orfs
+from darkorf import status
+from plasmidann.conjscan import (
+    CLASS_COLUMNS,
+    COLUMNS,
+    MODEL_SET,
+    installed_version,
+    plasmid_class,
+    read_best_solution,
+)
+from plasmidann.defence import gembase_records
 
 models_dir = pathlib.Path(snakemake.params.models_dir)
 exe = snakemake.params.exe
@@ -58,9 +62,6 @@ def write_tables(rows, classes):
         w.writerows(classes)
 
 
-# The NOT_RUN contract of the defence stage (spec section 7.2): a missing optional database
-# must not be fatal, and an empty table must not read as "no conjugation systems here". The
-# class table stays empty too - pMOBless for every plasmid would be exactly that claim.
 version = installed_version(models_dir)
 missing = []
 if version is None:
@@ -70,36 +71,28 @@ if shutil.which(exe) is None:
 if missing:
     if snakemake.params.required:
         sys.exit("S8f: " + "; ".join(missing) + ".")
-    print("S8f: " + "; ".join(missing) + ". Recording NOT_RUN: conjugation system calls "
-          "are absent-because-not-searched, not absent-because-searched.")
-    write_tables([], [])
+    print("S8f: " + "; ".join(missing) + ". Recording NOT_RUN.")
+    write_tables([{"status": status.NOT_RUN}], [])
     sys.exit(0)
 
 # The version is what the methods cite. 2.1.0 added the MOBM relaxase profile and raised the
-# MOBH threshold, so a different release changes the calls under the old citation.
+# MOBH threshold, so a different release gives different calls.
 if version != str(snakemake.params.version):
     sys.exit(f"S8f: CONJScan {version} is installed at {models_dir}, but config "
              f"conjugation.version is {snakemake.params.version}.")
-
-by_plasmid = collections.defaultdict(list)
-with open(snakemake.input.index, newline="") as fh:
-    for r in csv.DictReader(fh, delimiter="\t"):
-        by_plasmid[r["plasmid_id"]].append(r)
-replicons = {p.replace("_", "-") for p in by_plasmid}
-assert len(replicons) == len(by_plasmid), \
-    "two plasmid ids map to the same gembase replicon after '_' -> '-'"
 
 # A rerun starts clean: results from an interrupted run would be read below.
 shutil.rmtree(outdir, ignore_errors=True)
 outdir.mkdir(parents=True)
 gembase = outdir / "gembase.faa"
-back = {}
-with open(gembase, "w") as out:
-    for plasmid in sorted(by_plasmid):
-        for position, orf in enumerate(order_orfs(by_plasmid[plasmid]), start=1):
-            gid = gembase_id(plasmid, position)
-            out.write(f">{gid}\n{orf['seq']}\n")
-            back[gid] = (orf["orf_id"], plasmid)
+# gembase_id -> orf_id, for mapping the calls back. The index is streamed one plasmid at a
+# time, so the sequences are never all held in memory.
+orf_of = {}
+with open(snakemake.input.index, newline="") as fh, open(gembase, "w") as out:
+    for gid, _, orf in gembase_records(csv.DictReader(fh, delimiter="\t")):
+        out.write(f">{gid}\n{orf['seq']}\n")
+        orf_of[gid] = orf["orf_id"]
+plasmids = sorted({oid.rsplit("|", 1)[0] for oid in orf_of.values()})
 
 # The executable's own directory goes first on PATH, so MacSyFinder finds the hmmsearch of
 # its own environment (envs/conjscan pins hmmer) rather than whichever the rule's
@@ -119,21 +112,20 @@ for path in outdir.glob("gembase.faa*"):
 rows = []
 types_of = collections.defaultdict(set)
 for rec in read_best_solution(outdir / "run" / "best_solution.tsv"):
-    orf_id, plasmid = back[rec["hit_id"]]
+    orf_id = orf_of[rec["hit_id"]]
+    plasmid = orf_id.rsplit("|", 1)[0]
     system = rec["model_fqn"].rsplit("/", 1)[-1]
     types_of[plasmid].add(system)
-    # hit_status (mandatory / accessory / neutral) is the model's own declaration of the
-    # component's role, and sys_wholeness how much of the model was found.
     rows.append({"orf_id": orf_id, "plasmid_id": plasmid, "system": system,
                  "system_id": rec["sys_id"], "component": rec["gene_name"],
                  "hit_status": rec["hit_status"], "sys_wholeness": rec["sys_wholeness"],
-                 "conjscan_version": version})
+                 "conjscan_version": version, "status": status.SUCCESS})
 
 # One class per plasmid in the ORF index; a plasmid with no ORF has no row.
-classes = [(p, plasmid_class(types_of.get(p, ()))) for p in sorted(by_plasmid)]
+classes = [(p, plasmid_class(types_of.get(p, ()))) for p in plasmids]
 write_tables(rows, classes)
 
 print(f"S8f: CONJScan {version}: {len({r['orf_id'] for r in rows})} ORFs in "
       f"{len({r['system_id'] for r in rows})} systems across {len(types_of)} of "
-      f"{len(by_plasmid)} plasmids; classes "
+      f"{len(plasmids)} plasmids; classes "
       f"{dict(collections.Counter(c for _, c in classes))}")

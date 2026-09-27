@@ -1,22 +1,23 @@
-"""S8a: splitting DefenseFinder's two phases across the representation each one needs.
+"""S8a: DefenseFinder's two phases on the representation each needs.
 
-DefenseFinder runs in two phases. Phase 1 is an HMM search over 1,887 profiles: per
-protein, order-independent. Phase 2 is MacSyFinder system calling over 711 model
-definitions, each carrying a co-localisation constraint - a real one reads
-
-    <model inter_gene_max_space="3" min_mandatory_genes_required="2" ...>
-
-so it is entirely about gene adjacency.
-
-v2 ran the whole thing on unique_proteins.faa: dereplicated and ordered by SHA-256 hash,
-with the default --db-type ordered_replicon. Phase 1 was fine. Phase 2 was told that a
-cryptographic hash ordering was genomic order. Demonstrated in review: the same two
-proteins adjacent gave 1 system, separated by 5 decoys gave 0, with identical HMM hits.
-
-The fix searches the dereplicated set once, propagates component labels to every ORF that
-shares the sequence, and calls systems on ordered per-plasmid gene lists.
+Phase 1 (per-protein HMM search) runs on dereplicated proteins; phase 2 (MacSyFinder system
+calling, whose models count intervening genes) runs on every ORF of a candidate plasmid in
+genomic order, written as one gembase database.
 """
-from plasmidann.defence import candidate_plasmids, gembase_id, order_orfs, propagate_components
+import os
+import sys
+
+import pytest
+from conftest import FakeSnakemake, read_tsv, run_script, write_fasta, write_tsv
+
+from plasmidann.defence import (
+    candidate_plasmids,
+    gembase_id,
+    gembase_records,
+    order_orfs,
+    parse_all_systems,
+    propagate_components,
+)
 
 ORF_TO_SEQ = {
     "p1|1": "aaa", "p1|2": "bbb", "p1|3": "ccc",
@@ -26,19 +27,12 @@ ORF_TO_SEQ = {
 
 
 def test_a_component_hit_propagates_to_every_orf_sharing_the_sequence():
-    """This is the whole point of dereplicating first: a protein identical on forty
-    plasmids is searched once and labelled forty times."""
-    hits = {"aaa": "RM_type_II"}
-
-    labels = propagate_components(hits, ORF_TO_SEQ)
-
-    assert labels["p1|1"] == "RM_type_II"
-    assert labels["p2|1"] == "RM_type_II"
-    assert "p1|2" not in labels
+    """A protein identical on several plasmids is searched once and applies to every copy."""
+    assert propagate_components({"aaa"}, ORF_TO_SEQ) == {"p1|1", "p2|1"}
 
 
 def test_propagation_does_not_invent_labels_for_unhit_sequences():
-    assert propagate_components({}, ORF_TO_SEQ) == {}
+    assert propagate_components(set(), ORF_TO_SEQ) == set()
 
 
 # --- pruning: only plasmids that could possibly carry a system ------------------------
@@ -47,16 +41,14 @@ def test_only_plasmids_carrying_a_component_become_candidates():
     """System calling needs ordered proteins, which is the expensive representation. A
     plasmid with no component hit cannot produce a system, so it never needs to be
     written out in genomic order."""
-    labels = {"p1|1": "RM_type_II", "p2|1": "RM_type_II"}
-
-    assert candidate_plasmids(labels) == {"p1", "p2"}
+    assert candidate_plasmids({"p1|1", "p2|1"}) == {"p1", "p2"}
 
 
 def test_a_plasmid_with_no_components_is_pruned():
-    assert "p3" not in candidate_plasmids({"p1|1": "RM_type_II"})
+    assert "p3" not in candidate_plasmids({"p1|1"})
 
 
-# --- ordering: the thing the hash ordering destroyed ---------------------------------
+# --- ordering ------------------------------------------------------------------------
 
 def test_orfs_are_returned_in_genomic_order():
     """MacSyFinder counts intervening genes. If the order is wrong, inter_gene_max_space
@@ -71,10 +63,8 @@ def test_orfs_are_returned_in_genomic_order():
 
 
 def test_an_origin_spanning_gene_sorts_to_the_start_of_the_replicon():
-    """A gene reconstructed across the cut runs start..length then 1..end, so start > end.
-    Sorting naively on start would place it last, when on the circle it is adjacent to the
-    first gene. 94% of these plasmids are circular, so this is the common case, not an
-    edge case."""
+    """A gene reconstructed across the cut runs start..length then 1..end, so start > end;
+    it is placed first, so that positions follow the molecule from its origin."""
     orfs = [
         {"orf_id": "p1|2", "start": 400, "end": 800, "spans_origin": "0"},
         {"orf_id": "p1|1", "start": 4800, "end": 200, "spans_origin": "1"},
@@ -108,21 +98,8 @@ def test_underscores_in_a_plasmid_id_do_not_break_the_replicon_split():
     assert position == "00001"
 
 
-# ------------------------------------------------------------------------------------
-# Phase 1 reads MacSyFinder's own all_systems.tsv.
-#
-# `--db-type unordered` is the mode phase 1 needs - report components, do not call systems
-# - and MacSyFinder does not write best_solution.tsv in it. Two consequences followed, and
-# both were invisible in the output:
-#
-#   1. defense-finder's post-treatment step opens best_solution.tsv unconditionally and
-#      raises FileNotFoundError, so a search that had just found systems in all three
-#      model families exited non-zero.
-#   2. phase 1 then looked for *defense_finder_genes.tsv, which is a POST-TREATMENT
-#      output and therefore never existed. Even without the crash it would have written
-#      an empty table, and an empty defence table reads as "this collection has no
-#      defence systems" rather than as "the parser found no file".
-# ------------------------------------------------------------------------------------
+# --- phase 1 reads MacSyFinder's own all_systems.tsv ------------------------------------
+# MacSyFinder writes no best_solution.tsv under --db-type unordered.
 
 ALL_SYSTEMS = """\
 # macsyfinder 2.1.4
@@ -137,12 +114,8 @@ unique_proteins\t284ca90c\tClover__CloB\t54\tdefense-finder-models/DefenseFinder
 
 
 def test_component_hits_are_read_from_all_systems(tmp_path):
-    """The columns phase 1 needs are all in MacSyFinder's own output: hit_id names the
-    protein, gene_name the component, model_fqn the model it belongs to, hit_i_eval the
-    significance. model_fqn in particular is the tool's cited model identity rather than
-    the guess the previous parser recorded as `model_unverified`."""
-    from plasmidann.defence import parse_all_systems
-
+    """hit_id names the protein, gene_name the component, model_fqn the model and
+    hit_i_eval the significance."""
     path = tmp_path / "all_systems.tsv"
     path.write_text(ALL_SYSTEMS)
 
@@ -159,7 +132,6 @@ def test_the_macsyfinder_comment_header_is_not_parsed_as_data(tmp_path):
     """all_systems.tsv opens with four '#' lines and a blank line before its header. A
     parser that took the first line as the header would read every row as one field and
     silently produce nothing."""
-    from plasmidann.defence import parse_all_systems
 
     path = tmp_path / "all_systems.tsv"
     path.write_text(ALL_SYSTEMS)
@@ -170,10 +142,8 @@ def test_the_macsyfinder_comment_header_is_not_parsed_as_data(tmp_path):
 
 
 def test_a_model_family_that_found_nothing_contributes_no_rows(tmp_path):
-    """MacSyFinder writes an all_systems.tsv with only its comment header for a family
-    that matched nothing. That is a real and common outcome - it is what crashed
-    defense-finder's post-treatment - and it must read as zero rows, not as an error."""
-    from plasmidann.defence import parse_all_systems
+    """MacSyFinder writes an all_systems.tsv with only its comment header for a model
+    family that matched nothing; it reads as zero rows, not as an error."""
 
     empty = tmp_path / "empty_all_systems.tsv"
     empty.write_text("# macsyfinder 2.1.4 \n# models : CasFinder-3.1.0\n"
@@ -185,20 +155,10 @@ def test_a_model_family_that_found_nothing_contributes_no_rows(tmp_path):
     assert len(parse_all_systems([empty, full])) == 2
 
 
-# ------------------------------------------------------------------------------------
-# Phase 2 is ONE MacSyFinder database, whatever the core count.
-#
-# HMMER's independent e-value is the score's p-value times the number of sequences in the
-# database searched, and MacSyFinder keeps a hit only below --i-evalue-sel (0.001 by
-# default). Phase 2 once split its input into one chunk of replicons per core: a smaller
-# database gives a smaller i-evalue, so the calls depended on -c. Measured with CONJScan on
-# the test set (leaf 1.3): 8 chunks called 214 ORFs in 56 systems, one database 212 in 55.
-# ------------------------------------------------------------------------------------
-
-import os  # noqa: E402
-import sys  # noqa: E402
-
-from conftest import FakeSnakemake, read_tsv, run_script, write_fasta, write_tsv  # noqa: E402
+# --- phase 2 is one MacSyFinder database, whatever the core count ----------------------
+# HMMER's independent e-value is the p-value times the number of sequences searched, and
+# MacSyFinder keeps a hit only below --i-evalue-sel (0.001), so per-core chunks would make
+# the calls depend on the core count.
 
 # Stand-in for macsyfinder that reproduces the dependence under test: a planned hit is
 # kept when p-value x (sequences in --sequence-db) < 0.001, as HMMER and MacSyFinder do.
@@ -277,3 +237,29 @@ def test_phase2_calls_do_not_depend_on_the_core_count(tmp_path, monkeypatch):
     argv = (runs[0] / "argv.txt").read_text().split("\n")
     assert argv[argv.index("--worker") + 1] == "4"
     assert argv[argv.index("--replicon-topology") + 1] == "circular"
+
+
+# --- gembase records ------------------------------------------------------------------
+
+def _index_row(orf_id, start, spans="0"):
+    return {"orf_id": orf_id, "plasmid_id": orf_id.rsplit("|", 1)[0], "start": start,
+            "spans_origin": spans, "seq": "MKV"}
+
+
+def test_gembase_records_number_each_plasmid_in_genomic_order():
+    rows = [_index_row("p_1|1", 500), _index_row("p_1|2", 100), _index_row("p2|1", 10)]
+    assert [(g, o["orf_id"]) for g, _, o in gembase_records(rows)] == [
+        ("p-1_00001", "p_1|2"), ("p-1_00002", "p_1|1"), ("p2_00001", "p2|1")]
+    assert [o["orf_id"] for _, _, o in gembase_records(rows, keep={"p2"})] == ["p2|1"]
+
+
+def test_two_plasmids_with_one_replicon_name_are_refused():
+    """p_1 and p-1 are both replicon p-1; merging them would join two molecules' ORFs."""
+    with pytest.raises(ValueError, match="occurs twice"):
+        list(gembase_records([_index_row("p_1|1", 1), _index_row("p-1|1", 1)]))
+
+
+def test_an_index_not_grouped_by_plasmid_is_refused():
+    with pytest.raises(ValueError, match="occurs twice"):
+        list(gembase_records([_index_row("a|1", 1), _index_row("b|1", 1),
+                              _index_row("a|2", 9)]))

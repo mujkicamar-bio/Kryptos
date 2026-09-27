@@ -1,76 +1,38 @@
-"""S8a: splitting DefenseFinder's two phases across the representation each one needs.
+"""S8a: DefenseFinder's two phases, each on the representation it needs.
 
-THE PROBLEM THIS SOLVES
+Phase 1 is an HMM search (1,887 profiles) that asks per protein whether it looks like a
+defence component; it does not depend on gene order, so it runs once on the dereplicated
+proteins. Phase 2 is MacSyFinder system calling (711 models), whose quorum and
+co-localisation rules (e.g. inter_gene_max_space="3") count intervening genes, so it runs on
+every ORF of a plasmid in genomic order. Between the two, component hits are propagated to
+every ORF sharing the sequence, and plasmids without a component are left out of phase 2,
+since they cannot satisfy any model's quorum.
 
-DefenseFinder runs in two phases with incompatible requirements.
-
-  Phase 1  HMM search, 1,887 profiles. Per protein. Order-independent.
-           Answers: "does this protein look like a defence component?"
-
-  Phase 2  MacSyFinder system calling, 711 model definitions. Each carries a quorum rule
-           AND a co-localisation constraint. A real one reads:
-
-               <model inter_gene_max_space="3" min_mandatory_genes_required="2" ...>
-
-           Answers: "do these components sit together in a way that works?"
-
-v2 ran both on unique_proteins.faa - dereplicated and ordered by SHA-256 hash - with the
-default --db-type ordered_replicon, which asserts the file is in genomic order. Phase 1 was
-unaffected. Phase 2 was reading a shuffled deck: proteins that were neighbours on a plasmid
-were scattered, and proteins from unrelated plasmids became "adjacent".
-
-Demonstrated in review: the same two proteins adjacent produced 1 system; separated by five
-decoys, 0 systems - with identical HMM hits.
-
-THE SPLIT
-
-  1. SEARCH      1,887 profiles against the 3.5M dereplicated proteins. Cheap, no
-                 redundancy, and order is irrelevant to what Phase 1 asks.
-  2. PROPAGATE   component labels back to every ORF sharing that sequence. A protein
-                 identical on forty plasmids is searched once and labelled forty times.
-  3. PRUNE       keep only plasmids carrying at least one component. A plasmid with none
-                 cannot produce a system, so it never needs the expensive ordered
-                 representation. Measured effect: roughly a 4-5x reduction in what
-                 reaches Phase 2.
-  4. CALL        MacSyFinder in gembase mode over ordered per-plasmid gene lists, with
-                 --replicon-topology circular, since 94% of these plasmids are closed.
+Phase 2 and CONJScan read MacSyFinder's gembase format: one FASTA holding many replicons,
+each ORF named <replicon>_<position>.
 """
+import itertools
 
 
-def propagate_components(component_hits, orf_to_seq):
-    """Spread per-unique-protein component labels onto every ORF that shares the sequence.
+def propagate_components(component_seqs, orf_to_seq):
+    """The ORFs whose protein is a component hit: an identical sequence has the same hits.
 
-    `component_hits` maps seq_id -> component name; `orf_to_seq` maps orf_id -> seq_id.
-    Returns orf_id -> component name for the ORFs that inherit one.
-
-    This is what makes dereplication safe for Phase 1: identity is exactly the property
-    the HMM search depends on, so one search result is valid for every copy.
+    `component_seqs` is the set of seq_ids with a phase 1 hit; `orf_to_seq` maps
+    orf_id -> seq_id.
     """
-    return {orf: component_hits[seq]
-            for orf, seq in orf_to_seq.items() if seq in component_hits}
+    return {orf for orf, seq in orf_to_seq.items() if seq in component_seqs}
 
 
-def candidate_plasmids(orf_labels):
-    """Plasmids carrying at least one defence component, and therefore worth ordering.
-
-    A plasmid with no component cannot satisfy any model's quorum, so writing it out in
-    genomic order for Phase 2 would be pure waste. orf_id is `<plasmid_id>|<ordinal>`, so
-    the plasmid is the part before the last pipe.
-    """
-    return {orf.rsplit("|", 1)[0] for orf in orf_labels}
+def candidate_plasmids(component_orfs):
+    """The plasmids carrying at least one component ORF (orf_id is <plasmid_id>|<n>)."""
+    return {orf.rsplit("|", 1)[0] for orf in component_orfs}
 
 
 def order_orfs(orfs):
-    """Sort one plasmid's ORFs into genomic order.
+    """One plasmid's ORFs in genomic order.
 
-    An origin-spanning gene - reconstructed at S1 across the cut point of a circular
-    plasmid - runs start..length then 1..end, so its start is GREATER than its end. Sorting
-    naively on start would place it last when on the circle it is adjacent to the first
-    gene, and MacSyFinder would measure the wrong number of intervening genes across the
-    junction. 94% of these plasmids are circular, so this is the common case.
-
-    Such genes are placed first: on a circular replicon written from coordinate 1, the gene
-    straddling the origin is the one preceding position 1.
+    An origin-spanning gene runs start..length then 1..end, so its start is greater than its
+    end. It is placed first, so that positions follow the molecule from its origin.
     """
     def key(o):
         spans = str(o.get("spans_origin", "0")) == "1"
@@ -79,43 +41,46 @@ def order_orfs(orfs):
 
 
 def gembase_id(plasmid_id, position):
-    """Build a MacSyFinder gembase identifier: <replicon>_<zero-padded position>.
+    """A MacSyFinder gembase identifier: <replicon>_<zero-padded position>.
 
-    Gembase mode lets one file hold many replicons and still treat each separately, which
-    turns tens of thousands of per-plasmid runs into one. MacSyFinder recovers the replicon
-    by splitting on the LAST underscore.
-
-    Plasmid ids here contain underscores of their own - COMPASS_AB007909.1 - so they are
-    rewritten with hyphens. Without that, every plasmid would parse as a different,
-    malformed replicon and co-localisation would break in a new way.
-
-    The position is zero-padded so that lexical order matches genomic order; unpadded,
-    position 10 would sort before position 2.
+    MacSyFinder takes the replicon to be everything before the LAST underscore, so the
+    underscores of the plasmid id (COMPASS_AB007909.1) become hyphens. The position is
+    zero-padded so that lexical order matches genomic order.
     """
     return f"{plasmid_id.replace('_', '-')}_{position:05d}"
 
 
+def gembase_records(index_rows, keep=None):
+    """(gembase_id, plasmid_id, row) for every ORF of an ORF index, in genomic order.
+
+    `index_rows` are orf_index.tsv rows, which are sorted by plasmid; they are read one
+    plasmid at a time, so only one plasmid is held in memory. `keep`, when given, is the set
+    of plasmids to include. Raises ValueError when a replicon name appears twice: either the
+    rows are not grouped by plasmid, or two plasmid ids differ only in '_' versus '-', and
+    either would merge ORFs of different molecules in one replicon.
+    """
+    seen = set()
+    for plasmid, rows in itertools.groupby(index_rows, key=lambda r: r["plasmid_id"]):
+        if keep is not None and plasmid not in keep:
+            continue
+        replicon = plasmid.replace("_", "-")
+        if replicon in seen:
+            raise ValueError(f"gembase replicon {replicon} (plasmid {plasmid}) occurs twice: "
+                             "the ORF index is not grouped by plasmid, or two plasmid ids "
+                             "map to the same replicon name")
+        seen.add(replicon)
+        for position, orf in enumerate(order_orfs(list(rows)), start=1):
+            yield gembase_id(plasmid, position), plasmid, orf
+
+
 def parse_all_systems(paths):
-    """Component hits from MacSyFinder's own all_systems.tsv files.
+    """Component hits from MacSyFinder's all_systems.tsv files (phase 1).
 
-    Phase 1 runs `--db-type unordered` - report components, do not call systems - and
-    MacSyFinder does not write best_solution.tsv in that mode. Two things followed from
-    reading defense-finder's post-treatment output instead, and neither was visible:
-
-      * defense-finder's post-treatment opens best_solution.tsv unconditionally and raises
-        FileNotFoundError, so a search that HAD found systems in all three model families
-        exited non-zero and halted the stage.
-      * the parser looked for *defense_finder_genes.tsv, which that same post-treatment
-        step produces, so it never existed. Without the crash the stage would have written
-        an empty table - and an empty defence table reads as "this collection has no
-        defence systems", which is a claim about the biology rather than about the parser.
-
-    all_systems.tsv is MacSyFinder's own output and carries everything phase 1 needs.
-    `model_fqn` is the tool's model identity, cited rather than guessed.
-
-    The file opens with '#' comment lines and a blank line before its header, and a family
-    that matched nothing is a file of comments alone. Both are handled here rather than by
-    each caller.
+    MacSyFinder writes no best_solution.tsv under `--db-type unordered`; all_systems.tsv is
+    its own output and holds the hit (hit_id), the component (gene_name), the model
+    (model_fqn) and the independent e-value (hit_i_eval). The file opens with '#' lines and
+    a blank line before its header, and a model family that matched nothing writes comments
+    alone.
     """
     rows = []
     for path in paths:

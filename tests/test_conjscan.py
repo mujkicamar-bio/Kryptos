@@ -2,19 +2,23 @@
 
 The stage runs MacSyFinder from a configured path, so the script tests drive it with a
 stand-in executable that writes the same best_solution.tsv MacSyFinder does. What is under
-test is everything around the tool: the gembase of every plasmid, whole replicons per
-chunk, the mapping back to orf ids, the version stamp, the class per plasmid, and the
-NOT_RUN / halt contract shared with the defence stage.
+test is everything around the tool: the gembase of every plasmid as one database, the
+mapping back to orf ids, the version stamp, the class per plasmid, and the NOT_RUN / halt
+contract shared with the defence stage.
 """
 import subprocess
 import sys
 
 import pytest
-
 from conftest import FakeSnakemake, read_tsv, run_script, write_tsv
 
-from plasmidann.conjscan import (CLASS_COLUMNS, COLUMNS, installed_version, plasmid_class,
-                                 read_best_solution)
+from plasmidann.conjscan import (
+    CLASS_COLUMNS,
+    COLUMNS,
+    installed_version,
+    plasmid_class,
+    read_best_solution,
+)
 
 BEST_HEADER = ["replicon", "hit_id", "gene_name", "hit_pos", "model_fqn", "sys_id",
                "sys_loci", "locus_num", "sys_wholeness", "sys_score", "sys_occ",
@@ -195,6 +199,7 @@ def test_calls_are_mapped_back_to_orfs_and_stamped_with_the_models_version(tmp_p
     assert rows["pA|4"]["sys_wholeness"] == "0.846"
     assert rows["p_B|2"]["plasmid_id"] == "p_B"
     assert {r["conjscan_version"] for r in rows.values()} == {"2.1.0"}
+    assert {r["status"] for r in rows.values()} == {"SUCCESS"}
 
     with open(classes) as fh:
         assert fh.readline().rstrip("\n").split("\t") == CLASS_COLUMNS
@@ -223,9 +228,8 @@ def test_every_plasmid_is_searched_with_the_plasmid_models_and_circular_topology
 
 
 def test_one_database_is_searched_whatever_the_core_count(tmp_path):
-    """HMMER's i-evalue scales with the number of sequences searched, so one chunk per core
-    made the calls depend on -c (8 chunks: 214 ORFs in 56 systems; one database: 212 in 55,
-    on the test set). The cores go to MacSyFinder's --worker instead."""
+    """HMMER's i-evalue scales with the number of sequences searched, so per-core chunks
+    would make the calls depend on -c. The cores go to MacSyFinder's --worker instead."""
     models = _models(tmp_path / "models")
     _planned(models)
     out, _ = _run(tmp_path, models=models, exe=_fake_exe(tmp_path), threads=3)
@@ -238,14 +242,14 @@ def test_one_database_is_searched_whatever_the_core_count(tmp_path):
 
 
 def _assert_not_run(out, classes):
-    for path, cols in ((out, COLUMNS), (classes, CLASS_COLUMNS)):
-        lines = path.read_text().splitlines()
-        assert lines == ["\t".join(cols)]
+    """One NOT_RUN row without an ORF, and no class: an empty systems table would read as
+    'searched, no conjugation system', and pMOBless for every plasmid likewise."""
+    rows = read_tsv(out)
+    assert [(r["orf_id"], r["status"]) for r in rows] == [("", "NOT_RUN")]
+    assert classes.read_text().splitlines() == ["\t".join(CLASS_COLUMNS)]
 
 
 def test_absent_models_record_not_run_when_not_required(tmp_path):
-    """An empty table with no record would read as 'no conjugation systems here', a
-    biological claim the run has not earned; spec section 7.2."""
     with pytest.raises(SystemExit) as done:
         _run(tmp_path, exe=_fake_exe(tmp_path), required=False)
     assert done.value.code in (0, None)

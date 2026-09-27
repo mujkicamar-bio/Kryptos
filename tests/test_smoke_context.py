@@ -382,36 +382,66 @@ def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir
 
 
 def test_defence_records_not_run_when_the_models_are_absent(fixture_dir):
-    """Spec section 7.2 separates NOT_RUN from NO_HIT, and this is where the distinction
-    is earned. An empty defence table with no status reads as 'this collection carries no
-    defence systems', which is a biological claim a run without the models has not made.
-
-    The models are an OPTIONAL database: the primary deliverable is complete annotation of
-    every ORF, which does not depend on them, so their absence must not halt the run."""
+    """Both phases write one NOT_RUN row without an ORF, and exit 0: the models are an
+    optional database, and an empty table would read as 'searched, no defence system'."""
     faa = fixture_dir / "cand.faa"
     write_fasta(faa, [("GB1", "MKV")])
     mapping = fixture_dir / "map.tsv"
     write_tsv(mapping, ["gembase_id", "orf_id", "plasmid_id"], [["GB1", "p1|1", "p1"]])
-    out = fixture_dir / "defence_systems.tsv"
+    absent = str(fixture_dir / "absent")
+    phase1 = fixture_dir / "defence_components.tsv"
+    phase2 = fixture_dir / "defence_systems.tsv"
 
-    # The script ends with sys.exit(0) - a successful early return for a Snakemake script,
-    # which the in-process harness sees as SystemExit. The code is asserted rather than
-    # swallowed: exit 0 is the whole claim being made, that this is a clean skip and not a
-    # failure.
-    with pytest.raises(SystemExit) as exit_info:
-        run_script("defence_systems.py", FakeSnakemake(
-            input={"faa": str(faa), "map": str(mapping)},
-            output={"tsv": str(out)},
-            params={"models_dir": str(fixture_dir / "absent"), "required": False},
-            threads=1))
-    assert exit_info.value.code == 0, "a missing optional database exited non-zero"
+    for script, inputs, out in (("defence_search.py", {"faa": str(faa)}, phase1),
+                                ("defence_systems.py", {"faa": str(faa), "map": str(mapping)},
+                                 phase2)):
+        with pytest.raises(SystemExit) as exit_info:
+            run_script(script, FakeSnakemake(
+                input=inputs, output={"tsv": str(out)},
+                params={"models_dir": absent, "required": False}, threads=1))
+        assert exit_info.value.code == 0, f"{script}: a missing optional database failed"
+        rows = read_tsv(out)
+        assert [r["status"] for r in rows] == ["NOT_RUN"], script
+        assert rows[0].get("seq_id", rows[0].get("orf_id")) == ""
 
-    assert out.exists(), "no table written, so downstream stages cannot read the status"
-    rows = read_tsv(out)
-    assert rows == [], "rows were invented for a search that never ran"
-    assert "status" in out.read_text().split("\n")[0], (
-        "the table carries no status column, so absent-because-not-searched cannot be "
-        "told from absent-because-searched")
+
+def test_defence_gembase_writes_nothing_after_a_phase1_not_run(fixture_dir):
+    components = fixture_dir / "defence_components.tsv"
+    write_tsv(components, ["seq_id", "component", "model", "hit_evalue", "status"],
+              [["", "", "", "", "NOT_RUN"]])
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("S1\tp1|1\n")
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                      "spans_origin", "translation_table", "seq"],
+              [["p1|1", "p1", 1, 300, 1, 0, 0, 11, "MKV"]])
+    faa, gmap = fixture_dir / "cand.faa", fixture_dir / "gembase_map.tsv"
+    run_script("defence_gembase.py", FakeSnakemake(
+        input={"components": str(components), "map": str(pmap), "index": str(index)},
+        output={"faa": str(faa), "map": str(gmap)}))
+    assert faa.read_text() == ""
+    assert read_tsv(gmap) == []
+
+
+def test_defence_gembase_writes_every_orf_of_a_candidate_plasmid(fixture_dir):
+    components = fixture_dir / "defence_components.tsv"
+    write_tsv(components, ["seq_id", "component", "model", "hit_evalue", "status"],
+              [["S2", "CloA", "Clover", "1e-9", "SUCCESS"]])
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("S1\tp_1|1\nS2\tp_1|2\nS3\tp2|1\n")
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                      "spans_origin", "translation_table", "seq"],
+              [["p_1|1", "p_1", 900, 1200, 1, 0, 0, 11, "MKA"],
+               ["p_1|2", "p_1", 100, 400, 1, 0, 0, 11, "MKB"],
+               ["p2|1", "p2", 1, 300, 1, 0, 0, 11, "MKC"]])
+    faa, gmap = fixture_dir / "cand.faa", fixture_dir / "gembase_map.tsv"
+    run_script("defence_gembase.py", FakeSnakemake(
+        input={"components": str(components), "map": str(pmap), "index": str(index)},
+        output={"faa": str(faa), "map": str(gmap)}))
+    assert faa.read_text() == ">p-1_00001\nMKB\n>p-1_00002\nMKA\n"
+    assert [(r["gembase_id"], r["orf_id"]) for r in read_tsv(gmap)] == [
+        ("p-1_00001", "p_1|2"), ("p-1_00002", "p_1|1")]
 
 
 def test_defence_halts_when_the_models_are_required_and_absent(fixture_dir):
