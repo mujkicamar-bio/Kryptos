@@ -1,4 +1,4 @@
-"""Stage 9: synteny and context conservation across a cluster's lineages (section 42).
+"""Stage 9: synteny and context conservation across a cluster's lineages.
 
 See src/plasmidann/synteny.py for what the measurements are, why they are kept apart, and
 why they are counted over plasmid lineages (Stage 6) rather than occurrences. This script
@@ -28,8 +28,8 @@ members in intermediate_family_ids.
 
 A NEIGHBOUR IS IDENTIFIED BY ITS CLUSTER, NOT ITS LABEL
 
-Every gene has one - dark genes included, which a label comparison dropped as empty - and
-it means the same on small and large plasmids, whose genes were not all annotated alike.
+Every gene has one, dark genes included, and it means the same on small and large
+plasmids, whose genes were not all annotated alike.
 modal_left, modal_right and modal_synteny therefore hold cluster ids, and left and right
 are upstream and downstream on the gene's own strand. operon_like still asks for a
 FUNCTIONAL partner, as Stage 8 does: an uncharacterised partner says nothing about what the
@@ -128,14 +128,10 @@ with open(snakemake.input.map) as fh:
 # the occurrences measured: two translated copies for every ORF of the full run would
 # double the dominant memory cost for rows that are never read.
 #
-# Split into left and right around the ORF rather than returned as one list: section 42's
-# left and right conservation are separate measurements and cannot be recovered from a
-# combined neighbourhood.
-#
-# LEFT AND RIGHT ARE RELATIVE TO THE GENE, upstream and downstream of its own strand, not
-# the record's coordinates. The same arrangement written in the opposite orientation was
-# otherwise counted as a different one (3 of 17 measured test families changed). On a
-# circular plasmid the window and the directons wrap across the origin
+# Left and right are kept apart, since their conservation is measured separately, and are
+# relative to the gene: upstream and downstream on its own strand, so that the same
+# arrangement written in the opposite orientation is the same arrangement. On a circular
+# plasmid the window and the directons wrap across the origin
 # (plasmidann.context.flanks, plasmidann.context.directons).
 # ------------------------------------------------------------------------------------
 context_of = {}
@@ -144,11 +140,12 @@ for plasmid_id, genes in by_plasmid.items():
     units = directons(genes, max_gap=cfg["max_operon_gap"],
                       circular=plasmid_id in circular, length=length_of.get(plasmid_id))
     unit_of = {oid: i for i, unit in enumerate(units) for oid in unit}
+    flanks_of = flanks(genes, window, circular=plasmid_id in circular)
 
     for gene in genes:
         orf_id = gene["orf_id"]
         # Nearest-first on both sides, so [0] is the immediate neighbour.
-        left, right = flanks(genes, orf_id, window, circular=plasmid_id in circular)
+        left, right = flanks_of[orf_id]
         if gene["strand"] == -1:
             left, right = right, left
 

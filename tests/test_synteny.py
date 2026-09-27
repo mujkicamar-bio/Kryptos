@@ -1,7 +1,6 @@
-"""Stage 9: synteny and context conservation (spec section 42).
+"""Stage 9: synteny and context conservation.
 
-Stage 8 asks what a dark ORF sits next to, once. This asks whether the arrangement RECURS.
-The spec's example is the distinction:
+Stage 8 asks what a dark ORF sits next to, once. This asks whether the arrangement RECURS:
 
     A - B - DARK - C - D
     A - B - DARK - C - D
@@ -14,11 +13,9 @@ far stronger claim: order survives because the arrangement matters.
 The counting unit is the plasmid LINEAGE (Stage 6), not the occurrence: forty copies of one
 redeposited plasmid are one observation, not forty.
 """
-import collections
-
 import pytest
-
 from conftest import FakeSnakemake, read_tsv, run_script, write_tsv
+
 from plasmidann import synteny
 
 
@@ -27,8 +24,8 @@ def one_lineage_each(occurrences):
     return [dict(o, lineage=f"L{i}") for i, o in enumerate(occurrences)]
 
 
-def spec_example():
-    """The four occurrences from section 42, verbatim, each on its own lineage."""
+def conserved_example():
+    """The four occurrences of the module docstring, each on its own lineage."""
     return one_lineage_each([
         {"left": ["B", "A"], "right": ["C", "D"], "operon": True},
         {"left": ["B", "A"], "right": ["C", "D"], "operon": True},
@@ -37,8 +34,8 @@ def spec_example():
     ])
 
 
-def test_the_spec_example_is_fully_conserved():
-    result = synteny.conservation(spec_example())
+def test_the_example_is_fully_conserved():
+    result = synteny.conservation(conserved_example())
 
     assert result["lineage_left_conservation"] == 1.0
     assert result["lineage_right_conservation"] == 1.0
@@ -48,9 +45,8 @@ def test_the_spec_example_is_fully_conserved():
 
 
 def test_a_conserved_left_and_a_variable_right_are_reported_separately():
-    """A real and common arrangement - the left gene may be the promoter-sharing partner.
-    A single averaged context score would hide it, which is why section 42 names six
-    measurements rather than one."""
+    """A real and common arrangement - the left gene may be the promoter-sharing partner -
+    that a single averaged context score would hide."""
     occurrences = one_lineage_each([
         {"left": ["B"], "right": ["C"]},
         {"left": ["B"], "right": ["X"]},
@@ -116,7 +112,7 @@ def test_a_family_with_no_context_at_all_is_reported_as_such():
 
 
 def test_the_occurrence_and_lineage_counts_travel_with_the_measurement():
-    result = synteny.conservation(spec_example())
+    result = synteny.conservation(conserved_example())
 
     assert result["n_occurrences"] == 4
     assert result["context_recurrence"] == 4
@@ -156,18 +152,9 @@ def test_forty_clonal_copies_are_one_vote():
     assert result["modal_synteny"] == ""
 
 
-def _old_occurrence_fraction(values):
-    """The occurrence statistic this stage reported before the lineage rule, verbatim:
-    frequency of the most common non-empty value among the non-empty values."""
-    present = [v for v in values if v]
-    if not present:
-        return 0.0
-    return round(collections.Counter(present).most_common(1)[0][1] / len(present), 4)
-
-
-def test_one_copy_per_lineage_reduces_to_the_occurrence_statistic():
-    """When every lineage holds one copy, the lineage values are exactly the occurrence
-    values, so the existing reading of the numbers carries over for the common case."""
+def test_one_copy_per_lineage_gives_the_share_among_occurrences():
+    """With one copy per lineage, a conservation is the share of the most common non-empty
+    value among the occurrences."""
     occurrences = one_lineage_each([
         {"left": ["B"], "right": ["C"], "operon": True},
         {"left": ["B"], "right": ["C"], "operon": False},
@@ -177,21 +164,31 @@ def test_one_copy_per_lineage_reduces_to_the_occurrence_statistic():
         {"left": ["B", "A"], "right": ["C"], "operon": True},
         {"left": [], "right": [], "operon": True},
     ])
-    usable = [o for o in occurrences if o["left"] or o["right"]]
-    lefts = [(o["left"] or [""])[0] for o in usable]
-    rights = [(o["right"] or [""])[0] for o in usable]
-    hoods = [",".join(sorted({n for n in o["left"] + o["right"] if n})) for o in usable]
-    synts = [f"{l}|{r}" for l, r in zip(lefts, rights) if l or r]
 
     result = synteny.conservation(occurrences)
 
-    assert result["lineage_left_conservation"] == _old_occurrence_fraction(lefts)
-    assert result["lineage_right_conservation"] == _old_occurrence_fraction(rights)
-    assert result["lineage_neighborhood_conservation"] == _old_occurrence_fraction(hoods)
-    assert result["lineage_synteny_conservation"] == _old_occurrence_fraction(synts)
-    assert result["lineage_operon_like_conservation"] == round(
-        sum(bool(o["operon"]) for o in usable) / len(usable), 4)
-    assert result["n_lineages"] == len(usable)
+    # Six occurrences have context. Left: B in 4 of the 5 non-empty; right: C in 4 of 5;
+    # neighbourhood {B,C} in 2 of 6; synteny B|C in 3 of 6; operon-like in 4 of 6.
+    assert result["lineage_left_conservation"] == 0.8
+    assert result["lineage_right_conservation"] == 0.8
+    assert result["lineage_neighborhood_conservation"] == 0.3333
+    assert result["lineage_synteny_conservation"] == 0.5
+    assert result["lineage_operon_like_conservation"] == 0.6667
+    assert result["n_lineages"] == 6
+
+
+def test_a_side_with_a_single_voting_lineage_has_no_value():
+    """Two lineages have context, but only L2 has a left neighbour: one lineage conserved
+    with itself is not a measurement, so left conservation is empty while right, voted by
+    both, is measured."""
+    occurrences = [{"left": [], "right": ["R1"], "lineage": "L1"},
+                   {"left": ["X"], "right": ["R1"], "lineage": "L2"}]
+
+    result = synteny.conservation(occurrences)
+
+    assert result["status"] == "SUCCESS"
+    assert (result["lineage_left_conservation"], result["modal_left"]) == ("", "")
+    assert (result["lineage_right_conservation"], result["modal_right"]) == (1.0, "R1")
 
 
 def test_a_discordant_lineage_splits_its_vote():

@@ -2,7 +2,9 @@
 
 Each test runs one workflow script against a small fixture.
 """
+import os
 import pathlib
+import sys
 
 import pytest
 from conftest import (
@@ -18,9 +20,8 @@ from conftest import (
 
 @requires("mafft")
 def test_family_evolution_runs_and_reports_a_dnds_status(fixture_dir):
-    """S7b crashed with NameError on the first family with >=3 members. It survived
-    review because without mafft on PATH the script takes the ALIGNMENT_FAILED branch and
-    exits 0 - so the bug only appears when the tool is actually present."""
+    """An alignable, divergent family reaches a dN/dS status; the small-plasmid member set
+    is measured on its own."""
     faa = fixture_dir / "dark.faa"
     cds = fixture_dir / "dark.fna"
     fams = fixture_dir / "families.tsv"
@@ -63,7 +64,8 @@ def test_family_evolution_runs_and_reports_a_dnds_status(fixture_dir):
         "alignment failed with mafft available - the tool is not being invoked correctly")
 
 
-def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear"):
+def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear",
+                 defence_rows=(), conj_rows=()):
     """One plasmid: dark ORF pl1|1 in a two-gene directon with an annotated partner, and a
     dark ORF pl1|3 inside an integron cassette array. F1 is pl1|1's family."""
     ann = fixture_dir / "plasmid_annotation.tsv"
@@ -79,7 +81,7 @@ def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear"):
     pmap = fixture_dir / "protein_map.tsv"
     pmap.write_text("S1\tpl1|1\nS2\tpl1|2\nS3\tpl1|3\n")
     defence = fixture_dir / "defence_systems.tsv"
-    write_tsv(defence, ["orf_id", "system"], [])
+    write_tsv(defence, ["orf_id", "system", "status"], list(defence_rows))
     integrons = fixture_dir / "integrons.tsv"
     write_tsv(integrons, ["plasmid_id", "integron_id", "element", "start", "end",
                           "integron_type", "annotation", "type_elt"],
@@ -89,7 +91,8 @@ def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear"):
     lengths = fixture_dir / "plasmid_lengths.tsv"
     write_tsv(lengths, ["plasmid_id", "length_bp"], [["pl1", 5000]])
     conj = fixture_dir / "conjugation_systems.tsv"
-    write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component"], [])
+    write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component", "status"],
+              list(conj_rows))
     labels = fixture_dir / "protein_labels.tsv"
     write_tsv(labels, ["protein_id", "source", "tier", "kind", "label", "sub_label"], [])
     all_fams = fixture_dir / "protein_families.tsv"
@@ -129,6 +132,19 @@ def test_context_writes_one_row_of_rates_per_family(fixture_dir):
     assert row["cons_conj"] == "0.0"
 
 
+def test_a_not_run_system_stage_gives_an_empty_rate_not_zero(fixture_dir):
+    """NOT_RUN means nothing was searched, so the rate is missing, not a measured 0."""
+    row = _run_context(fixture_dir, defence_rows=[["", "", "NOT_RUN"]],
+                       conj_rows=[["", "", "", "", "", "NOT_RUN"]])[0]
+    assert row["cons_defence"] == "" and row["cons_conj"] == ""
+    assert row["cons_integron"] == "0.0"
+
+
+def test_an_orf_that_is_a_defence_component_gets_defence_context(fixture_dir):
+    row = _run_context(fixture_dir, defence_rows=[["pl1|1", "Clover", "SUCCESS"]])[0]
+    assert row["cons_defence"] == "1.0"
+
+
 FOLDSEEK_DB = "data/refs/foldseek/pdb"
 
 
@@ -140,11 +156,8 @@ PROSTT5 = "data/refs/foldseek/prostt5"
 @pytest.mark.skipif(not pathlib.Path(PROSTT5).exists(),
                     reason="ProstT5 model not downloaded")
 def test_structure_search_reports_what_the_match_actually_is(fixture_dir):
-    """Foldseek's `target` is a PDB accession - `12as-assembly1_A`. Every downstream use
-    of structural evidence needs to know WHAT the fold is, not which entry it came from:
-    the nucleic_acid_binding stratum tested for the word "nucle" in the accession and so
-    could never be filled, and the hypothesis written into the synthesis order read
-    `structural:12as-assembly1_A`, which tells a bench scientist nothing.
+    """Foldseek's `target` is a PDB accession (12as-assembly1_A), which names nothing; the
+    description (theader) says what the matched structure is.
 
     Takes about 35 s because ProstT5 has to load; marked slow."""
     faa = fixture_dir / "dark_proteins.faa"
@@ -176,15 +189,8 @@ def test_structure_search_reports_what_the_match_actually_is(fixture_dir):
 
 @requires("mafft", "RNAcode")
 def test_family_evolution_reports_coding_potential(fixture_dir):
-    """The design names RNAcode as one of two positive-evidence tests at S7: coding signal
-    independent of the gene caller. `evolution.rnacode_max_p` was declared, the binary was
-    installed, and no code invoked it - the columns were written empty for every family and
-    the run reported success.
-
-    RNAcode scores BOTH strands, which matters more here than anywhere: a shadow ORF is the
-    reverse complement of a real gene, so its antisense signal should beat its sense signal.
-    Recording only the sense P would throw away the one number that distinguishes the
-    artefact class this stage exists to catch."""
+    """RNAcode gives coding signal independent of the gene caller, on both strands: a
+    shadow ORF, the reverse complement of a real gene, should score higher antisense."""
     prot = "MKVLATTLLGAAFAASSALAQKKWLVRDGHIYQPLMNEATSGKLW"
     cod = {"M": "ATG", "K": "AAA", "V": "GTG", "L": "CTG", "A": "GCG", "T": "ACC",
            "G": "GGC", "F": "TTT", "S": "AGC", "Q": "CAG", "W": "TGG", "R": "CGT",
@@ -226,40 +232,30 @@ def test_family_evolution_reports_coding_potential(fixture_dir):
     assert row["rnacode_status"] == "MEASURED"
 
 
-@requires("mafft", "RNAcode")
-def test_an_rnacode_failure_is_not_silently_a_pass(fixture_dir):
-    """RNAcode prints `ERROR: Unknown alignment file format` to stdout and exits 0. Parsing
-    its output without checking would read zero rows as "no coding signal" - which is
-    evidence AGAINST a family - when in fact the tool never ran."""
-    faa = fixture_dir / "dark.faa"
-    cds = fixture_dir / "dark.fna"
-    # Two members: below min_members_for_dnds, so no alignment is attempted at all.
-    write_fasta(faa, [("m0", "MKVL"), ("m1", "MKVL")])
-    write_fasta(cds, [("m0", "ATGAAAGTGCTG"), ("m1", "ATGAAAGTACTG")])
-    fams = fixture_dir / "families.tsv"
-    write_tsv(fams, ["family_id", "representative", "n_members", "n_orfs", "n_plasmids",
-                     "n_mob_clusters", "family_class", "members"],
-              [["F1", "m0", 2, 2, 2, 1, "FAMILY", "m0,m1"]])
-    out = fixture_dir / "family_evolution.tsv"
-
-    run_script("family_evolution.py", FakeSnakemake(
-        input={"families": str(fams), "faa": str(faa), "cds": str(cds)},
-        output={"tsv": str(out), "consensus": str(out.parent / "consensus.faa")},
-        params={"evolution": {"min_codons": 20, "min_members_for_dnds": 3,
-                              "dnds_purifying_max": 0.5, "rnacode_max_p": 0.05,
-                              "max_members_aligned": 50}},
-        threads=1))
-
-    row = read_tsv(out)[0]
-    assert row["coding_signal"] == "", "absence of a test must not read as a failed test"
-    assert row["rnacode_status"] == "TOO_FEW_MEMBERS"
+def test_extract_cds_recovers_origin_spanning_and_minus_strand_genes(fixture_dir):
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, [("p1", "ATGAAACCCGGGTTTTAG"), ("p2", "AAAAAA")])
+    ids = fixture_dir / "dark_ids.txt"
+    ids.write_text("S1\nS2\nS3\n")
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("S1\tp1|1\nS2\tp1|2,p1|9\nS3\tp1|3\nS4\tp2|1\n")
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "spans_origin"],
+              [["p1|1", "p1", 1, 9, "1", "0"],
+               ["p1|2", "p1", 16, 3, "1", "1"],      # 16..18 then 1..3
+               ["p1|3", "p1", 4, 9, "-1", "0"],
+               ["p2|1", "p2", 1, 6, "1", "0"]])
+    out = fixture_dir / "dark_cds.fna"
+    run_script("extract_cds.py", FakeSnakemake(
+        input={"ids": str(ids), "map": str(pmap), "index": str(index), "fasta": str(fasta)},
+        output=[str(out)]))
+    assert out.read_text() == ">S1\nATGAAACCC\n>S2\nTAGATG\n>S3\nGGGTTT\n"
 
 
 @requires("mafft")
 def test_family_evolution_writes_a_consensus_per_family(fixture_dir):
-    """The re-check needs one sequence per family carrying the family's shared signal.
-    S7b already has the protein alignment in hand, so building it here costs nothing and
-    avoids aligning every family a second time."""
+    """S7b writes one consensus per family from its protein alignment, for the S7c
+    re-check."""
     prot_a = "MKVLATTLLGAAFAASSALAQKKWLVRDGHIY"
     prot_b = "MKVLATTLLGAAFCASSALAQKKWLVRDGHIY"
     faa = fixture_dir / "dark.faa"
@@ -296,11 +292,8 @@ def test_family_evolution_writes_a_consensus_per_family(fixture_dir):
                     reason="Pfam-A not downloaded")
 @pytest.mark.slow
 def test_the_consensus_recheck_finds_a_family_that_is_collectively_recognisable(fixture_dir):
-    """A family whose consensus hits Pfam is NOT collectively novel, however dark each
-    member looked on its own. Pavlopoulos removed 6.5% of clusters this way, and those are
-    exactly the clusters this pipeline would otherwise send to the bench as novel.
-
-    This is a LABEL, not a filter - the family stays in the table with the verdict on it."""
+    """A family whose consensus hits Pfam is not collectively novel, however dark each
+    member looked on its own. This is a label, not a filter: the family stays in the table."""
     import subprocess
     # A real Pfam consensus sequence, so the re-check has something true to find.
     subprocess.run("hmmfetch --index data/refs/pfam/Pfam-A.hmm", shell=True,
@@ -339,8 +332,7 @@ def test_the_consensus_recheck_finds_a_family_that_is_collectively_recognisable(
 
 def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir):
     """A mandatory component of a complete system and a neutral component of a fragment
-    are not the same evidence, and both arrived as the same row. MacSyFinder reports the
-    distinction and it was discarded."""
+    are different evidence; MacSyFinder's hit_status and sys_wholeness say which."""
     out = fixture_dir / "defence_systems.tsv"
     phase2 = out.parent / "phase2" / "run"
     phase2.mkdir(parents=True)
@@ -382,36 +374,66 @@ def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir
 
 
 def test_defence_records_not_run_when_the_models_are_absent(fixture_dir):
-    """Spec section 7.2 separates NOT_RUN from NO_HIT, and this is where the distinction
-    is earned. An empty defence table with no status reads as 'this collection carries no
-    defence systems', which is a biological claim a run without the models has not made.
-
-    The models are an OPTIONAL database: the primary deliverable is complete annotation of
-    every ORF, which does not depend on them, so their absence must not halt the run."""
+    """Both phases write one NOT_RUN row without an ORF, and exit 0: the models are an
+    optional database, and an empty table would read as 'searched, no defence system'."""
     faa = fixture_dir / "cand.faa"
     write_fasta(faa, [("GB1", "MKV")])
     mapping = fixture_dir / "map.tsv"
     write_tsv(mapping, ["gembase_id", "orf_id", "plasmid_id"], [["GB1", "p1|1", "p1"]])
-    out = fixture_dir / "defence_systems.tsv"
+    absent = str(fixture_dir / "absent")
+    phase1 = fixture_dir / "defence_components.tsv"
+    phase2 = fixture_dir / "defence_systems.tsv"
 
-    # The script ends with sys.exit(0) - a successful early return for a Snakemake script,
-    # which the in-process harness sees as SystemExit. The code is asserted rather than
-    # swallowed: exit 0 is the whole claim being made, that this is a clean skip and not a
-    # failure.
-    with pytest.raises(SystemExit) as exit_info:
-        run_script("defence_systems.py", FakeSnakemake(
-            input={"faa": str(faa), "map": str(mapping)},
-            output={"tsv": str(out)},
-            params={"models_dir": str(fixture_dir / "absent"), "required": False},
-            threads=1))
-    assert exit_info.value.code == 0, "a missing optional database exited non-zero"
+    for script, inputs, out in (("defence_search.py", {"faa": str(faa)}, phase1),
+                                ("defence_systems.py", {"faa": str(faa), "map": str(mapping)},
+                                 phase2)):
+        with pytest.raises(SystemExit) as exit_info:
+            run_script(script, FakeSnakemake(
+                input=inputs, output={"tsv": str(out)},
+                params={"models_dir": absent, "required": False}, threads=1))
+        assert exit_info.value.code == 0, f"{script}: a missing optional database failed"
+        rows = read_tsv(out)
+        assert [r["status"] for r in rows] == ["NOT_RUN"], script
+        assert rows[0].get("seq_id", rows[0].get("orf_id")) == ""
 
-    assert out.exists(), "no table written, so downstream stages cannot read the status"
-    rows = read_tsv(out)
-    assert rows == [], "rows were invented for a search that never ran"
-    assert "status" in out.read_text().split("\n")[0], (
-        "the table carries no status column, so absent-because-not-searched cannot be "
-        "told from absent-because-searched")
+
+def test_defence_gembase_writes_nothing_after_a_phase1_not_run(fixture_dir):
+    components = fixture_dir / "defence_components.tsv"
+    write_tsv(components, ["seq_id", "component", "model", "hit_evalue", "status"],
+              [["", "", "", "", "NOT_RUN"]])
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("S1\tp1|1\n")
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                      "spans_origin", "translation_table", "seq"],
+              [["p1|1", "p1", 1, 300, 1, 0, 0, 11, "MKV"]])
+    faa, gmap = fixture_dir / "cand.faa", fixture_dir / "gembase_map.tsv"
+    run_script("defence_gembase.py", FakeSnakemake(
+        input={"components": str(components), "map": str(pmap), "index": str(index)},
+        output={"faa": str(faa), "map": str(gmap)}))
+    assert faa.read_text() == ""
+    assert read_tsv(gmap) == []
+
+
+def test_defence_gembase_writes_every_orf_of_a_candidate_plasmid(fixture_dir):
+    components = fixture_dir / "defence_components.tsv"
+    write_tsv(components, ["seq_id", "component", "model", "hit_evalue", "status"],
+              [["S2", "CloA", "Clover", "1e-9", "SUCCESS"]])
+    pmap = fixture_dir / "protein_map.tsv"
+    pmap.write_text("S1\tp_1|1\nS2\tp_1|2\nS3\tp2|1\n")
+    index = fixture_dir / "orf_index.tsv"
+    write_tsv(index, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                      "spans_origin", "translation_table", "seq"],
+              [["p_1|1", "p_1", 900, 1200, 1, 0, 0, 11, "MKA"],
+               ["p_1|2", "p_1", 100, 400, 1, 0, 0, 11, "MKB"],
+               ["p2|1", "p2", 1, 300, 1, 0, 0, 11, "MKC"]])
+    faa, gmap = fixture_dir / "cand.faa", fixture_dir / "gembase_map.tsv"
+    run_script("defence_gembase.py", FakeSnakemake(
+        input={"components": str(components), "map": str(pmap), "index": str(index)},
+        output={"faa": str(faa), "map": str(gmap)}))
+    assert faa.read_text() == ">p-1_00001\nMKB\n>p-1_00002\nMKA\n"
+    assert [(r["gembase_id"], r["orf_id"]) for r in read_tsv(gmap)] == [
+        ("p-1_00001", "p_1|2"), ("p-1_00002", "p_1|1")]
 
 
 def test_defence_halts_when_the_models_are_required_and_absent(fixture_dir):
@@ -430,14 +452,20 @@ def test_defence_halts_when_the_models_are_required_and_absent(fixture_dir):
             threads=1))
 
 
-def test_structure_search_restricts_to_family_representatives(fixture_dir):
-    """Spec section 49 sets representative scale as the discovery-scale strategy and
-    section 79 makes it a success criterion. ProstT5 is a transformer and the query count
-    is the cost of the stage, so searching every dark protein rather than one per family is
-    the difference between the largest job in the pipeline and a modest one.
+# Stand-in for foldseek: records its arguments and writes one hit per query.
+FAKE_FOLDSEEK = """#!{python}
+import pathlib, sys
+args = sys.argv[1:]
+query, out = args[1], args[3]
+pathlib.Path(out).parent.joinpath("foldseek_argv.txt").write_text("\\n".join(args))
+names = [l[1:].split()[0] for l in open(query) if l.startswith(">")]
+with open(out, "w") as fh:
+    for n in names:
+        fh.write(f"{n}\\t1abc_A\\tA SYNTHETASE\\t0.4\\t100\\t1e-10\\t80\\n")
+"""
 
-    Foldseek is not invoked here: the assertion is on which sequences reach the query file,
-    which is what the scope setting controls."""
+
+def _structure(fixture_dir, monkeypatch, required=True, with_refs=True):
     faa = fixture_dir / "dark_proteins.faa"
     write_fasta(faa, [("rep_a", "MKTAYIAKQRQISFVKSHFSRQ"),
                       ("member_a", "MKTAYIAKQRQISFVKSHFSRK"),
@@ -446,27 +474,50 @@ def test_structure_search_restricts_to_family_representatives(fixture_dir):
     write_tsv(families, ["family_id", "representative", "members"],
               [["broad:rep_a", "rep_a", "rep_a,member_a"],
                ["broad:rep_b", "rep_b", "rep_b"]])
-
+    db, model = fixture_dir / "pdb", fixture_dir / "prostt5"
+    if with_refs:
+        db.write_text("")
+        model.mkdir()
+    exe = fixture_dir / "bin" / "foldseek"
+    exe.parent.mkdir()
+    exe.write_text(FAKE_FOLDSEEK.replace("{python}", sys.executable))
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
     out = fixture_dir / "structure_hits.tsv"
-    # foldseek will fail on the absent database; the query file is written before that, and
-    # it is the only thing under test.
-    try:
-        run_script("structure_search.py", FakeSnakemake(
-            input={"faa": str(faa), "families": str(families)},
-            output=[str(out)],
-            params={"structure": {"max_evalue": 1.0e-3, "scope": "representatives"},
-                    "target_db": str(fixture_dir / "absent_db"),
-                    "prostt5": str(fixture_dir / "absent_model")},
-            threads=1))
-    except Exception:
-        pass
+    run_script("structure_search.py", FakeSnakemake(
+        input={"faa": str(faa), "families": str(families)}, output=[str(out)],
+        params={"structure": {"max_evalue": 1.0e-3, "scope": "representatives",
+                              "required": required},
+                "target_db": str(db), "prostt5": str(model)},
+        threads=1))
+    return out
+
+
+def test_structure_search_restricts_to_family_representatives(fixture_dir, monkeypatch):
+    """The default scope searches one sequence per dark family, not every dark protein."""
+    out = _structure(fixture_dir, monkeypatch)
 
     query = fixture_dir / "structure_query.faa"
-    assert query.exists(), "no representative query file was written"
     names = {l[1:].split()[0] for l in query.read_text().splitlines() if l.startswith(">")}
-    assert names == {"rep_a", "rep_b"}, (
-        f"the query set is {sorted(names)}; it must be one sequence per family, and "
-        "member_a is a family member rather than a representative")
+    assert names == {"rep_a", "rep_b"}
+    argv = (fixture_dir / "foldseek_argv.txt").read_text().split("\n")
+    assert argv[:2] == ["easy-search", str(query)]
+    assert argv[argv.index("--prostt5-model") + 1] == str(fixture_dir / "prostt5")
+    rows = read_tsv(out)
+    assert {r["seq_id"] for r in rows} == {"rep_a", "rep_b"}
+    assert {(r["target_description"], r["status"]) for r in rows} == {
+        ("A SYNTHETASE", "SUCCESS")}
+
+
+def test_structure_search_records_not_run_when_optional_and_absent(fixture_dir, monkeypatch):
+    """With structure.required false and the references absent, the stage exits 0 with one
+    NOT_RUN row, so the run continues and the table does not read as 'no match'."""
+    with pytest.raises(SystemExit) as done:
+        _structure(fixture_dir, monkeypatch, required=False, with_refs=False)
+    assert done.value.code == 0
+    rows = read_tsv(fixture_dir / "structure_hits.tsv")
+    assert [(r["seq_id"], r["status"]) for r in rows] == [("", "NOT_RUN")]
+    assert not (fixture_dir / "foldseek_argv.txt").exists()
 
 
 def test_an_operon_across_the_origin_of_a_circular_plasmid_counts(fixture_dir):

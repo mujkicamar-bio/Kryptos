@@ -32,19 +32,10 @@ outdir.mkdir(parents=True)
 chunks = split_fasta(fasta, snakemake.threads, outdir / "chunks")
 
 # --local-max is the sensitive mode: it searches for attC sites beyond those adjacent to a
-# detected integrase, which is what finds CALIN elements - cassette arrays whose integrase
-# has been lost. Those are common on plasmids and are precisely the arrays whose cassettes
-# nobody has characterised.
-# `--pdf-off` is not an IntegronFinder option - the real flag is `--pdf`, and it is
-# opt-IN, so it is simply omitted. Passing the invented flag made argparse exit 2 before
-# any work was done, and check=False swallowed it: the stage wrote a header-only TSV and
-# the rule reported success.
-#
-# `--circ` sets circular topology, which matters because 94% of these plasmids are closed
-# and an integron spanning the origin is invisible under linear topology.
-#
-# `--keep-tmp` is dropped: it would create one directory per replicon, 143,503 of them.
-#
+# detected integrase, which finds CALIN elements - cassette arrays whose integrase has been
+# lost, common on plasmids. `--circ` sets circular topology: 94% of these plasmids are
+# closed, and an integron spanning the origin is not found under linear topology. PDF
+# output (--pdf) and --keep-tmp (one directory per replicon) are not requested.
 # check=True: a tool failure must stop the run rather than produce an empty table.
 def run(chunk):
     subprocess.run(
@@ -56,8 +47,7 @@ def run(chunk):
 with concurrent.futures.ThreadPoolExecutor(snakemake.threads) as pool:
     list(pool.map(run, chunks))
 
-# Column order verified against integron_finder/results.py, not guessed. The earlier
-# version read f[8] as the integron type; f[8] is `annotation` and the type is f[10].
+# Column order from integron_finder/results.py:
 #
 #   0 ID_integron   1 ID_replicon   2 element        3 pos_beg    4 pos_end
 #   5 strand        6 evalue        7 type_elt       8 annotation 9 model

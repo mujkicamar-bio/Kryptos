@@ -1,47 +1,23 @@
-"""S8d: structural homology for EVERY dark protein, via Foldseek.
+"""S8d: structural homology for dark-family representatives (or every dark protein), via
+Foldseek with ProstT5.
 
-Sequence search has already failed on these proteins by definition. Structure reaches
-further back in evolutionary time, so a family with no sequence homolog can still have a
-recognisable fold - and a fold implies a mechanism, which is a testable hypothesis.
+Sequence search has already failed on these proteins by definition. Structure is
+conserved longer than sequence, so a family with no sequence homolog can still match a
+characterised fold, which suggests a mechanism to test. Foldseek derives the 3Di
+structural alphabet directly from sequence with its ProstT5 model, which avoids predicting
+a structure for every family first. This is a screening step, not a structure
+determination.
 
-TWO OUTCOMES, BOTH INFORMATIVE
-  a significant match to a characterised fold  -> a functional hypothesis
-  a confident structure with NO match          -> a candidate novel fold, the highest-risk
-                                                  and highest-reward stratum
+SCOPE. `structure.scope: representatives` (the default) searches one sequence per dark
+family. ProstT5 is a transformer and its cost grows with the number of queries, which makes
+this the difference between the largest job in the pipeline and a modest one. `scope: all`
+searches every dark protein: a representative is chosen by MMseqs2 on sequence criteria,
+and at 30% identity only some members of a family may reach a recognisable fold.
 
-WHY ProstT5 RATHER THAN FOLDING EVERY FAMILY
-Foldseek can derive the 3Di structural alphabet directly from sequence with its ProstT5
-model, which avoids running ColabFold over hundreds of thousands of families - days of GPU
-time - before knowing which are worth folding. Proteins that Foldseek flags as promising
-are then worth folding properly for confirmation.
-
-This is a screening step, not a structure determination.
-
-SCOPE: REPRESENTATIVES BY DEFAULT
-
-Spec section 49 sets the discovery-scale strategy - "analyze dark-family representatives
-where practical" - and section 79 makes it a success criterion: "structure is performed at
-representative scale in the production run". So `structure.scope: representatives` is the
-default and searches one sequence per dark family.
-
-The cost is why. ProstT5 predicts the 3Di alphabet for every query, and it is a transformer:
-on the full collection the difference between all dark proteins and one per family is the
-difference between the largest job in the pipeline and a modest one.
-
-`scope: all` searches every dark protein and is a real option, because a representative is
-chosen by MMseqs2 on sequence criteria that have nothing to do with which member is most
-structurally informative - at 30% identity, members of one family can differ enough that
-only some reach a recognisable fold. Spec section 49 calls that "candidate scale" and puts
-it downstream of discovery. Setting it here is supported and expensive; the default is what
-the specification asks for.
-
-WHY THE DESCRIPTION IS CARRIED, NOT JUST THE ACCESSION
-
-Foldseek's `target` is a PDB accession such as `12as-assembly1_A`, which names nothing. The
-`theader` field carries the real description ("... ASPARAGINE SYNTHETASE ..."), and two
-things downstream need it: the nucleic_acid_binding stratum, which is assigned from what
-the fold IS, and the hypothesis written into the synthesis order, which a bench scientist
-has to be able to read.
+Output: structure_hits.tsv, the best match per query (lowest e-value) with the target's
+description line (`theader`), since the accession alone (12as-assembly1_A) names nothing;
+status SUCCESS. When structure.required is false and the Foldseek database or the ProstT5
+model is absent, one row with status NOT_RUN and no seq_id.
 """
 import csv
 import pathlib
@@ -50,10 +26,31 @@ import sys
 
 import _ctx  # noqa: F401
 
+from darkorf import status
 from plasmidann import scratch
 
+COLUMNS = ["seq_id", "target", "target_description", "fident", "alnlen", "evalue", "bits",
+           "status"]
 cfg = snakemake.params.structure
 target_db = snakemake.params.target_db
+
+
+def write_table(rows):
+    with open(snakemake.output[0], "w", newline="") as out:
+        w = csv.DictWriter(out, fieldnames=COLUMNS, delimiter="\t")
+        w.writeheader()
+        w.writerows(rows)
+
+
+# Pre-flight fails the run when structure.required is true and a reference is missing, so
+# a missing reference here means structure is optional: the stage records NOT_RUN.
+absent = [p for p in (target_db, snakemake.params.prostt5) if not pathlib.Path(p).exists()]
+if absent and not cfg["required"]:
+    print(f"S8d: {', '.join(absent)} absent and structure.required is false; "
+          "recording NOT_RUN.")
+    write_table([{"status": status.NOT_RUN}])
+    sys.exit(0)
+
 tmp = scratch.scratch_dir(pathlib.Path(snakemake.output[0]).parent, "foldseek_tmp")
 
 # ---- the query set: one sequence per dark family, or every dark protein ----------------
@@ -90,32 +87,18 @@ if scope == "representatives":
 else:
     print("S8d: scope=all, searching every dark protein")
 
-# GPU, when one is allocated.
-#
-# ProstT5 is a transformer, and predicting 3Di for every dark protein is the cost of this
-# stage - not the Foldseek search that follows it. On CPU that is the difference between
-# minutes and hours, so the flag is worth having; foldseek 10 takes --gpu on both createdb
-# (the ProstT5 step) and search.
-#
-# It is CONFIGURED rather than detected. Auto-detecting a GPU would make the stage behave
-# differently depending on which node it landed on, with nothing in the output saying
-# which - and this pipeline records the settings that produced every row precisely so that
-# a result can be traced. A run that asked for a GPU and did not get one should fail
-# visibly, not silently take ten times longer.
+# GPU use is configured (structure.gpu), not detected, so that the settings recorded for a
+# run say how it ran; ProstT5 inference is the cost of this stage, and foldseek takes --gpu
+# for both the ProstT5 step and the search.
 gpu_flag = " --gpu 1" if cfg.get("gpu", False) else ""
 
 subprocess.run(
     f"foldseek easy-search {query_faa} {target_db} "
     f"{snakemake.output[0]}.raw {tmp} --prostt5-model {snakemake.params.prostt5} "
     f"-e {cfg['max_evalue']} --threads {snakemake.threads}{gpu_flag} "
-    # `prob` is a valid output field but is derived from Calpha coordinates, which a
-    # ProstT5 query database does not carry - requesting it makes foldseek exit 1 and the
-    # whole stage returns nothing. Verified in review: dropping this one field gives
-    # exit=0 with rows returned.
-    #
-    # `theader` is the target's description line. Without it the only thing recorded about
-    # a structural match is its PDB accession, which cannot be read by a person and cannot
-    # be classified into a stratum.
+    # `prob` is not requested: it is derived from C-alpha coordinates, which a ProstT5
+    # query database does not carry, and requesting it makes foldseek exit 1. `theader`
+    # is the target's description line.
     f"--format-output query,target,theader,fident,alnlen,evalue,bits "
     f"--max-seqs 10 -v 1",
     shell=True, check=True)
@@ -128,21 +111,14 @@ if raw.exists():
         q, t, theader, fident, alnlen, ev, bits = line.rstrip("\n").split("\t")
         if q not in best or float(ev) < float(best[q]["evalue"]):
             best[q] = {"seq_id": q, "target": t, "target_description": theader,
-                       "fident": fident, "alnlen": alnlen, "evalue": ev, "bits": bits}
+                       "fident": fident, "alnlen": alnlen, "evalue": ev, "bits": bits,
+                       "status": status.SUCCESS}
     rows = list(best.values())
 else:
-    # Reaching here means foldseek exited 0 but produced no file at all, which is a tool
-    # contract violation rather than a legitimate "no hits" result.
-    raise SystemExit(
-        f"foldseek reported success but wrote no output to {raw}. Structure evidence would "
-        "be silently empty, which would quietly empty the novel_fold stratum.")
+    # foldseek exited 0 without writing its output: a tool failure, not "no hits".
+    raise SystemExit(f"foldseek reported success but wrote no output to {raw}.")
 
-with open(snakemake.output[0], "w", newline="") as out:
-    w = csv.DictWriter(out, fieldnames=["seq_id", "target", "target_description",
-                                        "fident", "alnlen", "evalue", "bits"],
-                       delimiter="\t")
-    w.writeheader()
-    w.writerows(rows)
+write_table(rows)
 
 print(f"structural matches={len(rows)}")
 

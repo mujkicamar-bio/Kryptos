@@ -9,7 +9,7 @@ component or a component lies within +-3 on EITHER strand, because systems mix s
 import pytest
 from conftest import FakeSnakemake, read_tsv, run_script, write_tsv
 
-from plasmidann.context import directons
+from plasmidann.context import directons, flanks
 from plasmidann.context_terms import (
     COLUMNS,
     TOO_FEW_LINEAGES,
@@ -60,7 +60,7 @@ def test_an_amrfinder_label_without_an_element_type_is_refused():
 
 
 def test_kinds_outside_the_contract_give_no_term():
-    """KEGG is not a context source, and pharokka's CARD rows are replaced by card_amr_family."""
+    """KEGG is not a context source, and amr: comes from card_amr_family, not pharokka."""
     for kind in ("kegg_ko", "gene_symbol", "card_gene_family", "pfam_family"):
         assert label_term(kind, "x", "") is None
 
@@ -79,9 +79,13 @@ GENES = [_g("p|1", 100, 400, 1), _g("p|2", 430, 700, 1),       # directon with p
          _g("p|5", 2200, 2500, 1)]
 
 
+def _near(genes, focal, circular=False):
+    left, right = flanks(genes, window=3, circular=circular)[focal]
+    return left + right
+
+
 def _sources(focal, label_terms=None, system_terms=None, genes=GENES):
-    return orf_term_sources(genes, focal, window=3, circular=False,
-                            directon=_unit(genes, focal),
+    return orf_term_sources(focal, _near(genes, focal), directon=_unit(genes, focal),
                             label_terms=label_terms or {}, system_terms=system_terms or {})
 
 
@@ -124,7 +128,7 @@ def test_an_orfs_own_gene_label_is_not_its_context():
 
 def test_the_neighbour_window_wraps_on_a_circular_plasmid():
     genes = [_g("p|1", 11, 300, 1), _g("p|2", 1500, 1800, -1), _g("p|3", 4900, 4990, 1)]
-    sources = orf_term_sources(genes, "p|1", window=3, circular=True,
+    sources = orf_term_sources("p|1", _near(genes, "p|1", circular=True),
                                directon=_unit(genes, "p|1", circular=True, length=5000),
                                label_terms={"p|3": {"mge:transfer"}}, system_terms={})
     assert sources == [("mge:transfer", "p|3")]
@@ -135,14 +139,14 @@ def test_the_neighbour_window_wraps_on_a_circular_plasmid():
 def test_the_window_covers_a_small_circular_plasmid_but_not_a_large_one():
     small = [_g(f"p|{i}", 100 * i + 1, 100 * i + 90, 1) for i in range(1, 8)]
     large = [_g(f"p|{i}", 100 * i + 1, 100 * i + 90, 1) for i in range(1, 9)]
-    assert window_covers_plasmid(small, "p|1", window=3, circular=True)
-    assert not window_covers_plasmid(large, "p|1", window=3, circular=True)
+    assert window_covers_plasmid(_near(small, "p|1", circular=True), len(small))
+    assert not window_covers_plasmid(_near(large, "p|1", circular=True), len(large))
 
 
 def test_on_a_linear_record_only_the_central_gene_sees_everything():
     genes = [_g(f"p|{i}", 100 * i + 1, 100 * i + 90, 1) for i in range(1, 8)]
-    assert window_covers_plasmid(genes, "p|4", window=3, circular=False)
-    assert not window_covers_plasmid(genes, "p|1", window=3, circular=False)
+    assert window_covers_plasmid(_near(genes, "p|4"), len(genes))
+    assert not window_covers_plasmid(_near(genes, "p|1"), len(genes))
 
 
 # --- per family: the lineage is the unit ------------------------------------------------
@@ -194,7 +198,7 @@ def test_one_lineage_is_too_few():
     rows = family_term_rows("F", "dark", occurrences, family_of_orf={}, lineage_of=LINEAGE)
     row = _row(rows, "ta:relE")
     assert row["status"] == TOO_FEW_LINEAGES
-    assert row["n_lineages"] == 1 and row["conservation"] == 1.0
+    assert row["n_lineages"] == 1 and row["conservation"] == ""
     assert row["window_covers_plasmid_fraction"] == 0.5
 
 
@@ -245,11 +249,12 @@ def _run_stage(d):
                ["T", "eggnog", "S4b", "kegg_ko", "ko:K18698", ""],
                ["K", "amrfinder", "", "amrfinder_gene", "merA", "STRESS/METAL"]])
     defence = d / "defence_systems.tsv"
-    write_tsv(defence, ["orf_id", "plasmid_id", "system"],
-              [["pl2|4", "pl2", "defense-finder-models/DefenseFinder/Clover/Clover"]])
+    write_tsv(defence, ["orf_id", "plasmid_id", "system", "status"],
+              [["pl2|4", "pl2", "defense-finder-models/DefenseFinder/Clover/Clover",
+                "SUCCESS"]])
     conj = d / "conjugation_systems.tsv"
-    write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component"],
-              [["pl1|3", "pl1", "T4SS_typeF", "s1", "T4SS_F_traL"]])
+    write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component", "status"],
+              [["pl1|3", "pl1", "T4SS_typeF", "s1", "T4SS_F_traL", "SUCCESS"]])
     integrons = d / "integrons.tsv"
     write_tsv(integrons, ["plasmid_id", "start", "end"], [])
     is_el = d / "is_elements.tsv"

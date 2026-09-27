@@ -1,11 +1,10 @@
 """S8e: insertion sequence (IS) elements with ISEScan.
 
-Transposases are already NAMED per protein by the cascade (Pfam, pharokka, Swiss-Prot);
+Transposases are already named per protein by the cascade (Pfam, pharokka, Swiss-Prot);
 what nothing else provides is the ELEMENT - its boundaries, its IS family, and whether it
-is complete. That is what makes two statements possible about a dark ORF: it lies INSIDE
-an IS element (often a degenerate transposase fragment or an IS-borne accessory gene), or
-it lies BESIDE one (a passenger of a composite transposon). Both are context evidence,
-recorded as islands for S8c; neither removes the ORF from the dark set.
+is complete. S8c records, as cons_is_element, whether a dark ORF overlaps an IS element
+(often a degenerate transposase fragment or an IS-borne accessory gene). It is context
+evidence and does not remove the ORF from the dark set.
 
 ISEScan calls its own genes (FragGeneScan), so its ORFs are not ours. Elements are joined
 to our ORFs by coordinates in S8c, exactly as integron arrays are.

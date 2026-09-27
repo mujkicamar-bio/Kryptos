@@ -25,7 +25,7 @@ import pathlib
 MODEL_SET = "CONJScan/Plasmids"
 
 COLUMNS = ["orf_id", "plasmid_id", "system", "system_id", "component", "hit_status",
-           "sys_wholeness", "conjscan_version"]
+           "sys_wholeness", "conjscan_version", "status"]
 CLASS_COLUMNS = ["plasmid_id", "class"]
 
 # Model-name prefix -> class, most complete first.
