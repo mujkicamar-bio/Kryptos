@@ -4,17 +4,15 @@
 # Each tier searches whatever the previous tier could not explain, and hands on the
 # residue. Tier order is authority order.
 #
-# The one structural change from v1: narrowing uses `narrow_at` (0.7), while
-# `min_explained` is applied post hoc at cascade_resolve. Using one number for both made
-# the threshold unsweepable, because a protein withheld at T2 has no T4 result.
+# Narrowing uses `narrow_at` (0.7), while `min_explained` (0.5) is applied post hoc at
+# cascade_resolve, so the reporting threshold can be swept without re-running a tier.
 # =====================================================================================
 
 rule preflight:
     """Fail in seconds if a tool or database is missing, rather than after 45 hours.
 
     A dependency of every tier and of the artefact screen, so no search can start until
-    every configured tool and database has been confirmed present. v1 lost a 45-hour job
-    to a missing DIAMOND binary, twice.
+    every configured tool and database has been confirmed present.
     """
     output:
         f"{OUT}/05_annotation_cascade/preflight.tsv",
@@ -23,8 +21,8 @@ rule preflight:
         artefact=cascade["artefact_screen"],
         structure=targets["structure"],
         orthology=targets["orthology"],
-        foldseek_db=config.get("foldseek_db", "data/refs/foldseek/pdb"),
-        prostt5=config.get("prostt5_model", "data/refs/foldseek/prostt5"),
+        foldseek_db=config["foldseek_db"],
+        prostt5=config["prostt5_model"],
         # S4d and S8f: tools named by path in their own environments, and their databases.
         labels=config["labels"],
         amrfinder=config["amrfinder"],
@@ -34,8 +32,8 @@ rule preflight:
         "../envs/plasmidann.yaml"
     resources:
         mem_mb=2000,
-        # `macsyfinder --version` from envs/conjscan took between 1.4 s and 2 min 53 s on
-        # /gorilla (slow Python imports), so the version check is allowed up to an hour.
+        # Minutes. `macsyfinder --version` from envs/conjscan took between 1.4 s and
+        # 2 min 53 s on /gorilla (slow Python imports).
         runtime=90,
     benchmark:
         f"{OUT}/benchmarks/preflight.tsv"
@@ -206,12 +204,8 @@ rule annotate_plasmids:
 
 
 rule orthology:
-    """S4b: COG and KEGG terms for the proteins the cascade named.
-
-    Not a dark-hunting tier. S8 asks what a dark ORF's neighbours do, and the cascade
-    answers in free text, which cannot be aggregated into pathways. Annotating the known
-    fraction is what makes the unknown fraction interpretable.
-    """
+    """S4b: COG and KEGG terms (eggNOG-mapper) for the proteins the cascade named, so
+    that a dark ORF's neighbours can be described in aggregatable terms."""
     input:
         prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
         faa=f"{OUT}/03_dereplication/unique_proteins.faa",
@@ -236,16 +230,8 @@ rule orthology:
 
 
 rule feature_files:
-    """S4: GFF3 and GenBank alongside the TSV.
-
-    160,375 ORFs were reconstructed across the origin of a circular plasmid and carry
-    start > end. GFF3 forbids that and GenBank has dedicated syntax for it, so the same
-    gene is written two different ways - see plasmidann.features.
-
-    Takes the analysis-set FASTA, not the corpus. Reading the corpus made the scope of
-    these two files a property of a config path rather than of the analysis set: on the
-    100-plasmid test configuration it wrote 208,245 GenBank records.
-    """
+    """S4: GFF3 and GenBank of the analysis set; origin-spanning genes are written in
+    each format's own way (plasmidann.features)."""
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
         fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
@@ -307,16 +293,8 @@ rule label_databases:
 
 
 rule protein_labels:
-    """S4c: every functional label every tool produced, in one long table.
-
-    The substrate for grouping proteins into replication, mobilisation and conjugation.
-    Long rather than wide because the vocabulary is open: Pfam-A 38.2 alone has 30,134
-    families, of which 67 mention replication in their description and 42 mention
-    conjugation - against the 16 and 15 named by the curated list this replaces.
-
-    Nothing here assigns a biological role. The grouping is derived from the labels
-    observed, which is what makes it describable in a methods section.
-    """
+    """S4c: every functional label every tool produced, one long table, no role assigned;
+    and the cross-source label disagreements."""
     input:
         hits=expand(f"{OUT}/05_annotation_cascade/{{tier}}/hits.tsv", tier=TIER_IDS),
         orthology=f"{OUT}/07_orthology/orthology.tsv",

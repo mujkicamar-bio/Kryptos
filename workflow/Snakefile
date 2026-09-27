@@ -1,11 +1,9 @@
 # =====================================================================================
 # Dark plasmidome annotation pipeline
 #
-# Specification: PLASMID_ANALYSIS.md. The pipeline implements Layer A (annotation) and
-# Layer B (dark-protein characterization). Layer C, experimental prioritization, is
-# deliberately NOT here: spec section 76 says the core pipeline produces no top_1000, no
-# candidate_score, no novelty_score and no experimental_rank, and section 31 says that
-# separation is a fundamental project requirement.
+# Annotates every protein of every plasmid in scope and records the evidence for every
+# dark protein family. It ranks and selects nothing: candidates for experiments are chosen
+# by hand from the report tables.
 #
 # S0  analysis set                     which plasmids are in scope
 # S1  gene calling                     with circular-origin repair
@@ -23,12 +21,11 @@
 #                                      directons, context terms, dark family
 #                                      co-occurrence, Foldseek
 #
-# Design and rationale: plans/2026-09-10-pipeline-v2-design.md
 # Search statistics:    docs/annotation_statistics.md
 # Code walkthrough:     docs/PIPELINE_CODE.md
 #
-# Run:  snakemake -j <cores> --use-conda
-# Plan: snakemake -n -c <cores>   (a core count is required: tier threads are workflow.cores)
+# Run:  envs/plasmidann/bin/snakemake -s workflow/Snakefile -c <cores>
+# Plan: add -n   (a core count is required: tier threads are workflow.cores)
 # =====================================================================================
 import sys
 import yaml
@@ -65,30 +62,20 @@ if targets["network"]["node_resolution"] not in _clu["resolutions"]:
     raise ValueError(
         f"network.node_resolution is {targets['network']['node_resolution']!r} but the "
         f"configured resolutions are {sorted(_clu['resolutions'])}.")
-# Synteny reads one cluster file per level, and the family table reads its primary rows.
+# Synteny reads one cluster file per level. The family table reads the primary-level rows,
+# and the ORF table the close-level rows with the close cluster file (annotation_report).
 _syn = targets["synteny"]["levels"]
-if not set(_syn) <= set(_clu["resolutions"]) or _clu["primary"] not in _syn:
+if not set(_syn) <= set(_clu["resolutions"]) or not {_clu["primary"], "close"} <= set(_syn):
     raise ValueError(
         f"synteny.levels is {_syn}; every level must be a configured resolution "
-        f"({sorted(_clu['resolutions'])}) and the primary resolution {_clu['primary']!r} "
-        "must be one of them, because the family table reads the primary-level rows.")
+        f"({sorted(_clu['resolutions'])}), and the primary resolution {_clu['primary']!r} "
+        "and 'close' must be among them: the report reads the rows of both.")
 OUT = config["outdir"]
 
 
 rule all:
-    """The whole project: every annotation the run can produce.
-
-    The deliverable is COMPLETE ANNOTATION. Spec section 76 draws the boundary: the core
-    pipeline ends with a complete, evidence-rich representation of the plasmid protein
-    universe and its dark subset, and it produces no top_1000, no candidate_score, no
-    novelty_score and no experimental_rank. Selecting proteins to test is a separate
-    downstream workflow that consumes these tables.
-
-    Spec section 80: the annotation pipeline should not decide which unknown proteins are
-    interesting. It should build the most complete and defensible representation possible
-    of what is known, unknown, recurrent, conserved, contextualized and structurally
-    interpretable about every plasmid ORF.
-    """
+    """Every annotation the run can produce. No score, rank or candidate list: proteins
+    for experiments are selected by hand from these tables."""
     input:
         f"{OUT}/15_report/annotation_complete.csv",     # every ORF, every annotation
         f"{OUT}/15_report/dark_families_complete.csv",  # every dark family, every evidence
@@ -110,7 +97,7 @@ rule all:
 
 
 rule annotate_only:
-    """Stop after the annotated plasmidome, without building the target list."""
+    """Stop after the plasmid annotation table and the artefact flags."""
     input:
         f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
         f"{OUT}/04_orf_qc/artefact_flags.tsv",
@@ -162,9 +149,7 @@ rule orf_call:
     """S1: call ORFs, repairing genes broken by linearising circular plasmids.
 
     The master table is an input because topology decides which records get origin repair.
-    There is deliberately no FASTA output: v1 declared one, never wrote to it, and the
-    0-byte files went unnoticed because nothing downstream read them. Protein sequence
-    travels in the seq column of the TSV.
+    Protein sequence travels in the seq column of the TSV; there is no FASTA output.
     """
     input:
         fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
@@ -392,14 +377,14 @@ rule artefact_screen:
     """S2b: flag sequences that are probably not proteins at all.
 
     A shadow ORF passes every cascade tier cleanly - nothing named it, because it is not a
-    protein - so it lands in the dark set with a perfect record. This stage is what stops
-    that, at S5, where a flagged protein becomes target-ineligible.
+    protein - so it would reach the dark set with a perfect record. The quality gate (S5)
+    marks a flagged protein as not target-eligible, so it does not enter the dark set.
 
     An AntiFam flag also skips every annotation tier (user decision, 2026-09-25):
     cascade_selection gives the protein role artefact_antifam, so it is in no tier's query
     set, and cascade_resolve writes it as NOT_SEARCHED with annot_source artefact_antifam.
-    A low-complexity flag skips nothing. No sequence is removed from any table (P5): the
-    flagged protein keeps its row and its flag, and the skip is countable from both.
+    A low-complexity flag skips nothing. No sequence is removed from any table: the flagged
+    protein keeps its row and its flag, and the skip is countable from both.
     """
     input:
         faa=f"{OUT}/03_dereplication/unique_proteins.faa",
