@@ -58,4 +58,4 @@ with open(snakemake.output.ids, "w") as out:
 
 print(f"eligible={len(eligible)} excluded_partial_only={len(eligible & partial_only)} "
       f"dark_set={n_written}")
-assert n_written > 0, "the dark set is empty - check S5 flags and the cascade output"
+assert n_written > 0, "the dark set is empty - check the quality-gate flags and the cascade output"
