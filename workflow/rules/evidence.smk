@@ -110,8 +110,8 @@ rule plasmid_lineage:
 rule protein_families:
     """Stage 5: the family table for every unique protein, not only the dark set.
 
-    The clusters are made before the cascade (S2f); this adds the annotation, the
-    distribution and the small/large scope. dark_member_count, annotated_member_count,
+    The clusters are made before the cascade (S2f); this adds the annotation and the
+    small/large scope. The distribution counts are in recurrence.tsv (Stage 7). dark_member_count, annotated_member_count,
     percentage_dark_in_family and the dark-only family (100% dark) need the annotated
     members present.
 
@@ -127,7 +127,6 @@ rule protein_families:
         dark_ids=f"{OUT}/10_clustering/dark_ids.txt",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
         registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
-        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     output:
         families=f"{OUT}/10_clustering/protein_families.tsv",
         dark_families=f"{OUT}/10_clustering/dark_families.tsv",

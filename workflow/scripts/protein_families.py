@@ -2,8 +2,8 @@
 
 Inputs: one cluster file per configured resolution (close, intermediate and broad in
 config/targets.yaml), written by protein_clustering.py over every unique protein, annotated
-or not; protein_annotation.tsv, the dark ids, small_plasmids.txt, the protein map, the
-clonal registry and the Stage 6 lineages. A family is a sequence cluster and nothing else:
+or not; protein_annotation.tsv, the dark ids, small_plasmids.txt, the protein map and the
+clonal registry (MOB clusters). A family is a sequence cluster and nothing else:
 size and distribution are attributes, never filters, and a cluster of one is kept and
 labelled ORPHAN.
 family_id = <resolution>:<representative>, so an id does not depend on cluster order.
@@ -23,13 +23,14 @@ members:
   n_not_searched                members the cascade did not search (cascade_selection),
                                 AntiFam artefacts among them
   percentage_dark_in_family, dark_only (a dark member and no named member), family_class
-  family_*_count                plasmid records, host species, genera, MOB clusters, Stage 6
-                                lineages, habitats and small plasmids of the members
   n_small_members, n_large_members   members on a small / a large plasmid (a protein on
                                 both counts in both)
   scope                         small_only or mixed (a member on a large plasmid), each
                                 _known or _unknown (a named member or none)
   known_from                    small | large | both | '': where the named members sit
+
+The distribution counts of a family (plasmid records, lineages, hosts, MOB clusters,
+habitats) are computed in one place, recurrence.tsv (Stage 7).
 
 Within a family holding an unexplained small-plasmid protein, every member not annotated by
 Tier 0 or flagged by AntiFam was searched by the cascade, so at the primary resolution known
@@ -44,7 +45,7 @@ import pathlib
 
 import _ctx  # noqa: F401
 
-from darkorf import ids, status
+from darkorf import ids
 
 cfg = snakemake.params.clustering
 # Classes that name nothing, or were never looked at. Everything else is a named member.
@@ -72,15 +73,8 @@ with open(snakemake.input.map) as fh:
 on_small = {sid for sid, ps in seq_to_plasmids.items() if ps & small_plasmids}
 on_large = {sid for sid, ps in seq_to_plasmids.items() if ps - small_plasmids}
 
-plasmid_meta = {}
 with open(snakemake.input.registry, newline="") as fh:
-    for row in csv.DictReader(fh, delimiter="\t"):
-        plasmid_meta[row["plasmid_id"]] = row
-
-lineage_of = {}
-with open(snakemake.input.lineage, newline="") as fh:
-    for row in csv.DictReader(fh, delimiter="\t"):
-        lineage_of[row["plasmid_id"]] = row["plasmid_lineage_cluster"]
+    mob_of = {r["plasmid_id"]: r["mob_cluster"] for r in csv.DictReader(fh, delimiter="\t")}
 
 
 COLS = [
@@ -88,10 +82,6 @@ COLS = [
     "family_size", "n_orfs", "dark_member_count", "annotated_member_count",
     "n_unnamed_excluded",
     "percentage_dark_in_family", "family_class", "dark_only",
-    "family_plasmid_count", "family_host_count",
-    "family_genus_count", "family_MOB_count", "family_plasmid_lineage_count",
-    "family_plasmid_lineage_status", "family_habitat_count",
-    "family_small_plasmid_count",
     "n_small_members", "n_large_members", "n_not_searched", "scope", "known_from",
     "members",
 ]
@@ -137,12 +127,7 @@ with open(snakemake.output.families, "w", newline="") as out:
                 plasmids |= seq_to_plasmids.get(m, set())
                 n_orfs += seq_to_orf_count.get(m, 0)
 
-            meta = [plasmid_meta.get(p, {}) for p in plasmids]
-            species = {m.get("species") for m in meta if m.get("species")}
-            genera = {m.get("genus") for m in meta if m.get("genus")}
-            mobs = {m.get("mob_cluster") for m in meta if m.get("mob_cluster")}
-            habitats = {m.get("hab_top") for m in meta if m.get("hab_top")}
-            lineages = {lineage_of[p] for p in plasmids if p in lineage_of}
+            mobs = {mob_of[p] for p in plasmids if mob_of.get(p)}
 
             n_dark = sum(1 for m in mem if m in dark)
             # A searched, unnamed protein the dark set excludes (low-complexity flag,
@@ -176,16 +161,6 @@ with open(snakemake.output.families, "w", newline="") as out:
                 "percentage_dark_in_family": pct_dark,
                 "family_class": family_class,
                 "dark_only": dark_only,
-                "family_plasmid_count": len(plasmids),
-                # The host is the species the plasmid was recovered from.
-                "family_host_count": len(species),
-                "family_genus_count": len(genera),
-                "family_MOB_count": len(mobs),
-                "family_plasmid_lineage_count": len(lineages),
-                "family_plasmid_lineage_status": (
-                    status.SUCCESS if lineages else status.NOT_RUN),
-                "family_habitat_count": len(habitats),
-                "family_small_plasmid_count": len(plasmids & small_plasmids),
                 "n_small_members": len(small),
                 "n_large_members": n_large,
                 "n_not_searched": n_not_searched,
