@@ -303,6 +303,8 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
     assert ("s1", "swissprot_product", "Toxin CcdB") in pairs
     # From eggNOG, including the gene symbol.
     assert ("s1", "gene_symbol", "repA") in pairs
+    # An eggNOG row's tier column names the run it came from.
+    assert {r["tier"] for r in read_tsv(out) if r["source"] == "eggnog"} == {"emapper"}
     assert ("s1", "cog_category", "L") in pairs
     assert ("s1", "cog_id", "COG5527") in pairs
     # The uninformative hit contributes nothing.
@@ -377,7 +379,7 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
                      "category", "threshold", "max_evalue"],
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-10", "True", 1, 1, 100,
                 "T1", "pfam", "", "--cut_ga", ""],
-               ["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
+               ["s1", "RepA_N", "PF06970.19", 0.5, 0.95, "1e-40", "True", 1, 1, 100,
                 "T2", "pfam", "", "-E 1e-5", "1e-5"]])
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
@@ -396,8 +398,9 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
 
     rows = [r for r in read_tsv(out) if r["kind"] == "pfam_family"]
     assert len(rows) == 1, f"the same family was recorded {len(rows)} times"
-    # The strongest evidence for the statement survives the merge.
-    assert rows[0]["evidence_evalue"] == "1e-40"
+    # The row of the strongest evidence survives the merge whole: tier, e-value, coverage.
+    assert (rows[0]["tier"], rows[0]["evidence_evalue"], rows[0]["evidence_coverage"]) == (
+        "T2", "1e-40", "0.5")
 
 
 def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreements(
