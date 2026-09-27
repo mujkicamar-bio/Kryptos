@@ -1,84 +1,44 @@
-"""Stage 5: the family table - EVERY unique protein's families, with what the cascade found.
+"""Stage 5: the family table, with what the cascade found in each family.
 
-The clustering itself runs before the cascade (S2f, protein_clustering.py), because the
-selection of what the cascade searches is made on the families. This stage reads those
-clusters and adds the annotation, the distribution and the small/large scope.
+Inputs: the cluster files of the three resolutions (close, intermediate and broad, written by
+protein_clustering.py over every unique protein, annotated or not), protein_annotation.tsv,
+the dark ids, small_plasmids.txt, the protein map, the clonal registry and the Stage 6
+lineages. A family is a sequence cluster and nothing else: size and distribution are
+attributes, never filters, and a cluster of one is kept and labelled ORPHAN.
+family_id = <resolution>:<representative>, so an id does not depend on cluster order.
 
-WHY EVERY PROTEIN AND NOT ONLY THE DARK ONES
+protein_families.tsv has one row per family holding at least one small-plasmid protein;
+families of large-plasmid proteins alone are counted in the log. Counts are over all
+members:
 
-An earlier version clustered the dark set alone. That cannot produce the table the
-specification asks for. Section 31.2 requires
+  family_size, n_orfs           unique proteins, and the gene copies behind them
+  dark_member_count             members in the dark set
+  annotated_member_count        members named by the cascade or PlasmidScope
+                                (functional_class other than NONE, UNCHARACTERIZED_HOMOLOG
+                                and NOT_SEARCHED); a family is as bright as its brightest
+                                member (Durairaj et al., Nature 2023, 622:646)
+  n_unnamed_excluded            unnamed members the dark set excludes (artefact,
+                                partial-only)
+  n_not_searched                members the cascade did not search (cascade_selection)
+  percentage_dark_in_family, dark_only (a dark member and no named member), family_class
+  family_*_count                plasmid records, host species, genera, MOB clusters, Stage 6
+                                lineages, habitats and small plasmids of the members
+  n_small_members, n_large_members   members on a small / a large plasmid (a protein on
+                                both counts in both)
+  scope                         small_only or mixed (a member on a large plasmid), each
+                                _known or _unknown (a named member or none)
+  known_from                    small | large | both | '': where the named members sit
 
-    family_size, dark_member_count, annotated_member_count, percentage_dark_in_family
+Within a family holding an unexplained small-plasmid protein, every member not annotated by
+Tier 0 or flagged by AntiFam was searched by the cascade, so at the primary resolution known
+and unknown mean the same on both sides.
 
-and section 32 DERIVES a dark-only family as percentage_dark_in_family = 100%. All four
-need the annotated members to be present in the clustering. With a dark-only input every
-family is trivially 100% dark, the statistic carries no information, and a dark protein
-sitting in a family of well-annotated homologs - which is a strong and interesting
-observation - is indistinguishable from one that is genuinely alone.
-
-Clustering everything also gives the project what it actually wants from a family table:
-you can look up any protein, annotated or not, and see its relatives.
-
-A FAMILY IS A SEQUENCE CLUSTER. NOTHING ELSE.
-
-Section 31: "family membership is a descriptive sequence relationship. It does not
-automatically establish function." An earlier design defined a family as ">= 3 members from
->= 2 distinct MOB clusters", which made the family COUNT a function of metadata
-completeness rather than of sequence, and silently deleted lineage-restricted families when
-a novel system confined to one plasmid lineage may be exactly what is worth finding. Size
-and distribution are ATTRIBUTES computed here, never filters. Clusters of one are retained
-and labelled ORPHAN.
-
-THREE RESOLUTIONS (section 31.4)
-
-close, intermediate and broad, with thresholds declared in config/targets.yaml rather than
-implied by a default. One protein therefore belongs to three families, and the table says
-which resolution each row is for. `primary` names the one downstream stages read.
-
-FAMILY IDS ARE CONTENT-DERIVED (section 5.4)
-
-    family_id = <resolution>:<representative_protein_id>
-
-NOT an ordinal. The previous version numbered families F0000001, F0000002, ... in cluster
-order, so inserting one protein anywhere in the collection renumbered every family after
-it, and no family id could be compared between two runs. Section 31 states the requirement
-directly: "family IDs must not depend on result ordering."
-
-SMALL PLASMIDS AND LARGE ONES
-
-The study is about small plasmids (01_analysis_set/small_plasmids.txt). Every plasmid is
-clustered, and a family is written only when it holds at least one protein that occurs on
-a small plasmid; the rest are counted in the log. All counts are over ALL members, so no
-member is lost; the split is in its own columns:
-
-    n_small_members   members that occur on at least one small plasmid
-    n_large_members   members that occur on at least one large plasmid (a protein on
-                      both counts in both)
-    n_not_searched    members the cascade did not search (cascade_selection): they are
-                      neither dark nor annotated
-    scope             small_only_known | small_only_unknown | mixed_known | mixed_unknown
-    known_from        small | large | both | '' - where the named members sit; a named
-                      protein on small and large plasmids counts on both sides
-
-mixed means a member on a large plasmid. known means a member the cascade or PlasmidScope
-named (functional_class other than NONE, UNCHARACTERIZED_HOMOLOG and NOT_SEARCHED): a family
-is as bright as its brightest member (Durairaj et al., Nature 2023, 622:646). Within every
-family holding an unexplained small-plasmid protein, all members were annotated by
-the same cascade (cascade_selection), so at the primary resolution known and unknown mean
-the same on both sides.
-
-n_members AND n_orfs ARE DIFFERENT NUMBERS
-
-Clustering runs on the dereplicated set, so a protein whose sequence is identical on two
-hundred plasmids is ONE member: it clusters alone and is labelled ORPHAN. That is a
-defensible definition - it is not a family of divergent homologs - but `n_members: 1` alone
-reads as "seen once", and a reader could not tell a genuine singleton from one of the most
-widely carried proteins in the collection. n_orfs is the number of gene copies behind the
-cluster.
+dark_families.tsv is the subset at the primary resolution with a dark small-plasmid member,
+listing only the dark members (and the dark small-plasmid members apart).
 """
 import collections
 import csv
+import pathlib
 
 import _ctx  # noqa: F401
 
@@ -88,13 +48,7 @@ cfg = snakemake.params.clustering
 # Classes that name nothing, or were never looked at. Everything else is a named member.
 UNNAMED = {"NONE", "UNCHARACTERIZED_HOMOLOG", "NOT_SEARCHED"}
 
-# ------------------------------------------------------------------------------------
-# Which proteins are dark, so the per-family dark fraction can be computed.
-#
-# Read from the cascade's own classification rather than recomputed: a family's dark
-# fraction must mean the same thing as the dark set itself, and two definitions of dark
-# would diverge the moment one threshold moved.
-# ------------------------------------------------------------------------------------
+# The dark set is read, not recomputed, so the dark fraction uses the same definition.
 dark = {line.strip() for line in open(snakemake.input.dark_ids) if line.strip()}
 
 functional_class = {}
@@ -104,11 +58,6 @@ with open(snakemake.input.prot, newline="") as fh:
 
 small_plasmids = {line.strip() for line in open(snakemake.input.small_ids) if line.strip()}
 
-# ------------------------------------------------------------------------------------
-# Plasmid provenance per protein. Distribution is measured over INDEPENDENT units, not raw
-# counts: spec section 2.6 - "a protein appearing many times in sequence databases does not
-# mean that the observations are biologically independent".
-# ------------------------------------------------------------------------------------
 seq_to_plasmids = collections.defaultdict(set)
 seq_to_orf_count = collections.Counter()
 with open(snakemake.input.map) as fh:
@@ -126,9 +75,6 @@ with open(snakemake.input.registry, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
         plasmid_meta[row["plasmid_id"]] = row
 
-# Stage 6 lineage clusters: how many INDEPENDENT plasmid lineages a family occurs on.
-# Distinct from family_plasmid_count, which counts records, and from family_MOB_count,
-# which counts relaxase types - spec section 33.2 and design principle 2.6.
 lineage_of = {}
 with open(snakemake.input.lineage, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
@@ -137,12 +83,10 @@ with open(snakemake.input.lineage, newline="") as fh:
 
 COLS = [
     "family_id", "family_resolution", "representative",
-    # section 31.2
     "family_size", "n_orfs", "dark_member_count", "annotated_member_count",
     # unnamed members the dark set excludes (artefact, partial-only): neither dark nor named
     "n_unnamed_excluded",
     "percentage_dark_in_family", "family_class", "dark_only",
-    # section 31.3
     "family_plasmid_count", "family_host_count",
     "family_genus_count", "family_MOB_count", "family_plasmid_lineage_count",
     "family_plasmid_lineage_status", "family_habitat_count",
@@ -151,28 +95,23 @@ COLS = [
     "members",
 ]
 
-# The DERIVED dark-family table (spec section 32). Downstream dark analysis - dN/dS,
-# structure, context - operates on families that CONTAIN dark members, at the primary
-# resolution only, and carries the dark_only flag with them.
-#
-# Containing-dark rather than dark-only, deliberately. Section 32 makes dark-only a
-# DESCRIPTIVE label, not a filter, and a family that is 60% dark still holds dark proteins
-# whose evolution and context are worth measuring - with the advantage that its annotated
-# members say what the family does. Restricting to 100% dark would discard exactly the
-# families where a dark protein is most interpretable.
+# dark_families.tsv holds families that contain a dark member, not only dark-only ones:
+# a partly dark family still holds dark proteins to measure, and its named members say
+# what the family does.
 primary = cfg["primary"]
 dark_rows = []
+
+# protein_clustering writes one families_<resolution>_cluster.tsv per resolution.
+cluster_file = {pathlib.Path(c).name: c for c in snakemake.input.clusters}
+assert len(cluster_file) == len(cfg["resolutions"]), (cluster_file, cfg["resolutions"])
 
 summary = []
 with open(snakemake.output.families, "w", newline="") as out:
     writer = csv.DictWriter(out, fieldnames=COLS, delimiter="\t")
     writer.writeheader()
 
-    for resolution, clusters in zip(sorted(cfg["resolutions"]),
-                                    sorted(snakemake.input.clusters)):
-        # protein_clustering wrote families_<resolution>_cluster.tsv; sorted names pair
-        # with sorted resolutions, and the assertion keeps it that way.
-        assert f"families_{resolution}_cluster.tsv" in clusters, (resolution, clusters)
+    for resolution in sorted(cfg["resolutions"]):
+        clusters = cluster_file[f"families_{resolution}_cluster.tsv"]
         members = collections.defaultdict(list)
         with open(clusters) as fh:
             for line in fh:
@@ -205,17 +144,16 @@ with open(snakemake.output.families, "w", newline="") as out:
             lineages = {lineage_of[p] for p in plasmids if p in lineage_of}
 
             n_dark = sum(1 for m in mem if m in dark)
-            # Members something NAMED. An unnamed protein the dark set excludes (an artefact,
-            # a partial-only protein) is neither dark nor annotated; it is counted apart
-            # rather than inflating the annotated count, which it used to.
+            # An unnamed protein the dark set excludes (an artefact, a partial-only protein)
+            # is neither dark nor annotated, and is counted apart.
             n_annotated = len(named)
             n_unnamed_excluded = len(mem) - n_dark - n_annotated - n_not_searched
             pct_dark = round(100.0 * n_dark / len(mem), 2)
 
-            # Section 32: a dark-only family has no named member. Compared on the COUNT
-            # rather than on the rounded percentage, because 99.996% rounds to 100.0 and a
-            # family with one annotated member is not dark-only.
-            dark_only = int(n_annotated == 0)
+            # Compared on the counts, not the rounded percentage: 99.996% rounds to 100.0.
+            # A family of excluded or unsearched members alone has no dark member and is
+            # not dark-only.
+            dark_only = int(n_annotated == 0 and n_dark > 0)
             n_dark_only += dark_only
             family_class = "ORPHAN" if len(mem) == 1 else "FAMILY"
             scope = (("mixed" if any(m in on_large for m in mem) else "small_only")
@@ -223,6 +161,7 @@ with open(snakemake.output.families, "w", newline="") as out:
             known_from = ("both" if len(known_from) == 2 else
                           known_from.pop() if known_from else "")
             n_orphan += family_class == "ORPHAN"
+            n_large = sum(1 for m in mem if m in on_large)
 
             writer.writerow({
                 "family_id": ids.family_id(resolution, rep),
@@ -243,11 +182,11 @@ with open(snakemake.output.families, "w", newline="") as out:
                 "family_MOB_count": len(mobs),
                 "family_plasmid_lineage_count": len(lineages),
                 "family_plasmid_lineage_status": (
-                    status.SUCCESS if lineages else status.NO_HIT),
+                    status.SUCCESS if lineages else status.NOT_RUN),
                 "family_habitat_count": len(habitats),
                 "family_small_plasmid_count": len(plasmids & small_plasmids),
                 "n_small_members": len(small),
-                "n_large_members": sum(1 for m in mem if m in on_large),
+                "n_large_members": n_large,
                 "n_not_searched": n_not_searched,
                 "scope": scope,
                 "known_from": known_from,
@@ -275,7 +214,7 @@ with open(snakemake.output.families, "w", newline="") as out:
                     "percentage_dark_in_family": pct_dark,
                     "dark_only": dark_only,
                     "n_small_members": len(small),
-                    "n_large_members": sum(1 for m in mem if m in on_large),
+                    "n_large_members": n_large,
                     "scope": scope,
                     "known_from": known_from,
                     # Only the dark members: the downstream stages measure the DARK
@@ -309,7 +248,3 @@ print(f"dark families at {primary}: {len(dark_rows)} with a dark small-plasmid m
       f"of which {sum(r['dark_only'] for r in dark_rows)} are 100% dark; by scope: "
       + " ".join(f"{k}={v}" for k, v in sorted(
           collections.Counter(r["scope"] for r in dark_rows).items())))
-
-if not summary:
-    raise SystemExit("protein_families: no resolutions configured - clustering.resolutions "
-                     "is empty, so no family table was produced.")

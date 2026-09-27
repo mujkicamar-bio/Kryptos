@@ -473,6 +473,43 @@ def test_protein_families_clusters_annotated_and_dark_together(fixture_dir):
 
 
 @requires("mmseqs")
+def test_a_family_without_a_dark_member_is_not_dark_only(fixture_dir):
+    """An AntiFam-flagged protein (NOT_SEARCHED) and one the dark set excludes (NONE, not
+    dark) are unnamed but not dark, so neither family is dark-only. No member plasmid is in
+    the lineage table, so the lineage count was not measured."""
+    faa = fixture_dir / "unique_proteins.faa"
+    write_fasta(faa, [("af", "MKVLATTLLGAAFAASSALAQKKWLVRNGDTLSGIAQRYGVSVAQLQRWNH"),
+                      ("lc", "MPQRSTVWYACDEFGHIKLMNPQRSTVWYACDEFGHIKLMNPQRSTVWYAC")])
+    dark_ids = fixture_dir / "dark_ids.txt"
+    dark_ids.write_text("")
+    mapping = fixture_dir / "protein_map.tsv"
+    mapping.write_text("af\tS1|1\nlc\tS1|2\n")
+    registry = fixture_dir / "clonal_registry.tsv"
+    write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "hab_top"],
+              [["S1", "M1", "E. coli", "H"]])
+    lineage_tsv = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage_tsv, ["plasmid_id", "plasmid_lineage_cluster"], [])
+    families = fixture_dir / "protein_families.tsv"
+    dark_families = fixture_dir / "dark_families.tsv"
+
+    _run_families(fixture_dir,
+        input={"faa": str(faa), "dark_ids": str(dark_ids), "map": str(mapping),
+               "registry": str(registry), "lineage": str(lineage_tsv)},
+        output={"families": str(families), "dark_families": str(dark_families)},
+        params={"clustering": {
+            "resolutions": {"broad": {"min_seq_id": 0.3, "coverage": 0.5}},
+            "primary": "broad", "cov_mode": 0, "cluster_mode": 0}},
+        classes={"af": "NOT_SEARCHED", "lc": "NONE"})
+
+    rows = read_tsv(families)
+    assert {m for r in rows for m in r["members"].split(",")} == {"af", "lc"}
+    for row in rows:
+        assert (row["dark_member_count"], row["dark_only"]) == ("0", "0"), row
+        assert row["family_plasmid_lineage_status"] == "NOT_RUN"
+    assert read_tsv(dark_families) == []
+
+
+@requires("mmseqs")
 def test_protein_families_calls_each_family_small_only_or_mixed_and_known_or_unknown(
         fixture_dir):
     """A family is written when it holds a small-plasmid protein. It is mixed when a member
