@@ -1,4 +1,4 @@
-"""Smoke tests: label databases, protein labels, orthology, feature files, quality gate.
+"""Smoke tests: label databases, protein labels, orthology, feature files, target eligibility.
 
 Each test runs one workflow script against a small fixture.
 """
@@ -16,58 +16,31 @@ from conftest import (
 from plasmidann import labeldb
 
 
-def test_the_quality_gate_passes_when_controls_are_annotated(fixture_dir):
-    """The gate must not halt a healthy run. Controls that the cascade named correctly
-    should clear it."""
+def test_target_eligibility_marks_unnamed_searched_proteins(fixture_dir):
+    """Eligible: no informative name (NONE or UNCHARACTERIZED_HOMOLOG), searched, not an
+    artefact. The report counts both dark definitions: ours (2) and FESNov's (1)."""
     prot = fixture_dir / "protein_annotation.tsv"
     artefact = fixture_dir / "artefact_flags.tsv"
     flags = fixture_dir / "eligibility.tsv"
-    report = fixture_dir / "gate.txt"
+    report = fixture_dir / "eligibility.txt"
 
-    rows = [[f"CTRL_{i:05d}_P0000{i}", "T1", "relaxase MobA", "FUNCTIONAL"]
-            for i in range(100)]
-    rows += [["seq_dark_1", "", "", "NONE"],
-             ["seq_uh_1", "T5", "hypothetical protein", "UNCHARACTERIZED_HOMOLOG"],
-             ["seq_skipped", "", "", "NOT_SEARCHED"]]
+    rows = [["seq_named", "T1", "relaxase MobA", "FUNCTIONAL"],
+            ["seq_dark_1", "", "", "NONE"],
+            ["seq_uh_1", "T5", "hypothetical protein", "UNCHARACTERIZED_HOMOLOG"],
+            ["seq_artefact", "", "", "NONE"],
+            ["seq_skipped", "", "", "NOT_SEARCHED"]]
     write_tsv(prot, ["seq_id", "annot_tier", "annot_label", "functional_class"], rows)
     write_tsv(artefact, ["seq_id", "artefact_flag"],
-              [[r[0], 0] for r in rows])
+              [[r[0], int(r[0] == "seq_artefact")] for r in rows])
 
-    run_script("quality_gate.py", FakeSnakemake(
+    run_script("target_eligibility.py", FakeSnakemake(
         input={"prot": str(prot), "artefact": str(artefact)},
-        output={"flags": str(flags), "report": str(report)},
-        params={"gate": {"min_control_recall": 0.99, "require_control_set": True},
-                "tier_sources": {"T1": "pfam", "T4": "swissprot"}}))
+        output={"flags": str(flags), "report": str(report)}))
 
-    text = report.read_text()
-    assert "control_recall=1.0" in text
-    # Each tier is named with its database, taken from the cascade configuration.
-    assert "  T1\tpfam\t100\n" in text, text
-    # Both dark definitions: ours (2) and FESNov's no-homologue one (1).
-    assert "target_eligible=2 dark_no_homologue=1" in text, text
-    # A protein the selection never searched is not reported as annotated.
+    assert "target_eligible=2 dark_no_homologue=1" in report.read_text()
     reasons = {r["seq_id"]: r["exclusion_reason"] for r in read_tsv(flags)}
-    assert reasons["seq_skipped"] == "not_searched"
-
-
-def test_the_quality_gate_halts_when_known_proteins_come_out_dark(fixture_dir):
-    """The gate's whole purpose. If it cannot fail here it is not a gate."""
-    prot = fixture_dir / "protein_annotation.tsv"
-    artefact = fixture_dir / "artefact_flags.tsv"
-    flags = fixture_dir / "eligibility.tsv"
-    report = fixture_dir / "gate.txt"
-
-    rows = [[f"CTRL_{i:05d}_P0000{i}", "", "hypothetical protein",
-             "UNCHARACTERIZED_HOMOLOG"] for i in range(50)]
-    write_tsv(prot, ["seq_id", "annot_tier", "annot_label", "functional_class"], rows)
-    write_tsv(artefact, ["seq_id", "artefact_flag"], [[r[0], 0] for r in rows])
-
-    with pytest.raises(SystemExit):
-        run_script("quality_gate.py", FakeSnakemake(
-            input={"prot": str(prot), "artefact": str(artefact)},
-            output={"flags": str(flags), "report": str(report)},
-            params={"gate": {"min_control_recall": 0.99, "require_control_set": True},
-                "tier_sources": {"T1": "pfam", "T4": "swissprot"}}))
+    assert reasons == {"seq_named": "annotated", "seq_dark_1": "", "seq_uh_1": "",
+                       "seq_artefact": "artefact", "seq_skipped": "not_searched"}
 
 
 def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
@@ -260,9 +233,7 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
                ["s1", "P62554.1 RecName: Full=Toxin CcdB [Escherichia coli]", "P62554.1",
                 0.8, 0.9, "1e-30", "True", 1, 1, 90, "T3", "swissprot", "", "--fast", "1e-5"],
                ["s2", "WP_1.1 hypothetical protein [Escherichia coli]", "WP_1.1",
-                0.95, 0.9, "1e-20", "False", 1, 1, 95, "T4", "nr", "", "--fast", "1e-10"],
-               ["CTRL_P1", "PF00001.1", "PF00001.1", 0.9, 0.9, "1e-50", "True", 1, 1, 90,
-                "T1", "pfam", "", "--cut_ga", ""]])
+                0.95, 0.9, "1e-20", "False", 1, 1, 95, "T4", "nr", "", "--fast", "1e-10"]])
 
     orth = fixture_dir / "orthology.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
@@ -309,8 +280,6 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
     assert ("m1", "pfam_family", "RepA_N") in pairs
     assert {r["via_representative"] for r in read_tsv(out) if r["protein_id"] == "m1"
             and r["source"] == "pfam"} == {"s1"}
-    # Controls are instrumentation and contribute no labels.
-    assert not any(p[0].startswith("CTRL_") for p in pairs)
 
 
 def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
@@ -471,46 +440,6 @@ def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreemen
                          ("s3", "tadb_vs_defencefinder")}
     # A disagreement removes no label.
     assert len(merged) == len(label_rows)
-
-
-def test_decoys_reaching_the_gate_are_reported_as_a_false_positive_rate(fixture_dir):
-    """A decoy classed FUNCTIONAL is a false positive of the annotation cascade, and its
-    rate is a measurement this pipeline should report rather than assume.
-
-    It does NOT halt the run. A halting negative gate would stop the pipeline over the
-    hardest cases in the collection, and the number a reader needs is the rate itself.
-    """
-    prot = fixture_dir / "gate_prot.tsv"
-    write_tsv(prot, ["seq_id", "functional_class", "annot_tier", "annot_label"],
-              [["CTRL_00001_P1", "FUNCTIONAL", "T3", "Relaxase"],
-               ["CTRL_00002_P2", "FUNCTIONAL", "T1", "RepA"],
-               ["DECOY_shuf_00000", "NONE", "", ""],
-               ["DECOY_shuf_00001", "FUNCTIONAL", "T4", "hit by composition"],
-               ["DECOY_rc_00002", "NONE", "", ""],
-               ["DECOY_rc_00003", "NONE", "", ""],
-               ["realprotein", "NONE", "", ""]])
-    artefact = fixture_dir / "gate_artefact.tsv"
-    write_tsv(artefact, ["seq_id", "artefact_flag"], [["realprotein", 0]])
-    flags = fixture_dir / "gate_flags.tsv"
-    report = fixture_dir / "gate_report.txt"
-
-    run_script("quality_gate.py", FakeSnakemake(
-        input={"prot": str(prot), "artefact": str(artefact)},
-        output={"flags": str(flags), "report": str(report)},
-        params={"gate": {"min_control_recall": 0.99, "require_control_set": True,
-                         "min_controls": 2},
-                "tier_sources": {"T1": "pfam", "T4": "swissprot"}}))
-
-    text = report.read_text()
-    assert "decoy_n=4" in text, f"the decoy count is not reported:\n{text}"
-    assert "decoy_false_positive_rate=0.25" in text, (
-        f"1 of 4 decoys was named FUNCTIONAL; the rate must be reported:\n{text}")
-
-    eligible = {r["seq_id"] for r in read_tsv(flags)}
-    assert not any(s.startswith("DECOY_") for s in eligible), (
-        "decoys are instrumentation, not screening candidates; they must not appear in "
-        "the target-eligibility table any more than the positive controls do")
-    assert "realprotein" in eligible
 
 
 def test_orthology_takes_plasmidscope_terms_without_running_emapper(fixture_dir):
