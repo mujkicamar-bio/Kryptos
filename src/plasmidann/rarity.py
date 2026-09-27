@@ -1,7 +1,7 @@
-"""Stage 14: rarity labels per family, and the dark-family rarefaction curve.
+"""Rarity labels per family, and the dark-family rarefaction curve.
 
 Every label describes breadth; sequence conservation is not measured here. RARE,
-LINEAGE_SPECIFIC and WIDESPREAD count independent Stage 6 lineages
+LINEAGE_SPECIFIC and WIDESPREAD count independent lineages (plasmid_lineage.tsv)
 (independent_plasmid_cluster_count), never plasmid records, so a family on four hundred
 redeposits of one plasmid is one observation. The MOB labels count MOB-suite clusters and
 the host labels observed host species and genera. The labels are descriptive and nothing
@@ -10,7 +10,7 @@ the WIDESPREAD threshold, which is measured on the run: the configured percentil
 lineage counts of the families at that resolution (widespread_threshold). The two lineage
 thresholds are recorded on every output row.
 
-The rarefaction curve counts dark families discovered against Stage 6 lineages sampled,
+The rarefaction curve counts dark families discovered against lineages sampled,
 averaged over random orderings: a lineage is one observation, so redeposited copies of one
 plasmid do not flatten the curve. saturation() compares the final slope with the initial
 slope, in families gained per lineage added.
@@ -32,7 +32,7 @@ def rarity_labels(family, thresholds):
     """Every label that applies to one family, from RARE, LINEAGE_SPECIFIC,
     WIDESPREAD, SINGLE_MOB, CROSS_MOB, SINGLE_HOST, CROSS_HOST and CROSS_TAXON.
 
-    `family` holds the Stage 7 distribution counts: independent_plasmid_cluster_count,
+    `family` holds the distribution counts of recurrence.tsv: independent_plasmid_cluster_count,
     MOB_count, host_count, genus_count, n_plasmids_with_species, unique_plasmid_count.
     `thresholds` holds the rarity configuration and widespread_min_lineages, the measured
     WIDESPREAD threshold (None when no family was measured). The labels describe different

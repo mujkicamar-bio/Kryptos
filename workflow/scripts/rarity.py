@@ -1,7 +1,7 @@
-"""Stage 14: rarity labels per family, and the dark-family rarefaction curve.
+"""Rarity labels per family, and the dark-family rarefaction curve.
 
-Inputs: recurrence.tsv (the Stage 7 counts), dark_families.tsv, the protein map,
-small_plasmids.txt and the Stage 6 lineages. Outputs:
+Inputs: recurrence.tsv (the distribution counts), dark_families.tsv, the protein map,
+small_plasmids.txt and plasmid_lineage.tsv. Outputs:
 
   family_rarity.tsv            the rarity labels of each family (plasmidann.rarity) with
                                the counts and the lineage thresholds behind them; the

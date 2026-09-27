@@ -1,5 +1,4 @@
-"""S8g: dark protein sequences that travel together, per Mash lineage
-(plasmidann.cooccurrence).
+"""Dark protein sequences that travel together, per Mash lineage (plasmidann.cooccurrence).
 
 Inputs: dark_families.tsv (its `members` are the dark sequences of the dark families),
 the protein map and plasmid_lineage.tsv. Output dark_cooccurrence.tsv, one row per pair of

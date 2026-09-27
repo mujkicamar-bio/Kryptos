@@ -1,4 +1,4 @@
-"""Dark protein sequences that travel together (S8g), counted over Mash lineages.
+"""Dark protein sequences that travel together, counted over Mash lineages.
 
 The unit is the unique dark protein sequence (seq_id), not the family. Two sequences are
 together in a lineage (plasmid_lineage.tsv) when one of its plasmids carries an ORF of

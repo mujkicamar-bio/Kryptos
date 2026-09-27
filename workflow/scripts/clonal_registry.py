@@ -1,4 +1,4 @@
-"""S0b: the clonal registry, one row per analysis-set plasmid.
+"""The clonal registry, one row per analysis-set plasmid.
 
 Records per plasmid its MOB-suite cluster (empty when MOB-suite assigned none), the
 observed host and the source that named it, MOB-suite's predicted host range, topology and

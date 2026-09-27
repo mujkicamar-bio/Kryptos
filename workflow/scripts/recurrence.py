@@ -1,13 +1,13 @@
-"""Stage 7: distribution and recurrence of each family, counted over independent units.
+"""Distribution and recurrence of each family, counted over independent units.
 
-Inputs: protein_families.tsv, the protein map, the clonal registry, the Stage 6 lineages
+Inputs: protein_families.tsv, the protein map, the clonal registry, plasmid_lineage.tsv
 and the master table. Output recurrence.tsv, one row per family, with counts kept apart
 because a protein on two thousand plasmid records may be one plasmid deposited two
 thousand times:
 
   plasmid_occurrence_count           gene copies
   unique_plasmid_count               distinct plasmid records
-  independent_plasmid_cluster_count  distinct Stage 6 lineages, the denominator of a
+  independent_plasmid_cluster_count  distinct lineages, the denominator of a
                                      recurrence claim
   host_count, genus_count            distinct observed host species and genera
                                      (plasmidann.hosts)
@@ -110,7 +110,7 @@ with open(snakemake.input.families, newline="") as fh, \
             "host_count": len(species),
             "genus_count": len(genera),
             "n_plasmids_with_host": n_with_host,
-            # SINGLE_HOST (Stage 14) needs every plasmid named to the species.
+            # SINGLE_HOST (rule rarity) needs every plasmid named to the species.
             "n_plasmids_with_species": sum(1 for m in meta if m.get("species")),
             "host_count_status": status.SUCCESS if n_with_host else status.NOT_MEASURED,
             "n_plasmids_with_predicted_range": len(predicted),

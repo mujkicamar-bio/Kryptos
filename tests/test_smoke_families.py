@@ -249,8 +249,8 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
 
 
 def test_dark_cooccurrence_writes_the_pairs_of_dark_sequences(fixture_dir):
-    """S8g on the tables the rule reads. s1 and s2 share a plasmid in lineages A and B
-    (A's two redeposited copies count once). The unit is the unique dark sequence, not the
+    """dark_cooccurrence.py on the tables the rule reads. s1 and s2 share a plasmid in
+    lineages A and B (A's two redeposited copies count once). The unit is the unique dark sequence, not the
     family: s1b, of s1's family, is in lineage C, which does not add to s1's lineages.
     s3 is on B's plasmid but in one lineage only, so no pair with it is enumerated; s4 is
     in two lineages but on no plasmid with another dark sequence; `known` is not dark."""
@@ -385,7 +385,7 @@ def test_an_undefined_saturation_is_not_reported_as_flattened(fixture_dir, capsy
 
 def _run_families(fixture_dir, input, output, params, threads=2, classes=None,
                   small=None):
-    """S2f then Stage 5, as the workflow runs them.
+    """protein_clustering.py then protein_families.py, as the workflow runs them.
 
     functional_class defaults to NONE for the dark ids and FUNCTIONAL for everything else;
     every plasmid in the map is small unless `small` lists them.
@@ -642,8 +642,9 @@ def test_family_ids_are_content_derived_not_ordinal(fixture_dir):
 
 @requires("mmseqs")
 def test_the_dark_family_representative_is_a_dark_protein(fixture_dir):
-    """S8d searches the dark family's representative structurally, so it must be a dark
-    member even when MMseqs2 picks an annotated one, and only dark members are listed."""
+    """Rule structure_search searches the dark family's representative structurally, so it
+    must be a dark member even when MMseqs2 picks an annotated one, and only dark members
+    are listed."""
     shared = ("MKVLATTLLGAAFAASSALAQKKWLVRNGDTLSGIAQRYGVSVAQLQRWNHLSSDTIHPGQ"
               "KLRVGSDAPQAAPKAEPKVEAKPAAKPVAKPAAKPVAKPAAKPAAKPKAEEKPKAEEK")
     faa = fixture_dir / "unique_proteins.faa"
@@ -676,7 +677,7 @@ def test_the_dark_family_representative_is_a_dark_protein(fixture_dir):
     for row in rows:
         assert row["representative"] == "p_dark", (
             f"the dark family's representative is {row['representative']!r}, which is not "
-            "a dark protein - S8d would search the wrong sequence")
+            "a dark protein - structure_search would search the wrong sequence")
         assert "p_annot_long" not in row["members"], (
             "an annotated member leaked into the dark family's member list, which would "
             "widen every downstream evolution and context measurement")

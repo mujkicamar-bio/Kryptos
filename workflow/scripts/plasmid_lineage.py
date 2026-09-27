@@ -1,4 +1,4 @@
-"""Stage 6: cluster plasmids by sequence similarity into lineages.
+"""Cluster plasmids by sequence similarity into lineages.
 
 Input: the analysis-set FASTA. Mash sketches every plasmid, `mash dist` compares the sketch
 database against itself, and the connected components of the linked pairs are the

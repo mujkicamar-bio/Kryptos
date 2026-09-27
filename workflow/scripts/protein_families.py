@@ -1,4 +1,4 @@
-"""Stage 5: the family table, with what the cascade found in each family.
+"""The family table, with what the cascade found in each family.
 
 Inputs: one cluster file per configured resolution (close, intermediate and broad in
 config/targets.yaml), written by protein_clustering.py over every unique protein, annotated
@@ -30,7 +30,7 @@ members:
   known_from                    small | large | both | '': where the named members sit
 
 The distribution counts of a family (plasmid records, lineages, hosts, MOB clusters,
-habitats) are computed in one place, recurrence.tsv (Stage 7).
+habitats) are computed in one place, recurrence.tsv (rule recurrence).
 
 Within a family holding an unexplained small-plasmid protein, every member not annotated by
 Tier 0 or flagged by AntiFam was searched by the cascade, so at the primary resolution known
@@ -176,9 +176,10 @@ with open(snakemake.output.families, "w", newline="") as out:
                 dark_members = [m for m in mem if m in dark]
                 dark_rows.append({
                     "family_id": ids.family_id(resolution, rep),
-                    # The representative must be a dark small-plasmid member: S8d searches
-                    # this sequence structurally, and searching any other member would
-                    # spend the ProstT5 budget on a protein outside the study.
+                    # The representative must be a dark small-plasmid member: rule
+                    # structure_search searches this sequence structurally, and searching
+                    # any other member would spend the ProstT5 budget on a protein outside
+                    # the study.
                     "representative": rep if rep in small_dark else small_dark[0],
                     "n_members": len(mem),
                     "n_orfs": n_orfs,
