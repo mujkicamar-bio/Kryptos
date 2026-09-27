@@ -1,19 +1,25 @@
-"""Stage 15: which evidence dimensions were measured for a dark family. No score, no rank.
+"""Which evidence dimensions were measured for a dark family. No score, no rank.
 
-    ORF_QC                     artefact screen
-    SEQUENCE_HOMOLOGY          Pfam, Swiss-Prot, nr, pharokka
+    ORF_QC                     artefact screen (AntiFam, low complexity)
+    SEQUENCE_HOMOLOGY          the annotation cascade (Pfam, Swiss-Prot, ClusteredNR, pharokka)
     ORTHOLOGY                  eggNOG
     GENOMIC_CONTEXT            context rates, synteny, dark family co-occurrence
     EVOLUTIONARY_CONSERVATION  dN/dS, RNAcode
     DISTRIBUTION               breadth over independent lineages
     STRUCTURAL_RELATIONSHIP    Foldseek
-    PROTEIN_PROPERTIES         protein length
+    PROTEIN_PROPERTIES         representative length
 
 Several databases feed one dimension because they share evolutionary information: counting
 their hits separately would make a well-studied protein look better supported. A dimension
-counts when it was measured, not when the measurement was positive. The count of database
-hits (supporting_observations_count) is reported beside it, labelled as not independent.
+counts when it was measured, not when the measurement was positive. The count of
+informative database hits over the family's members (supporting_observations_count) is
+reported beside it, labelled as not independent.
+
+The record is the family row of annotation_report, which supplies the measured fields
+artefact_screened, cascade_searched, eggnog_searched, structure_searched,
+representative_length_aa and n_informative_hits beside the stage columns.
 """
+from darkorf import status
 
 DIMENSIONS = (
     "ORF_QC",
@@ -26,63 +32,41 @@ DIMENSIONS = (
     "PROTEIN_PROPERTIES",
 )
 
-# Which databases feed which dimension.
-_DIMENSION_SOURCES = {
-    "SEQUENCE_HOMOLOGY": ("pfam", "swissprot", "nr", "pharokka"),
-    "ORTHOLOGY": ("eggnog",),
-    "STRUCTURAL_RELATIONSHIP": ("foldseek",),
-}
+
+def _context_status(value):
+    # TOO_FEW_LINEAGES says no test could be made, so it is not a context measurement.
+    return value not in (None, "", status.TOO_FEW_LINEAGES)
 
 
 def dimensions_present(record):
-    """Which of the eight dimensions have a measurement for this protein.
+    """Which of the eight dimensions have a measurement for this family.
 
-    `record` is a flat dict of the columns the pipeline produced. A dimension counts as
-    present when it was MEASURED, not when it was positive: a search that ran and found
-    nothing is a measurement, and is exactly the measurement a dark protein is made of.
+    A search that ran and found nothing is a measurement, and is exactly the measurement a
+    dark protein is made of.
     """
     present = []
-
-    # QC always runs, so this dimension is present whenever a flag was recorded at all.
-    if record.get("artefact_flag") not in (None, ""):
+    if record.get("artefact_screened"):
         present.append("ORF_QC")
-
-    if any(record.get(f"{source}_searched") for source in
-           _DIMENSION_SOURCES["SEQUENCE_HOMOLOGY"]) or record.get("annot_tier"):
+    if record.get("cascade_searched"):
         present.append("SEQUENCE_HOMOLOGY")
-
-    if record.get("eggnog_searched") or record.get("cog_category"):
+    if record.get("eggnog_searched"):
         present.append("ORTHOLOGY")
-
-    # The context rates (0 is a measurement), a synteny status or a co-occurrence status.
+    # A context rate of 0 is a measurement.
     if (record.get("cons_annotated_neighbour") not in (None, "")
-            or record.get("synteny_status") or record.get("cooccurrence_status")):
+            or _context_status(record.get("synteny_status"))
+            or _context_status(record.get("cooccurrence_status"))):
         present.append("GENOMIC_CONTEXT")
-
-    # Status rather than value: NO_DIVERGENCE and SATURATED are measurements, and a family
-    # of identical sequences is what strong conservation looks like.
+    # Status rather than value: a status without a value, such as TOO_SHORT, is a
+    # measurement.
     if record.get("dnds_status") or record.get("rnacode_status"):
         present.append("EVOLUTIONARY_CONSERVATION")
-
-    if record.get("independent_cluster_status") == "SUCCESS":
+    if record.get("independent_cluster_status") == status.SUCCESS:
         present.append("DISTRIBUTION")
-
-    if record.get("structure_status") or record.get("structural_match"):
+    if record.get("structure_searched"):
         present.append("STRUCTURAL_RELATIONSHIP")
-
-    if record.get("protein_length"):
+    if record.get("representative_length_aa"):
         present.append("PROTEIN_PROPERTIES")
-
     return present
-
-
-def supporting_observations(record):
-    """The number of informative database hits: how much was found, not how strong the
-    evidence is, because the hits are not independent."""
-    try:
-        return int(record.get("n_informative_hits") or 0)
-    except (TypeError, ValueError):
-        return 0
 
 
 def evidence_summary(record):
@@ -91,9 +75,9 @@ def evidence_summary(record):
     return {
         "evidence_dimensions_present": ",".join(present),
         "evidence_dimension_count": len(present),
-        "supporting_observations_count": supporting_observations(record),
+        # How much was found, not how strong the evidence is: the hits are not independent.
+        "supporting_observations_count": int(record.get("n_informative_hits") or 0),
         # Named so that nobody reading the table can mistake the count for a score, and so
         # that a column selected into a downstream ranking carries the warning with it.
         "supporting_observations_are_not_independent": 1,
     }
-

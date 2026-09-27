@@ -687,6 +687,10 @@ rule annotation_report:
         conjugation_class=f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",
         # Per family: partners it travels with (S8g).
         cooccurrence=f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",
+        # Per family: the measured fields the evidence dimensions are counted from.
+        prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
+        artefact=f"{OUT}/04_orf_qc/artefact_flags.tsv",
+        dark_faa=f"{OUT}/10_clustering/dark_proteins.faa",
     output:
         annotation=f"{OUT}/15_report/annotation_complete.csv",
         families=f"{OUT}/15_report/dark_families_complete.csv",

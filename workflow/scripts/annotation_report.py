@@ -114,11 +114,37 @@ for fid, fam in families.items():
     for member in fam["members"].split(","):
         family_of_seq[member] = fid
 
+# The measured fields the evidence dimensions are counted from, per family member: whether
+# the artefact screen and the cascade reached it, and its informative database hits.
+screened = set()
+with open(snakemake.input.artefact, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        if r["seq_id"] in family_of_seq and r["artefact_flag"] != "":
+            screened.add(r["seq_id"])
+searched, informative_hits = set(), collections.Counter()
+with open(snakemake.input.prot, newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        fid = family_of_seq.get(r["seq_id"])
+        if fid and r["functional_class"] not in ("", "NOT_SEARCHED"):
+            searched.add(r["seq_id"])
+            informative_hits[fid] += int(r["n_informative_hits"] or 0)
+# The representatives' lengths. Every representative is a dark protein.
+length = {}
+with open(snakemake.input.dark_faa) as fh:
+    for line in fh:
+        if line[0] == ">":
+            sid = line[1:].split()[0]
+            length[sid] = 0
+        else:
+            length[sid] += len(line.strip())
+# structure_search queries every family representative, unless it recorded NOT_RUN.
+structure_searched = int(structure.get("", {}).get("status") != status.NOT_RUN)
+
 # ------------------------------------------------------------------------------------
 # The family table: the selection surface.
 # ------------------------------------------------------------------------------------
 FAMILY_COLS = [
-    "family_id", "representative", "family_class",
+    "family_id", "representative", "representative_length_aa", "family_class",
     "n_members", "n_orfs", "n_plasmids", "n_mob_clusters",
     "dark_member_count", "annotated_member_count", "percentage_dark_in_family", "dark_only",
     # small plasmids and large ones; the small_ columns below repeat a
@@ -229,6 +255,7 @@ with open(snakemake.output.families, "w", newline="") as out:
                   "n_members": fam["n_members"],
                   "structural_match": struct.get("target", "")}
         n, fired, implied = reality_lines(record, THRESHOLDS)
+        members = fam["members"].split(",")
         syn = synteny.get(fid, {})
         rar = rarity.get(fid, {})
         row = {**fam, **evo, **recheck.get(fid, {}), **ctx,
@@ -261,7 +288,13 @@ with open(snakemake.output.families, "w", newline="") as out:
                "darkness_state": darkness_state(record),
                "structural_match": struct.get("target", ""),
                "structural_description": struct.get("target_description", ""),
-               "structure_evalue": struct.get("evalue", "")}
+               "structure_evalue": struct.get("evalue", ""),
+               "representative_length_aa": length.get(fam["representative"], ""),
+               "artefact_screened": int(any(m in screened for m in members)),
+               "cascade_searched": int(any(m in searched for m in members)),
+               "eggnog_searched": int(any(m in orthology for m in members)),
+               "structure_searched": structure_searched,
+               "n_informative_hits": informative_hits[fid]}
 
         # Stage 15 reads the assembled row, so it sees exactly the evidence a reader sees.
         # Computing it from the source tables instead would let the two drift, and the
