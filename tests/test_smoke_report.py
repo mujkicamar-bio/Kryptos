@@ -70,7 +70,7 @@ def _report_fixture(fixture_dir):
     write_tsv(rarity_tsv, ["family_id", "rarity_labels",
                            "independent_plasmid_cluster_count", "unique_plasmid_count",
                            "MOB_count", "host_count", "genus_count", "rarity_version",
-                           "rare_max_lineages", "widely_conserved_min_lineages"],
+                           "rare_max_lineages", "widespread_min_lineages"],
               [["F1", "RARE,LINEAGE_SPECIFIC", 1, 1, 1, 1, 1, "1", 3, 50],
                ["F2", "RARE,CROSS_MOB", 2, 9, 3, 3, 2, "1", 3, 50]])
 

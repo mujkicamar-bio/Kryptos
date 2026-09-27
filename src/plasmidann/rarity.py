@@ -1,7 +1,7 @@
 """Stage 14: rarity labels per family, and the dark-family rarefaction curve.
 
 Every label describes breadth; sequence conservation is not measured here. RARE,
-LINEAGE_SPECIFIC and WIDELY_CONSERVED count independent Stage 6 lineages
+LINEAGE_SPECIFIC and WIDESPREAD count independent Stage 6 lineages
 (independent_plasmid_cluster_count), never plasmid records, so a family on four hundred
 redeposits of one plasmid is one observation. The MOB labels count MOB-suite clusters and
 the host labels observed host species and genera. The labels are descriptive and nothing
@@ -20,7 +20,7 @@ RARITY_VERSION = "2"
 
 def rarity_labels(family, thresholds):
     """Every label that applies to one family, from RARE, LINEAGE_SPECIFIC,
-    WIDELY_CONSERVED, SINGLE_MOB, CROSS_MOB, SINGLE_HOST, CROSS_HOST and CROSS_TAXON.
+    WIDESPREAD, SINGLE_MOB, CROSS_MOB, SINGLE_HOST, CROSS_HOST and CROSS_TAXON.
 
     `family` holds the Stage 7 distribution counts: independent_plasmid_cluster_count,
     MOB_count, host_count, genus_count, n_plasmids_with_species, unique_plasmid_count.
@@ -39,8 +39,8 @@ def rarity_labels(family, thresholds):
         labels.append("RARE")
     if lineages == 1:
         labels.append("LINEAGE_SPECIFIC")
-    if lineages >= thresholds["widely_conserved_min_lineages"]:
-        labels.append("WIDELY_CONSERVED")
+    if lineages >= thresholds["widespread_min_lineages"]:
+        labels.append("WIDESPREAD")
 
     # MOB-suite clusters are reported as a label only, never as a lineage count: MOB-suite
     # assigns the nearest reference's cluster however distant, so it is no measure of

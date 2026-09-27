@@ -298,7 +298,7 @@ def _run_rarity(fixture_dir, small_plasmids):
         input={"recurrence": str(recurrence), "dark_families": str(fams),
                "map": str(mapping), "small_ids": str(small_ids)},
         output={"rarity": str(fixture_dir / "rarity.tsv"), "rarefaction": str(out)},
-        params={"rarity": {"rare_max_lineages": 3, "widely_conserved_min_lineages": 50,
+        params={"rarity": {"rare_max_lineages": 3, "widespread_min_lineages": 50,
                            "cross_min_hosts": 2, "cross_min_genera": 2,
                            "rarefaction_replicates": 5},
                 "seed": 1}))
@@ -320,7 +320,7 @@ def test_family_rarity_writes_the_labels_and_the_thresholds_behind_them(fixture_
     (row,) = read_tsv(fixture_dir / "rarity.tsv")
     assert (row["family_id"], row["rarity_labels"],
             row["independent_plasmid_cluster_count"]) == ("broad:d", "RARE", "2")
-    assert (row["rare_max_lineages"], row["widely_conserved_min_lineages"]) == ("3", "50")
+    assert (row["rare_max_lineages"], row["widespread_min_lineages"]) == ("3", "50")
 
 
 def test_an_undefined_saturation_is_not_reported_as_flattened(fixture_dir, capsys):

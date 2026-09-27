@@ -10,7 +10,7 @@
 # --- Stage 14: rarity, conservation and rarefaction -----------------------------------
 #
 # Rarity and conservation are separate descriptors. The labels are not a ranking - RARE is
-# not better than WIDELY_CONSERVED - and the thresholds travel on every labelled row.
+# not better than WIDESPREAD - and the thresholds travel on every labelled row.
 #
 # Every breadth threshold is counted in independent Stage 6 lineages, never in plasmid
 # records: a family on four hundred redepositions of one plasmid is one observation.
@@ -19,8 +19,8 @@ rarity:
   # that can distinguish a repeated observation from a single one; it is a descriptive
   # boundary and nothing selects on it.
   rare_max_lineages: 3
-  # At or above this many, WIDELY_CONSERVED.
-  widely_conserved_min_lineages: 50
+  # At or above this many, WIDESPREAD.
+  widespread_min_lineages: 50
   cross_min_hosts: 2
   cross_min_genera: 2
   # Random orderings averaged for the rarefaction curve. A single ordering is one arbitrary

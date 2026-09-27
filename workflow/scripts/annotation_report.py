@@ -172,7 +172,7 @@ FAMILY_COLS = [
     "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
     "cooccurrence_fdr", "cooccurrence_min_lineages",
     # Stage 14: descriptors, not a ranking. RARE is not better than
-    # WIDELY_CONSERVED. The version travels because a label's definition can change.
+    # WIDESPREAD. The version travels because a label's definition can change.
     "rarity_labels", "rarity_version",
     # Stage 15: dimensions counted, never scored.
     "evidence_dimensions_present", "evidence_dimension_count",

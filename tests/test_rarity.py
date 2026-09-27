@@ -3,7 +3,7 @@ from plasmidann import rarity
 
 THRESHOLDS = {
     "rare_max_lineages": 3,
-    "widely_conserved_min_lineages": 50,
+    "widespread_min_lineages": 50,
     "cross_min_hosts": 2,
     "cross_min_genera": 2,
 }
@@ -17,8 +17,8 @@ def test_breadth_is_counted_in_lineages_not_plasmid_records():
 
     labels = rarity.rarity_labels(redeposited, THRESHOLDS)
 
-    assert "WIDELY_CONSERVED" not in labels, (
-        "400 redepositions of one plasmid were called widely conserved")
+    assert "WIDESPREAD" not in labels, (
+        "400 redepositions of one plasmid were called widespread")
     assert "LINEAGE_SPECIFIC" in labels
     assert "RARE" in labels
 
@@ -31,7 +31,7 @@ def test_a_genuinely_widespread_family_is_labelled_so():
 
     labels = rarity.rarity_labels(widespread, THRESHOLDS)
 
-    assert "WIDELY_CONSERVED" in labels
+    assert "WIDESPREAD" in labels
     assert "RARE" not in labels
     assert {"CROSS_MOB", "CROSS_HOST", "CROSS_TAXON"} <= set(labels)
 
