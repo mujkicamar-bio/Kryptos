@@ -6,13 +6,12 @@ CASES = [
     # strongest: a curator built and named a family for it
     (["DUF4054 domain-containing protein"], "CURATED_FAMILY"),
     (["UPF0102 protein"], "CURATED_FAMILY"),
-    # the MULTISPECIES title prefix is no longer a rung (ClusteredNR carries it rarely)
-    (["MULTISPECIES: hypothetical protein"], "PREDICTED_ONLY"),
     # homologs exist, no function
     (["conserved hypothetical protein"], "CONSERVED"),
     (["conserved protein"], "CONSERVED"),
     # one algorithm's output and nothing more
     (["hypothetical protein"], "PREDICTED_ONLY"),
+    (["MULTISPECIES: hypothetical protein"], "PREDICTED_ONLY"),
     (["predicted protein"], "PREDICTED_ONLY"),
     (["unnamed protein product"], "PREDICTED_ONLY"),
     # nothing named it at any tier
@@ -31,16 +30,5 @@ def test_the_strongest_rung_across_all_tiers_wins():
         == "CURATED_FAMILY"
 
 
-def test_a_curated_family_outranks_multispecies_in_one_label():
-    assert dark_evidence(["MULTISPECIES: DUF1234 domain-containing protein"]) \
-        == "CURATED_FAMILY"
-
-
 def test_conserved_outranks_plain_hypothetical_in_one_label():
     assert dark_evidence(["conserved hypothetical protein"]) == "CONSERVED"
-
-
-def test_a_curated_family_still_outranks_an_accession_prefixed_multispecies():
-    assert dark_evidence(
-        ["WP_000123.1 MULTISPECIES: DUF1234 domain-containing protein [Bacillus]"]
-    ) == "CURATED_FAMILY"

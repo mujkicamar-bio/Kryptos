@@ -1,9 +1,8 @@
-"""Labelled test set for the uninformative-label detector.
+"""Labelled cases for the uninformative-label detector, each asserted individually.
 
-The design requires this list to ship with measured recall, because the previous
-project's equivalent regex had good precision and poor recall (RelE missing while
-RelB was present; TrfA, RepC, TrwC, Rop filed as novel), which moved a published
-percentage by more than 7 points.
+The functional names include the ones a comparable regex of an earlier project filed as
+novel (RelE missing while RelB was present; TrfA, RepC, TrwC, Rop), which moved a
+published percentage by more than 7 points.
 """
 import pytest
 
@@ -22,6 +21,7 @@ UNINFORMATIVE_LABELS = [
     "predicted protein",
     "conserved protein",
     "unnamed protein product",
+    "putative protein",
     "ORF",
 ]
 
@@ -51,15 +51,10 @@ def test_real_function_names_are_not_flagged(label):
     assert not UNINFORMATIVE.search(label), f"false positive: {label}"
 
 
-def test_a_missing_label_is_not_informative():
-    """v1 returned True here, because `not UNINFORMATIVE.search(None or "")` is True.
-
-    A label that failed to parse would therefore be treated as naming a function, silently
-    promoting the protein out of the dark set. Failing toward "we do not know" is the safe
-    direction for a discovery pipeline.
-    """
+def test_a_missing_or_blank_label_is_not_informative():
+    """A label that failed to parse must leave the protein unknown, not name it."""
     from plasmidann.cascade import is_informative
 
     assert is_informative(None) is False
     assert is_informative("") is False
-    assert is_informative("   ") is True   # whitespace is a label we cannot judge, not an absence
+    assert is_informative("   ") is False

@@ -1,16 +1,16 @@
 from plasmidann.cascade import classify
 
-TIERS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
+TIERS = ["T1", "T2", "T3", "T4", "T5"]
 
 
 def test_hypothetical_protein_hit_is_not_an_annotation():
     """A homolog that is itself unnamed leaves the protein unknown - the prize class."""
-    hits = [{"tier": "T6", "label": "hypothetical protein", "coverage": 0.95}]
+    hits = [{"tier": "T5", "label": "hypothetical protein", "coverage": 0.95}]
 
     r = classify(hits, explained=0.0, min_coverage=0.5, tier_order=TIERS)
 
     assert r["functional_class"] == "UNCHARACTERIZED_HOMOLOG"
-    assert r["annot_tier"] == "T6"
+    assert r["annot_tier"] == "T5"
 
 
 def test_partial_coverage_is_domain_only_not_functional():
@@ -22,15 +22,16 @@ def test_partial_coverage_is_domain_only_not_functional():
     assert r["functional_class"] == "DOMAIN_ONLY"
 
 
-def test_no_hits_anywhere_is_none():
+def test_no_hits_anywhere_is_none_with_no_coverage():
     r = classify([], explained=0.0, min_coverage=0.5, tier_order=TIERS)
     assert r["functional_class"] == "NONE"
+    assert r["annot_qcov"] is None and r["annot_tcov"] is None
 
 
 def test_shallowest_functional_hit_wins_regardless_of_input_order():
-    """Cascade order is authority order (design 6.3 rule 6)."""
+    """Cascade order is authority order."""
     hits = [
-        {"tier": "T6", "label": "conjugal transfer protein TraD", "coverage": 0.9},
+        {"tier": "T5", "label": "conjugal transfer protein TraD", "coverage": 0.9},
         {"tier": "T1", "label": "Rep_1", "coverage": 0.85},
     ]
 
@@ -41,16 +42,16 @@ def test_shallowest_functional_hit_wins_regardless_of_input_order():
 
 
 def test_a_deep_real_name_beats_a_shallow_uninformative_one():
-    """A 'hypothetical' hit at T4 must not block a real name found at T6."""
+    """A 'hypothetical' hit at T4 must not block a real name found at T5."""
     hits = [
         {"tier": "T4", "label": "hypothetical protein", "coverage": 0.99},
-        {"tier": "T6", "label": "relaxase MobA", "coverage": 0.8},
+        {"tier": "T5", "label": "relaxase MobA", "coverage": 0.8},
     ]
 
     r = classify(hits, explained=0.8, min_coverage=0.5, tier_order=TIERS)
 
     assert r["functional_class"] == "FUNCTIONAL"
-    assert r["annot_tier"] == "T6"
+    assert r["annot_tier"] == "T5"
 
 
 def test_the_winning_hits_coverages_and_evalue_are_preserved():
@@ -63,11 +64,6 @@ def test_the_winning_hits_coverages_and_evalue_are_preserved():
     assert r["annot_qcov"] == 0.91
     assert r["annot_tcov"] == 0.42
     assert r["annot_evalue"] == "1e-40"
-
-
-def test_unresolved_proteins_carry_no_coverage():
-    r = classify([], explained=0.0, min_coverage=0.5, tier_order=TIERS)
-    assert r["annot_qcov"] is None and r["annot_tcov"] is None
 
 
 # --- the class is a property of the protein, not of one alignment -------------------
@@ -125,7 +121,7 @@ def test_how_many_domains_built_the_explanation_is_reported():
 
 
 def test_homology_depth_follows_the_configured_tiers_not_a_fixed_list():
-    """A four-tier cascade must not report depths from an eight-tier constant."""
+    """Depth is counted on the configured tier list, whatever its length."""
     hits = [{"tier": "T3", "label": "relaxase MobA", "coverage": 0.9, "evalue": "1e-40"}]
 
     r = classify(hits, explained=0.9, min_coverage=0.5,
@@ -203,7 +199,7 @@ def test_a_measured_span_still_governs_when_one_is_present():
     assert r["span_measured"] == 1
 
 
-# --- the label comes from the most authoritative tier (spec section 20) ----------------
+# --- the label comes from the most authoritative tier ----------------------------------
 
 def test_a_curated_tier_keeps_the_label_when_a_deeper_tier_aligns_better():
     """Automated transfer must not outrank curated evidence. Ranked on E-value alone, an

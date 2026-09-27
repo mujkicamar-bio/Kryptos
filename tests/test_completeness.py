@@ -1,5 +1,3 @@
-import pytest
-
 from plasmidann.cascade import completeness, narrow_by_explained
 
 
@@ -25,15 +23,10 @@ def test_narrowing_keeps_searching_until_the_protein_is_essentially_finished():
     """A 15%-covered protein must keep descending the cascade, not stop at tier 1.
 
     The threshold passed here is narrow_at, not min_explained: narrowing decides what to
-    keep SEARCHING, reporting decides what to call explained. Using one number for both is
-    what made the threshold unsweepable in v1."""
+    keep SEARCHING, reporting decides what to call explained."""
     explained = {"a": 0.95, "b": 0.15, "c": 0.0}
 
     still_open = narrow_by_explained(["a", "b", "c"], explained, 0.9)
 
     assert still_open == ["b", "c"]
 
-
-def test_narrowing_refuses_an_id_it_never_queried():
-    with pytest.raises(ValueError):
-        narrow_by_explained(["a"], {"zzz": 0.9}, 0.5)

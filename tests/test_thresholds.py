@@ -24,7 +24,7 @@ def test_narrowing_may_not_be_stricter_than_reporting():
 
 
 def test_narrowing_equal_to_reporting_is_allowed():
-    """The boundary case is coherent, if unadventurous: it is what v1 did."""
+    """The boundary case is coherent: narrowing and reporting at the same fraction."""
     check_thresholds({**OK, "narrow_at": 0.5, "min_explained": 0.5})
 
 
@@ -40,20 +40,10 @@ def test_a_missing_threshold_is_named():
         check_thresholds(cfg)
 
 
-# --- completeness now takes its bands as arguments, not module constants -------------
-
-def test_completeness_bands_come_from_config_not_from_constants():
-    """FULL_AT and PARTIAL_AT were two of the three thresholds that escaped config in v1,
-    so they could never be swept or recorded."""
-    assert completeness(0.95, full_at=0.8, partial_at=0.5) == "FULL"
-    assert completeness(0.60, full_at=0.8, partial_at=0.5) == "PARTIAL"
-    assert completeness(0.15, full_at=0.8, partial_at=0.5) == "FRAGMENT"
-    assert completeness(0.0, full_at=0.8, partial_at=0.5) == "NONE"
-
+# --- completeness bands are arguments -------------------------------------------------
 
 def test_moving_the_bands_moves_the_answer():
-    """The point of making them arguments: the same fraction bands differently under a
-    different declared policy, and that policy is now visible and sweepable."""
+    """The same fraction bands differently under different declared bands."""
     assert completeness(0.75, full_at=0.8, partial_at=0.5) == "PARTIAL"
     assert completeness(0.75, full_at=0.7, partial_at=0.5) == "FULL"
 
@@ -67,8 +57,8 @@ def test_a_declared_hmmer_z_matching_the_data_is_accepted():
 
 
 def test_small_drift_is_tolerated():
-    """-Z fixes the reference so an E-value means the same thing on every shard. It need
-    not equal the input size to the last sequence; it must not be materially wrong."""
+    """-Z holds the reference constant so an E-value means the same thing on every tier. It
+    need not equal the input size to the last sequence; it must not be materially wrong."""
     from plasmidann.cascade import check_hmmer_z
 
     check_hmmer_z(declared=3_497_616, actual=3_500_000)

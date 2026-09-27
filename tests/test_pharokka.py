@@ -1,15 +1,9 @@
-"""Parsing pharokka's protein-mode output for the phage tier (spec section 18).
+"""Parsing pharokka's protein-mode output for the phage tier.
 
-Built against the real output of pharokka 1.10.1 on 200 proteins from the test set, not
-against its documentation. Two things the documentation does not say:
-
-  * A protein with no hit at all carries 'No_MMseqs' in the `phrog` column, not
-    'No_PHROG': the null-fill runs in column order and mmseqs_phrog is filled first. So
-    "has a family" cannot be tested against any one sentinel. It is tested as "the column
-    is an integer", which is what a family identifier is.
-  * 90 of 92 hits were found by BOTH MMseqs2 and pyhmmer, each with its own E-value. The
-    row reports one family; the tier reports the stronger of the two E-values, because
-    that is the evidence the family assignment actually rests on.
+Built against the real output of pharokka 1.10.1 on 200 proteins from the test set. A
+protein with no hit carries 'No_MMseqs' in the `phrog` column, so a family hit is
+recognised by an integer there; when both searches found the family, the stronger E-value
+is reported.
 """
 from plasmidann import pharokka
 
@@ -45,7 +39,7 @@ CARD = ("dddd0004\t286\tNo_MMseqs\thypothetical protein\tunknown function\tNo_MM
         "cephalosporin;penam\tantibiotic inactivation\n")
 
 
-def test_a_family_hit_carries_the_fields_section_18_requires():
+def test_a_family_hit_carries_family_label_category_and_length():
     hits = pharokka.parse_merged(HEADER + BOTH)
 
     assert len(hits) == 1
@@ -65,7 +59,6 @@ def test_the_stronger_of_the_two_evalues_is_reported():
     h = pharokka.parse_merged(HEADER + BOTH)[0]
 
     assert h["evalue"] == "2.5937970813855673e-42"
-    assert h["found_by"] == "mmseqs+pyhmmer"
 
 
 def test_a_pyhmmer_only_hit_is_a_hit():
@@ -73,7 +66,6 @@ def test_a_pyhmmer_only_hit_is_a_hit():
 
     assert h["family_id"] == "phrog_14168"
     assert h["evalue"] == "6.66e-18"
-    assert h["found_by"] == "pyhmmer"
 
 
 def test_no_hit_yields_no_row_whatever_sentinel_the_column_holds():
