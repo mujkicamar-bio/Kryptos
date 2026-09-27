@@ -2,7 +2,7 @@
 
 Two dark families travel together in a lineage when some plasmid of that lineage carries a
 member ORF of each. The test is the hypergeometric upper tail over lineages, with
-Benjamini-Hochberg across the tested pairs.
+Benjamini-Hochberg across every pair that shares a plasmid.
 """
 import itertools
 import math
@@ -133,11 +133,29 @@ def test_together_means_the_same_plasmid_not_the_same_lineage():
     assert (ab["fraction_of_a"], ab["fraction_of_b"]) == (0.4, 0.4)
 
 
-def test_a_pair_together_in_one_lineage_is_not_tested():
+def test_a_pair_together_in_one_lineage_is_not_reported():
     """Two singletons on one plasmid would get p = 1/N from one observation."""
     lineage_of, pf = _world()
     pf["P0"] |= {"A", "B"}
     assert cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2) == []
+
+
+def test_pairs_together_in_one_lineage_still_count_in_the_correction():
+    """The k >= 2 cut filters on the test statistic, so it is applied after
+    Benjamini-Hochberg, not before (Bourgon et al. 2010, PNAS 107:9546). C and D, each in
+    two lineages, share a plasmid in one: not reported, but one of the m = 2 tests."""
+    lineage_of, pf = _world()
+    pf["P0"] |= {"A", "B"}
+    pf["P1"] |= {"A", "B"}
+    pf["P2"] |= {"C", "D"}
+    pf["P3"].add("C")
+    pf["P4"].add("D")
+    (ab,) = cooccurrence(pf, lineage_of, n_lineages=40, min_lineages_together=2)
+    p_ab = 1 / math.comb(40, 2)
+    p_cd = 1 - math.comb(38, 2) / math.comb(40, 2)
+    assert ab["p_value"] == pytest.approx(p_ab, rel=1e-9)
+    assert ab["q_value"] == pytest.approx(benjamini_hochberg([p_ab, p_cd])[0], rel=1e-9)
+    assert ab["q_value"] == pytest.approx(2 * p_ab, rel=1e-9)
 
 
 def test_a_plasmid_without_a_lineage_is_an_error():

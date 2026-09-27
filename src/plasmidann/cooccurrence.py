@@ -1,39 +1,23 @@
-"""Dark families that travel together (S8g, dark_cooccurrence).
+"""Dark families that travel together (S8g), counted over Mash lineages.
 
-THE QUESTION
+Two dark families are together in a lineage (plasmid_lineage.tsv) when one of its plasmids
+carries a member ORF of each, so redeposited copies of one plasmid are one observation. Each pair is tested by
+the hypergeometric upper tail P(X >= k) over lineages: N lineages, K carry family A, n
+carry family B, and k are lineages where A and B share a plasmid.
 
-Do two dark families occur together more often than chance predicts? A pair that does is a
-candidate for a shared function or a shared mobile unit, and neither family has a name to
-say so.
+Every pair of families that are each in at least `min_lineages_together` lineages and
+share a plasmid enters the Benjamini-Hochberg correction (Benjamini & Hochberg 1995, J R
+Stat Soc B 57:289). Only pairs with k >= min_lineages_together are reported: one lineage
+is one observation, and two families seen once each would get p = 1/N from it. The cut on
+k is applied after the correction because k is the test statistic, and filtering on it
+first would shrink the q-values (Bourgon et al. 2010, PNAS 107:9546).
 
-THE DEFINITION
+The null treats every lineage as equally likely to carry a family, although lineages
+differ in gene content, so two families confined to large plasmids share lineages more
+often than the null predicts.
 
-  together  both families have a member ORF on the SAME plasmid. Being in the same
-            lineage on different plasmids is not being together.
-  unit      the Stage 6 lineage. A lineage counts as together when any of its plasmids
-            carries both, so twenty redeposited copies of one plasmid are one observation.
-  family    a dark family at the primary resolution, through its dark members.
-
-THE TEST
-
-The hypergeometric upper tail P(X >= k) over lineages: N lineages in the analysis set, K
-carry family A, n carry family B, and k are lineages where A and B share a plasmid. Under
-independence the lineages carrying B are a random n of the N, and the number of them that
-also carry A is hypergeometric. k counts only lineages where the two share a PLASMID, which
-is at most the number of lineages carrying both, so the test is conservative with respect
-to lineage-level overlap.
-
-Only pairs together in at least `min_lineages_together` lineages (2) are tested. A pair
-together in one lineage is one observation of two genes on one plasmid, and every plasmid
-carries many families; for two families seen once each, P(X >= 1) = 1/N, which would
-declare every pair of singletons on a plasmid significant. The same minimum governs
-synteny (targets.yaml synteny.min_lineages): conservation across one lineage is one
-observation. Benjamini-Hochberg (Benjamini & Hochberg 1995, J R Stat Soc B 57:289) is
-applied across the tested pairs.
-
-Computed in log space with math.lgamma: scipy is not a declared dependency of the
-pipeline environment, and the tails reach far below the smallest double (1/C(1000, 50) is
-about 1e-85; at full scale much smaller).
+Computed in log space with math.lgamma: the tails fall below the smallest double, and scipy
+is not a dependency of the pipeline environment.
 """
 import collections
 import itertools
@@ -99,18 +83,18 @@ def benjamini_hochberg(pvalues):
 
 
 def cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together):
-    """Every pair of families together in >= min_lineages_together lineages, tested.
+    """The pairs of families together in >= min_lineages_together lineages, tested.
 
     plasmid_families  {plasmid_id: {family_id, ...}} - the dark families with a member ORF
                       on each plasmid
     lineage_of        {plasmid_id: lineage}; every plasmid above must have one
     n_lineages        N, the lineages in the analysis set
 
-    Returns one dict per tested pair (family_a < family_b), sorted by p-value.
+    Returns one dict per reported pair (family_a < family_b), sorted by p-value.
     """
     missing = sorted(p for p in plasmid_families if p not in lineage_of)
     if missing:
-        raise ValueError(f"{len(missing)} plasmid(s) carrying a dark family have no Stage 6 "
+        raise ValueError(f"{len(missing)} plasmid(s) carrying a dark family have no "
                          f"lineage, e.g. {missing[:3]}")
 
     by_lineage = collections.defaultdict(list)
@@ -121,9 +105,9 @@ def cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together
     for plasmids in by_lineage.values():
         lineages_of_family.update(set().union(*plasmids))
 
-    # A family in fewer lineages than the minimum cannot be in a tested pair, so it is
-    # left out of the enumeration: this is exact, and it is what keeps the pair count
-    # bounded at full scale, where most dark families are in one lineage.
+    # A family in fewer lineages than the minimum can never be reported. It is left out of
+    # the enumeration and the correction: the filter uses its marginal count only, and it
+    # keeps the pair count bounded, because most dark families are in one lineage.
     eligible = {f for f, c in lineages_of_family.items() if c >= min_lineages_together}
     together = collections.Counter()
     for plasmids in by_lineage.values():
@@ -135,8 +119,6 @@ def cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together
 
     rows = []
     for (a, b), k in together.items():
-        if k < min_lineages_together:
-            continue
         K, n = lineages_of_family[a], lineages_of_family[b]
         rows.append({
             "family_a": a, "family_b": b,
@@ -149,6 +131,7 @@ def cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together
     for row, q in zip(rows, benjamini_hochberg([r["p_value"] for r in rows])):
         row["q_value"] = q
         row["status"] = status.SUCCESS
+    rows = [r for r in rows if r["n_lineages_together"] >= min_lineages_together]
     rows.sort(key=lambda r: (r["p_value"], r["family_a"], r["family_b"]))
     return rows
 
