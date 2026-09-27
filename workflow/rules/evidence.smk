@@ -184,7 +184,7 @@ rule family_network:
 rule rarity:
     """Stage 14: rarity labels per family, and the dark-family rarefaction curve.
 
-    The curve answers whether the collection has saturated - whether more plasmids would
+    The curve answers whether the collection has saturated - whether more lineages would
     keep revealing new dark families - which is what says if the dark count is a lower
     bound.
     """
@@ -192,8 +192,10 @@ rule rarity:
         recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
         dark_families=f"{OUT}/10_clustering/dark_families.tsv",
         map=f"{OUT}/03_dereplication/protein_map.tsv",
-        # The rarefaction axis: every small plasmid, with a dark family or without.
+        # The rarefaction axis: every lineage holding a small plasmid, with a dark family
+        # or without.
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
+        lineage=f"{OUT}/10_clustering/plasmid_lineage.tsv",
     output:
         rarity=f"{OUT}/14_rarity/family_rarity.tsv",
         rarefaction=f"{OUT}/15_report/dark_family_rarefaction.tsv",

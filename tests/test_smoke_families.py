@@ -280,8 +280,9 @@ def test_dark_cooccurrence_writes_the_tested_pairs(fixture_dir):
     assert (row["fraction_of_a"], row["fraction_of_b"]) == ("0.6667", "1.0")
 
 
-def _run_rarity(fixture_dir, small_plasmids):
-    """One dark family d, on small plasmid S1 and large plasmid L1."""
+def _run_rarity(fixture_dir, small_plasmids, lineages=None):
+    """One dark family d, on small plasmid S1 and large plasmid L1. Each plasmid is its own
+    lineage unless `lineages` maps it to another."""
     recurrence = fixture_dir / "recurrence.tsv"
     write_tsv(recurrence, ["family_id", "independent_plasmid_cluster_count"],
               [["broad:d", 2]])
@@ -291,11 +292,15 @@ def _run_rarity(fixture_dir, small_plasmids):
     mapping.write_text("d\tS1|1,L1|4\n")
     small_ids = fixture_dir / "small_plasmids.txt"
     small_ids.write_text("".join(f"{p}\n" for p in small_plasmids))
+    lineage = fixture_dir / "plasmid_lineage.tsv"
+    write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"],
+              [[p, (lineages or {}).get(p, p)] for p in [*small_plasmids, "L1"]])
     out = fixture_dir / "rarefaction.tsv"
 
     run_script("rarity.py", FakeSnakemake(
         input={"recurrence": str(recurrence), "dark_families": str(fams),
-               "map": str(mapping), "small_ids": str(small_ids)},
+               "map": str(mapping), "small_ids": str(small_ids),
+               "lineage": str(lineage)},
         output={"rarity": str(fixture_dir / "rarity.tsv"), "rarefaction": str(out)},
         params={"rarity": {"rare_max_lineages": 3, "widespread_min_lineages": 50,
                            "cross_min_hosts": 2, "cross_min_genera": 2,
@@ -304,12 +309,20 @@ def _run_rarity(fixture_dir, small_plasmids):
     return read_tsv(out)
 
 
-def test_rarefaction_samples_every_small_plasmid(fixture_dir):
-    """The x-axis is the small plasmids, with a dark family or without; a dark family's
-    copies on large plasmids do not put those plasmids on the axis."""
+def test_rarefaction_samples_every_lineage_with_a_small_plasmid(fixture_dir):
+    """The x-axis is the lineages holding a small plasmid, with a dark family or without; a
+    dark family's copies on large plasmids do not put those lineages on the axis."""
     final = _run_rarity(fixture_dir, ["S1", "S2", "S3", "S4"])[-1]
 
-    assert final["n_plasmids"] == "4"
+    assert final["n_lineages"] == "4"
+    assert final["mean_families"] == "1.0"
+
+
+def test_rarefaction_counts_redeposited_plasmids_of_one_lineage_once(fixture_dir):
+    """S1 and S2 are one lineage, so four small plasmids give three sampling units."""
+    final = _run_rarity(fixture_dir, ["S1", "S2", "S3", "S4"], lineages={"S2": "S1"})[-1]
+
+    assert final["n_lineages"] == "3"
     assert final["mean_families"] == "1.0"
 
 

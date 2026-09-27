@@ -1,14 +1,14 @@
 """Stage 14: rarity labels per family, and the dark-family rarefaction curve.
 
-Inputs: recurrence.tsv (the Stage 7 counts), dark_families.tsv, the protein map and
-small_plasmids.txt. Outputs:
+Inputs: recurrence.tsv (the Stage 7 counts), dark_families.tsv, the protein map,
+small_plasmids.txt and the Stage 6 lineages. Outputs:
 
   family_rarity.tsv            the rarity labels of each family (plasmidann.rarity) with
                                the counts and the lineage thresholds behind them
-  dark_family_rarefaction.tsv  dark families discovered against small-plasmid records
-                               sampled; every small plasmid is on the axis, with a dark
-                               family or without, and a family is discovered on a plasmid
-                               through its dark small-plasmid members
+  dark_family_rarefaction.tsv  dark families discovered against lineages sampled; every
+                               lineage holding a small plasmid is on the axis, with a dark
+                               family or without, and a family is discovered in a lineage
+                               through its dark members on the lineage's small plasmids
 """
 import collections
 import csv
@@ -58,28 +58,35 @@ with open(snakemake.input.map) as fh:
         orfs_of_seq[sid] = orf_ids.split(",")
 
 small_plasmids = {l.strip() for l in open(snakemake.input.small_ids) if l.strip()}
-plasmid_families = {p: set() for p in small_plasmids}
+with open(snakemake.input.lineage, newline="") as fh:
+    lineage_of = {r["plasmid_id"]: r["plasmid_lineage_cluster"]
+                  for r in csv.DictReader(fh, delimiter="\t")}
+missing = sorted(small_plasmids - lineage_of.keys())
+if missing:
+    raise SystemExit(f"rarity: {len(missing)} small plasmid(s) have no lineage, "
+                     f"e.g. {missing[:3]}")
+lineage_families = {lineage_of[p]: set() for p in small_plasmids}
 with open(snakemake.input.dark_families, newline="") as fh:
     for family in csv.DictReader(fh, delimiter="\t"):
         for member in filter(None, family["small_members"].split(",")):
             for orf_id in orfs_of_seq.get(member, ()):
                 plasmid = orf_id.rsplit("|", 1)[0]
-                if plasmid in plasmid_families:
-                    plasmid_families[plasmid].add(family["family_id"])
+                if plasmid in small_plasmids:
+                    lineage_families[lineage_of[plasmid]].add(family["family_id"])
 
-curve = rarefaction(plasmid_families, n_replicates=cfg["rarefaction_replicates"],
+curve = rarefaction(lineage_families, n_replicates=cfg["rarefaction_replicates"],
                     seed=snakemake.params.seed)
 
 with open(snakemake.output.rarefaction, "w", newline="") as out:
     writer = csv.DictWriter(
-        out, fieldnames=["n_plasmids", "mean_families", "min_families", "max_families",
+        out, fieldnames=["n_lineages", "mean_families", "min_families", "max_families",
                          "n_replicates"], delimiter="\t")
     writer.writeheader()
     writer.writerows(curve)
 
 if curve:
     final = curve[-1]
-    print(f"rarefaction: {final['n_plasmids']} small plasmids -> "
+    print(f"rarefaction: {final['n_lineages']} lineages with a small plasmid -> "
           f"{final['mean_families']} dark families "
           f"(replicate range {final['min_families']}-{final['max_families']})")
     gained = saturation(curve)
@@ -88,12 +95,12 @@ if curve:
               "gain over the first step")
     else:
         print(f"             final slope is {gained} of the initial slope "
-              "(families gained per plasmid added)")
+              "(families gained per lineage added)")
         if gained > 0.2:
             print("             the curve is still climbing: the dark family count is a "
-                  "LOWER BOUND, and more plasmids would reveal more families")
+                  "LOWER BOUND, and more lineages would reveal more families")
         else:
-            print("             the curve has flattened: more plasmids of this kind would "
+            print("             the curve has flattened: more lineages of this kind would "
                   "add few new dark families")
 else:
     print("rarefaction: no small plasmids - the curve is empty")
