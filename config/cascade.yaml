@@ -62,12 +62,10 @@ partial_at: 0.5
 # larger -Z is the conservative choice for the dark set (workflow/scripts/sweep_cohort.py).
 #   9,317,050 ORFs -> 3,497,616 unique proteins
 #   (results/03_dereplication/unique_proteins.faa)
-#   + 500 spiked positive controls + 500 decoys = 3,498,616
-# The controls are part of the searched set by design - they have to take the identical
-# code path - so they are part of -Z. Recompute and update this if S1/S2 are re-run on a
-# different analysis set, or if either controls count changes; rule check_hmmer_z stops
-# the run after dereplication if the count differs by more than 2%, and names the value.
-hmmer_z: 3498616
+# Recompute and update this if S1/S2 are re-run on a different analysis set; rule
+# check_hmmer_z stops the run after dereplication if the count differs by more than 2%,
+# and names the value.
+hmmer_z: 3497616
 
 # DIAMOND reports at most this many targets per query. 25 is DIAMOND's own default. With
 # 5, on the nr benchmark (results_bench, 3,714 queries with hits) 1,627 queries (44%)
@@ -79,8 +77,7 @@ max_target_seqs: 25
 # Fraction of proteins that bypass narrowing entirely and are searched by EVERY tier.
 # This is the only way to state what the narrowing threshold cost, because for these
 # proteins the counterfactual actually exists. The cohort is 2% of the cascade query set
-# (cascade_input.faa: the search representatives plus the controls) and about 2% of the
-# T1-T4 compute. Set to 0 to disable (and lose the ability to check your own threshold).
+# (search_representatives.faa) and about 2% of the T1-T4 compute. Set to 0 to disable (and lose the ability to check your own threshold).
 sweep_cohort_fraction: 0.02
 
 # --- Search clustering ---------------------------------------------------------------

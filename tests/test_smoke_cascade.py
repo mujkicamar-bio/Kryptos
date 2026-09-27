@@ -213,7 +213,7 @@ def _resolve_fixture(fixture_dir):
     write_tsv(spans, ["seq_id", "qlen", "intervals", "explained_fraction"],
               [["P1", 100, "1-90", 0.9], ["P2", 100, "", 0.0]])
 
-    faa = fixture_dir / "cascade_input.faa"
+    faa = fixture_dir / "query.faa"
     write_fasta(faa, [("P1", "M" * 100), ("P2", "K" * 100)])
     return hits, str(spans), faa
 
@@ -356,7 +356,7 @@ def test_every_informative_label_survives_into_the_resolved_row(fixture_dir):
     spans = fixture_dir / "spans.tsv"
     write_tsv(spans, ["seq_id", "qlen", "intervals", "explained_fraction"],
               [["P1", 100, "1-95", 0.95]])
-    faa = fixture_dir / "cascade_input.faa"
+    faa = fixture_dir / "query.faa"
     write_fasta(faa, [("P1", "M" * 100)])
     prot = fixture_dir / "protein_annotation.tsv"
 
@@ -533,21 +533,21 @@ def test_cascade_resolve_adds_plasmidscope_rows_as_functional(fixture_dir):
 
 def _check_hmmer_z(fixture_dir, hmmer_z):
     """Four unique proteins, of which PlasmidScope may annotate any number (they are
-    counted all the same), plus one control and one decoy."""
+    counted all the same)."""
     unique = fixture_dir / "unique.faa"
     write_fasta(unique, [(f"u{i}", "MKV") for i in range(4)])
     run_script("check_hmmer_z.py", FakeSnakemake(
         input={"unique": str(unique)},
         output=[str(fixture_dir / "hmmer_z_checked.tsv")],
-        params={"hmmer_z": hmmer_z, "n_controls": 2}))
+        params={"hmmer_z": hmmer_z}))
 
 
-def test_hmmer_z_counts_unique_proteins_plus_controls(fixture_dir):
-    """4 unique + 1 control + 1 decoy = 6, whatever the cascade then searches. The
-    searched-set count would halve E-values whenever PlasmidScope covers half the set."""
-    _check_hmmer_z(fixture_dir, 6)
-    with pytest.raises(ValueError, match="Set hmmer_z: 6"):
-        _check_hmmer_z(fixture_dir, 4)
+def test_hmmer_z_counts_every_unique_protein(fixture_dir):
+    """-Z is 4, the unique proteins, whatever the cascade then searches. The searched-set
+    count would halve E-values whenever PlasmidScope covers half the set."""
+    _check_hmmer_z(fixture_dir, 4)
+    with pytest.raises(ValueError, match="Set hmmer_z: 4"):
+        _check_hmmer_z(fixture_dir, 6)
 
 
 @requires("mmseqs")
@@ -677,28 +677,11 @@ def test_antifam_flagged_proteins_are_in_no_tier_query_set(fixture_dir):
     searched = {l[1:].strip() for l in open(out["faa"]) if l.startswith(">")}
     assert searched == {"s_lc", "s_ok"}, "an AntiFam-flagged protein reached the cascade"
 
-    # prepare_control builds the first tier's query from this file, and the sweep cohort
-    # and every later tier are drawn from that query: nothing flagged can reach them.
-    raw = fixture_dir / "raw.faa"
-    write_fasta(raw, [("sp|P00001|X_ECOLI Relaxase OS=Escherichia coli", "M" + "K" * 80)])
-    decoys = fixture_dir / "negative_control.faa"
-    write_fasta(decoys, [("DECOY_rc_00000", "M" + "L" * 80)])
-    spiked = fixture_dir / "cascade_input.faa"
-    run_script("prepare_control.py", FakeSnakemake(
-        input={"faa": out["faa"], "ps": ps, "raw": str(raw), "decoys": str(decoys)},
-        output={"control": str(fixture_dir / "positive_control.faa"),
-                "spiked": str(spiked)},
-        params={"n_controls": 1, "min_controls": 1, "seed": 1}))
-    query = {l[1:].strip() for l in open(spiked) if l.startswith(">")}
-    assert not query & {"s_art", "ps_art"}
-    assert {"s_lc", "s_ok", "DECOY_rc_00000"} <= query, (
-        "decoys are not AntiFam-screened and must still be searched")
-
 
 def test_an_antifam_skipped_protein_is_not_searched_and_never_dark(fixture_dir):
     """The skipped protein has a row, NOT_SEARCHED with annot_source
     artefact_antifam - not a PlasmidScope row, even when Tier 0 annotated it - and the
-    quality gate keeps it out of the dark set."""
+    target-eligibility step keeps it out of the dark set."""
     hits, spans, faa = _resolve_fixture(fixture_dir)
     out = fixture_dir / "protein_annotation.tsv"
     selection = _selection(fixture_dir, [["P1", 1, "representative", "P1"],
@@ -725,18 +708,10 @@ def test_an_antifam_skipped_protein_is_not_searched_and_never_dark(fixture_dir):
     artefact = _artefact_flags(fixture_dir, [
         ["A", 1, "AntiFam_ANF00001", "1e-30", 0.0, "antifam"],
         ["PA", 1, "AntiFam_ANF00002", "1e-20", 0.0, "antifam"]])
-    # One recovered positive control, so the gate passes and writes its table.
-    gate_prot = fixture_dir / "gate_prot.tsv"
-    write_tsv(gate_prot, list(rows[0]), [list(r.values()) for r in rows]
-              + [["CTRL_00001_P1" if c == "seq_id" else "FUNCTIONAL"
-                  if c == "functional_class" else "" for c in rows[0]]])
-    flags = fixture_dir / "gate_flags.tsv"
-    run_script("quality_gate.py", FakeSnakemake(
-        input={"prot": str(gate_prot), "artefact": artefact},
-        output={"flags": str(flags), "report": str(fixture_dir / "gate_report.txt")},
-        params={"gate": {"min_control_recall": 0.99, "require_control_set": False,
-                         "min_controls": 1},
-                "tier_sources": {"T1": "pfam", "T2": "pfam"}}))
+    flags = fixture_dir / "eligibility.tsv"
+    run_script("target_eligibility.py", FakeSnakemake(
+        input={"prot": str(out), "artefact": artefact},
+        output={"flags": str(flags), "report": str(fixture_dir / "eligibility.txt")}))
     gate = {r["seq_id"]: r for r in read_tsv(flags)}
     for sid in ("A", "PA"):
         assert gate[sid]["target_eligible"] == "0"

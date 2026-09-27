@@ -16,8 +16,8 @@
 #   outdir          results_bench, so a cost run never overwrites a smoke run.
 #   cascade_config  config/bench/cascade.yaml, five tiers at test scale.
 #
-# The plasmid set and the 100 + 100 controls are those of the test configuration, so
-# hmmer_z stays 5504: -Z counts the unique proteins and the controls.
+# The plasmid set is that of the test configuration, so hmmer_z stays 5297: -Z counts the
+# unique proteins.
 #
 # What the resulting numbers can and cannot support is in the header of
 # workflow/bench_pipeline.sbatch. In short: per-stage memory transfers to production,
@@ -55,13 +55,5 @@ amrfinder:
   required: true
 qc:
   max_opposite_strand_overlap_fraction: 0.6
-controls:
-  positive:
-    raw_faa: data/refs/control/raw.faa
-    n: 100
-  negative:
-    n_shuffled: 50
-    n_reverse_complement: 50
-    min_length: 50
 seed: 20260916
 cascade_config: config/bench/cascade.yaml

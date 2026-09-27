@@ -12,9 +12,6 @@
 #               in two size bands, so both the origin-repair branch and the branch that
 #               must NOT get repair are exercised.
 #   outdir      results_test, so a smoke run never overwrites a production run.
-#   controls    100 positive and 100 negative. The production gate needs >=100
-#               positives to measure recall at 1% resolution; below that a single
-#               failure is a 1% swing.
 input:
   master_table: data/plasmidscope_primary/analysis_set.tsv
   fasta: data/test_plasmids.fna
@@ -59,13 +56,5 @@ amrfinder:
   required: true
 qc:
   max_opposite_strand_overlap_fraction: 0.6
-controls:
-  positive:
-    raw_faa: data/refs/control/raw.faa
-    n: 100
-  negative:
-    n_shuffled: 50
-    n_reverse_complement: 50
-    min_length: 50
 seed: 20260916
 cascade_config: config/test/cascade.yaml

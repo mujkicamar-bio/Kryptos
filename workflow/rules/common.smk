@@ -6,14 +6,11 @@ TIER_BY_ID = {t["id"]: t for t in TIERS}
 def tier_query(wc):
     """A tier's query set is the previous tier's unresolved output.
 
-    The FIRST tier queries results/03_dereplication/cascade_input.faa, which is the unique
-    proteins plus the spiked controls. Controls must traverse the identical code path - the
-    same narrowing, the same thresholds - or the gate at S5 would be testing a different
-    pipeline from the one that produced the results.
+    The FIRST tier queries the search representatives (cascade_selection).
     """
     i = TIER_IDS.index(wc.tier)
     if i == 0:
-        return f"{OUT}/03_dereplication/cascade_input.faa"
+        return f"{OUT}/03_dereplication/search_representatives.faa"
     return f"{OUT}/05_annotation_cascade/{TIER_IDS[i - 1]}/unresolved.faa"
 
 

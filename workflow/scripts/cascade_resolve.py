@@ -22,7 +22,7 @@ Two columns describe coverage, over disjoint evidence, and they are not redundan
 
 EVERY UNIQUE PROTEIN GETS A ROW, and annot_source says where it came from:
 
-  self            searched by the cascade (a search representative, or a control)
+  self            searched by the cascade (a search representative)
   representative  a member of a 90% search cluster (S2s); the row is its representative's,
                   named in annot_representative. Coverage fields describe the
                   representative, which is within ~20% of the member's length (cov-mode 0)
@@ -181,7 +181,7 @@ with open(snakemake.output[0], "w", newline="") as out:
         if sid in copied_from:
             kept[sid] = row
 
-    # Proteins PlasmidScope annotates never entered the cascade (prepare_control); they
+    # Proteins PlasmidScope annotates never entered the cascade (cascade_selection); they
     # are FUNCTIONAL on its eggNOG result. eggNOG reports no alignment span, so nothing
     # measured how much of the protein is explained: the span fields stay empty and
     # completeness is NOT_MEASURED, as for any family-level assignment.

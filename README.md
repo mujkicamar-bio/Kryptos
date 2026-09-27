@@ -59,7 +59,7 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | S4b | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
 | S4c | `08_protein_labels` | every label from every source, normalised into one table, and the cross-source disagreements |
 | S4d | `08_protein_labels` | plasmid label databases: TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb and AMRFinderPlus |
-| S5 | `09_quality_gate` | positive and negative controls; halts the run on failure |
+| S5 | `09_target_eligibility` | target eligibility: unnamed, searched, not artefact-flagged |
 | S6 | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
 | S7 | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
 | S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, dark family co-occurrence (`dark_cooccurrence.tsv`: pairs of dark families sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
@@ -188,8 +188,8 @@ MacSyFinder can read CONJScan's model grammar. `labels.required` and `amrfinder.
 are `true`, so a missing database stops the run in pre-flight rather than turning into an
 empty result.
 
-`hmmer_z` in `config/cascade.yaml` is the number of unique proteins of your analysis set
-plus the configured controls and decoys, whether or not the cascade searches them.
+`hmmer_z` in `config/cascade.yaml` is the number of unique proteins of your analysis set,
+whether or not the cascade searches them.
 hmmsearch reports `E = Z × P(score | null)`, so a stale `-Z` rescales every E-value in the
 run. Rule `check_hmmer_z` stops the run after dereplication if the count differs by more
 than 2%, and names the value to set.
@@ -236,7 +236,7 @@ account and a partition that are specific to the cluster this was developed on. 
 both before submitting anywhere else.
 
 A test-scale configuration is provided in `config/test/`, differing from production only in
-what a smaller set forces: the tier list, `hmmer_z`, the control counts and `outdir`.
+what a smaller set forces: the tier list, `hmmer_z` and `outdir`.
 
 ---
 

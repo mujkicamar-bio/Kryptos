@@ -196,7 +196,6 @@ EXTERNAL_INPUTS = [("input", "master_table"), ("input", "fasta"),
                    ("input", "plasmidscope_proteins"), ("input", "host_provenance"),
                    ("input", "working_set"), ("references", "pfam_dat"),
                    ("references", "kegg_ko_list")]
-RAW_CONTROLS = "data/refs/control/raw.faa"  # prepare_control's input
 
 
 @pytest.fixture(scope="module")
@@ -211,7 +210,7 @@ def rule_graph(tmp_path_factory):
         (work / name).symlink_to(ROOT / name)
     config = yaml.safe_load((ROOT / "config" / "config.yaml").read_text())
     update_config(config, yaml.safe_load((ROOT / "config" / "test" / "config.yaml").read_text()))
-    for path in [config[a][b] for a, b in EXTERNAL_INPUTS] + [RAW_CONTROLS]:
+    for path in [config[a][b] for a, b in EXTERNAL_INPUTS]:
         (work / path).parent.mkdir(parents=True, exist_ok=True)
         (work / path).touch()
     snakemake = ROOT / "envs" / "plasmidann" / "bin" / "snakemake"
@@ -245,6 +244,10 @@ def test_every_rule_is_reached_by_all(rule_graph):
     ("sweep_cohort", "tier_search"),
     # AntiFam-flagged proteins are left out of the cascade selection.
     ("artefact_screen", "cascade_selection"),
+    # The search representatives are the first tier's query and the sweep cohort's pool.
+    ("cascade_selection", "tier_search"), ("cascade_selection", "sweep_cohort"),
+    # The dark set is the target-eligible proteins.
+    ("target_eligibility", "dark_set"),
     # The label table merges the label databases, defence and CONJScan components.
     ("label_databases", "protein_labels"), ("defence_systems", "protein_labels"),
     ("conjugation_systems", "protein_labels"),

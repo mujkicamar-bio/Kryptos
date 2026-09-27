@@ -7,7 +7,7 @@ biological role is assigned here. One row per (protein_id, source, kind, label, 
 a label seen several times for one protein keeps the row of its best e-value, so a label
 is not counted once per supporting hit. The cascade searched one representative per 90%
 search cluster; each member takes its representative's labels, named in
-via_representative. Spiked controls and decoys contribute no labels. The plasmid label
+via_representative. The plasmid label
 database rows keep their sub_label and their tier or call (1, 2, Perfect, Strict, the
 AMRFinderPlus method); for every other source sub_label is empty.
 
@@ -21,9 +21,6 @@ import _ctx  # noqa: F401
 
 from plasmidann import labeldb, labels, pfam_meta
 from plasmidann.cascade import as_float
-from plasmidann.decoys import DECOY_PREFIX
-
-CONTROL_PREFIX = "CTRL_"
 
 # Which database and version produced each source, for the provenance columns. A label
 # without its database release cannot be reproduced, and a category built on it cannot be
@@ -96,8 +93,6 @@ for path in snakemake.input.hits:
     with open(path, newline="") as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
             q = row["query"]
-            if q.startswith(CONTROL_PREFIX) or q.startswith(DECOY_PREFIX):
-                continue
             n_hits += 1
             for entry in labels.labels_from_hit(row, pfam=pfam):
                 for pid, via in [(q, "")] + [(m, q) for m in members_of.get(q, ())]:

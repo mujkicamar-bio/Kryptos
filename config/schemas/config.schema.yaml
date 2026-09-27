@@ -1,9 +1,8 @@
 # Schema for config/config.yaml, validated when the Snakefile loads. Unknown keys are
-# refused (outside the controls block), so a misspelt key fails at load time instead of
-# falling back to a default.
+# refused, so a misspelt key fails at load time instead of falling back to a default.
 $schema: "https://json-schema.org/draft/2020-12/schema"
 type: object
-required: [input, outdir, orf, discovery, qc, controls, seed,
+required: [input, outdir, orf, discovery, qc, seed,
            references, labels, amrfinder, foldseek_db, prostt5_model]
 additionalProperties: false
 properties:
@@ -71,23 +70,6 @@ properties:
     additionalProperties: false
     properties:
       max_opposite_strand_overlap_fraction: {type: number, minimum: 0, maximum: 1}
-  controls:
-    type: object
-    required: [positive, negative]
-    properties:
-      positive:
-        type: object
-        required: [raw_faa, n]
-      negative:
-        # Every one of these is load-bearing: n_shuffled and n_reverse_complement decide
-        # whether the cascade gets a false-positive measurement at all, and min_length
-        # decides whether that measurement means anything.
-        type: object
-        required: [n_shuffled, n_reverse_complement, min_length]
-        properties:
-          n_shuffled: {type: integer, minimum: 0}
-          n_reverse_complement: {type: integer, minimum: 0}
-          min_length: {type: integer, minimum: 1}
   seed: {type: integer}
   foldseek_db: {type: string}
   prostt5_model: {type: string}
