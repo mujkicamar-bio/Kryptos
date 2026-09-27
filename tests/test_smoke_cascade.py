@@ -869,7 +869,7 @@ def test_the_hmmer_tier_reads_domain_coordinates_accession_and_i_evalue(fixture_
 
 
 def test_the_pharokka_tier_turns_the_merged_table_into_span_less_hits(fixture_dir):
-    """pharokka is replaced by a script that writes its merged table: the family hit
+    """A script standing in for pharokka writes its merged table: the family hit
     reaches hits.tsv with empty coordinates, the protein length comes from the table, and
     an unexplained protein is carried forward."""
     from test_pharokka import BOTH, HEADER
