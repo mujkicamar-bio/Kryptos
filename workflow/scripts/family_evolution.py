@@ -1,28 +1,18 @@
-"""S7b: evolutionary evidence per dark family.
+"""S7b: evolutionary evidence per dark family (plasmidann.evolution, evolution_worker).
 
-Everything upstream reports what is ABSENT - no Pfam hit, no Swiss-Prot hit, no nr hit.
-Absence is exactly what a spurious ORF also produces, which is why FESNov discarded 94.3%
-of its 7,052,473 novel clusters.
+For each family: the median pairwise dN/dS (a value below evolution.dnds_purifying_max
+indicates purifying selection on the protein) and the RNAcode coding signal, sense and
+antisense kept apart (`rnacode_p`, `rnacode_p_antisense`; `coding_signal` applies
+evolution.rnacode_max_p to the sense P), because a shadow ORF, the reverse complement of a
+real gene, is expected to show the stronger signal on its antisense strand. The stage also
+writes one consensus per family from the protein alignment, which S7c searches back
+against Pfam.
 
-This stage reports something POSITIVE:
-
-  dN/dS < 0.5        selection is suppressing replacement changes, so there IS a protein
-  RNAcode P < 0.05   the region carries coding signal independent of the gene caller
-
-RNAcode reports the sense and antisense coding signal separately, and both are kept
-(`rnacode_p`, `rnacode_p_antisense`; `coding_signal` applies evolution.rnacode_max_p to
-the sense P): a shadow ORF, the reverse complement of a real gene, passes every
-absence-based test, and its antisense signal is expected to be the stronger.
-
-The stage also writes one consensus per family from the protein alignment, which S7c
-searches back against Pfam.
-
-TWO MEMBER SETS PER FAMILY
-
-Every measurement is made over all of the family's dark members, and again, in columns
-prefixed small_, over the dark members that occur on small plasmids (dark_families.tsv
-small_members). The consensus is built from all members. Families are processed in
-parallel, one alignment per process (mafft --thread 1).
+Every measurement is made over all of the family's dark members and again, in columns
+prefixed small_, over the dark members on small plasmids (dark_families.tsv
+small_members). Alignments use at most evolution.max_members_aligned members with a
+recovered CDS, and the consensus is built from those aligned members. Families are
+processed in parallel, one alignment per process (mafft --thread 1).
 """
 import csv
 import multiprocessing

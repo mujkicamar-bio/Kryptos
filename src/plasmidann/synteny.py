@@ -1,51 +1,17 @@
-"""Stage 9: synteny and context conservation across a family's lineages.
+"""Stage 9: whether the arrangement around a dark ORF recurs across its family's lineages.
 
-Stage 8 describes what a dark ORF sits next to on one plasmid; Stage 9 asks whether the
-same arrangement recurs across the family's occurrences:
+Six measurements, kept apart because they vary independently:
 
-    A - B - DARK - C - D
-    A - B - DARK - C - D
-    A - B - DARK - C
-
-is one conserved gene order seen three times, a stronger claim than adjacency: a dark ORF
-kept between B and C across independent plasmids is predicted to be functionally coupled
-to them.
-
-SIX MEASUREMENTS, KEPT APART
-
-    lineage_left_conservation          the most common immediate left neighbour's share
+    lineage_left_conservation          share of the most common immediate left neighbour
     lineage_right_conservation         the same on the right
-    lineage_neighborhood_conservation  the most common UNORDERED neighbour set
-    lineage_operon_like_conservation   same strand AND close, across lineages
-    lineage_synteny_conservation       the most common ORDERED left-right pair
-    context_recurrence                 how many occurrences had any usable context at all
+    lineage_neighborhood_conservation  share of the most common unordered neighbour set
+    lineage_synteny_conservation       share of the most common ordered left|right pair
+    lineage_operon_like_conservation   mean over lineages of the operon-like fraction
+    context_recurrence                 occurrences with any neighbour at all
 
-They are kept apart because they vary independently: a conserved left neighbour with a
-variable right one is a common arrangement that an averaged score would hide. A conserved
-neighbour is evidence about a protein, not a name for it.
-
-THE UNIT IS THE PLASMID LINEAGE, NOT THE OCCURRENCE
-
-Each occurrence carries the Stage 6 lineage of its plasmid (Mash distance <= 0.05, single
-linkage), and a measurement is a FRACTIONAL VOTE over lineages, so that forty copies of one
-redeposited plasmid are one observation:
-
-    1. Empty values (no neighbour on that side) are dropped; a lineage whose values are all
-       empty does not vote on that measurement.
-    2. Each voting lineage has weight 1, split equally over its k non-empty values (1/k).
-    3. A value's score is the sum of the weights it receives. The conservation is the
-       largest score divided by the number of voting lineages; the modal value is the
-       value with that score, ties broken by the lexicographically smallest value.
-    4. A measurement with fewer voting lineages than min_lineages has no value.
-
-A lineage whose copies disagree (one A|B, one C|D) gives 1/2 to each and is counted in
-n_lineages_discordant. When every lineage holds one copy, a conservation is the share of
-the most common value among the occurrences. Scores are summed as exact fractions, so ten
-copies worth 1/10 each are exactly one vote.
-
-`n_occurrences` and `context_recurrence` count occurrences, beside `n_lineages`, the
-lineages with usable context. That can be fewer than Stage 7's lineage count for the whole
-family, which counts every member and not only the dark occurrences with context.
+Each share is a fractional vote over Stage 6 plasmid lineages (see _lineage_modal), so that
+many copies of one redeposited plasmid are one observation; fewer than min_lineages voting
+lineages gives no value.
 """
 import collections
 from fractions import Fraction
@@ -72,9 +38,13 @@ def _lineage_modal(pairs, min_lineages):
     """Fractional vote over lineages: (conservation, modal value), or ("", "") when fewer
     than `min_lineages` lineages vote.
 
-    `pairs` is (lineage, value) per occurrence. Empty values are excluded from the vote: an
-    ORF at the end of a linear record has no left neighbour, which says nothing about
-    conservation.
+    `pairs` is (lineage, value) per occurrence. Empty values are excluded: an ORF at the end
+    of a linear record has no left neighbour, which says nothing about conservation, and a
+    lineage with only empty values does not vote. Each voting lineage has weight 1, split
+    equally over its k values; a lineage whose copies disagree gives 1/k to each. The
+    conservation is the largest summed score divided by the number of voting lineages, and
+    the modal value is the value with that score, ties broken by the smallest value. Scores
+    are exact fractions, so ten weights of 1/10 are exactly one vote.
     """
     values_of = collections.defaultdict(list)
     for lineage, value in pairs:
@@ -120,6 +90,7 @@ def conservation(occurrences, min_lineages=MIN_LINEAGES):
         "n_occurrences": len(occurrences),
         "context_recurrence": len(usable),
         "n_lineages": n_lineages,
+        # Lineages whose copies hold more than one ordered arrangement.
         "n_lineages_discordant": sum(len(v) > 1 for v in arrangements.values()),
         "lineage_left_conservation": "",
         "lineage_right_conservation": "",

@@ -20,9 +20,7 @@ MIN_LINEAGES = 2
 REALITY_TESTS = [
     {
         "name": "purifying_selection",
-        # Median dN/dS below evolution.dnds_purifying_max. The only line that catches a
-        # shadow ORF, which is conserved and multi-species but whose locus is under
-        # selection for the gene on the other strand.
+        # Median dN/dS below evolution.dnds_purifying_max.
         "test": lambda f, thr: (f.get("dnds_status") == "MEASURED"
                                 and _num(f.get("dnds_median")) is not None
                                 and _num(f.get("dnds_median")) < thr["dnds_purifying_max"]),

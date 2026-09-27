@@ -1,13 +1,4 @@
-"""S7: dN/dS - the strongest single piece of evidence that a dark ORF is a real protein.
-
-It converts "nobody has named it" into "evolution is paying to keep it", which is a
-completely different claim and the one a reviewer will ask for. FESNov required dN/dS < 0.5
-and discarded 94.3% of its novel clusters on this and the other reality filters.
-
-Nei-Gojobori counting is used rather than a codon model: it needs no tree, no optimiser and
-no external process, so it runs over hundreds of thousands of small families and is fully
-testable in-process.
-"""
+"""S7: Nei-Gojobori dN/dS with Jukes-Cantor correction, codon projection and consensus."""
 import pytest
 
 from plasmidann.evolution import (

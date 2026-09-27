@@ -90,8 +90,8 @@ def measure(job):
         row["rnacode_status"] = "TOO_FEW_MEMBERS"
         return row, None
 
-    # Alignment is superlinear and the marginal information from the 200th member is
-    # negligible, so cap it. Members are taken in file order, which is deterministic.
+    # Alignment cost grows faster than linearly, so at most evolution.max_members_aligned
+    # members are aligned, in file order.
     usable = usable[:_cfg["max_members_aligned"]]
     row["n_aligned"] = len(usable)
 
@@ -129,12 +129,9 @@ def measure(job):
     # different question from whether its divergence can be measured.
     family_consensus = consensus(aligned)
 
-    codon_aln = {}
-    for m, ap in aligned.items():
-        try:
-            codon_aln[m] = back_translate(ap, _cds[m])
-        except ValueError:
-            continue
+    # Every aligned member has the CDS of an ORF encoding its protein, so back_translate
+    # raises only when the CDS and protein inputs disagree.
+    codon_aln = {m: back_translate(ap, _cds[m]) for m, ap in aligned.items()}
 
     # The status of every pair is counted as well as the values: a family of identical
     # sequences (NO_DIVERGENCE) is not a family measured and found neutral. A pair with
@@ -149,16 +146,13 @@ def measure(job):
 
     # Coding potential, independent of the gene caller and of dN/dS. Both strands: for
     # a shadow ORF the antisense signal is expected to be the stronger one.
-    if len(codon_aln) >= _cfg["min_members_for_dnds"]:
-        p_sense, p_anti, rc_status = rnacode(codon_aln, f"{_tmpdir}/{fid}.{label}.aln")
-        row["rnacode_status"] = rc_status
-        if p_sense is not None:
-            row["rnacode_p"] = p_sense
-            row["coding_signal"] = int(p_sense < _cfg["rnacode_max_p"])
-        if p_anti is not None:
-            row["rnacode_p_antisense"] = p_anti
-    else:
-        row["rnacode_status"] = "TOO_FEW_MEMBERS"
+    p_sense, p_anti, rc_status = rnacode(codon_aln, f"{_tmpdir}/{fid}.{label}.aln")
+    row["rnacode_status"] = rc_status
+    if p_sense is not None:
+        row["rnacode_p"] = p_sense
+        row["coding_signal"] = int(p_sense < _cfg["rnacode_max_p"])
+    if p_anti is not None:
+        row["rnacode_p_antisense"] = p_anti
 
     row["n_pairs"] = len(ratios)
     if ratios:

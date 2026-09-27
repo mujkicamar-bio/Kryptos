@@ -1,27 +1,11 @@
 """S7: evolutionary evidence that a dark ORF is a real protein.
 
-WHY dN/dS IS THE STRONGEST FILTER AVAILABLE
-
-Everything else in the pipeline says what is ABSENT: no Pfam hit, no Swiss-Prot hit, no nr
-hit. Absence of evidence is exactly what a spurious ORF also produces, and it is why FESNov
-discarded 94.3% of its 7,052,473 novel clusters.
-
-dN/dS says something POSITIVE. If replacement changes are suppressed relative to silent
-ones, selection is acting on the protein sequence - which means there IS a protein
-sequence. It converts "nobody has named it" into "evolution is paying to keep it".
-
-This is also the filter that catches the artefact class nothing else catches. A shadow ORF
-on the reverse-complement strand of a real gene is conserved, multi-species, and passes
-every absence-based test - but the selection acting on it is acting on the gene on the
-OTHER strand, and its own dN/dS reflects that only weakly.
-
-WHY NEI-GOJOBORI COUNTING, AND WHY IT IS THE ONLY ESTIMATOR HERE
-
-Counting needs no tree, no optimiser and no external process. It runs over hundreds of
-thousands of small families in-process, is fully unit-testable, and reports a status rather
-than a silence when it cannot measure. It is the pipeline's only dN/dS estimate; a codon
-model per family was too costly at this scale (docs/PIPELINE_CODE.md), so `dnds_status`
-and the pair count carry the qualification of each estimate.
+Pairwise dN/dS by Nei-Gojobori counting (Nei and Gojobori 1986, Mol Biol Evol 3:418) with
+the Jukes-Cantor correction (Jukes and Cantor 1969), on codon alignments projected from
+protein alignments, under genetic code table 11, with a status for every absent estimate;
+and the consensus of a protein alignment. Counting needs no tree, no optimiser and no
+external process, so it runs in-process over hundreds of thousands of small families; a
+codon model per family was too costly at this scale.
 """
 import itertools
 import math
