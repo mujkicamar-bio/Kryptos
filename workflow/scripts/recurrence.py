@@ -1,45 +1,21 @@
-"""Stage 7: distribution and recurrence, counted over independent units (spec section 34).
+"""Stage 7: distribution and recurrence of each family, counted over independent units.
 
-THE ONE RULE THIS STAGE EXISTS TO ENFORCE
+Inputs: protein_families.tsv, the protein map, the clonal registry, the Stage 6 lineages
+and the master table. Output recurrence.tsv, one row per family, with counts kept apart
+because a protein on two thousand plasmid records may be one plasmid deposited two
+thousand times:
 
-Section 34.2, last line: "Database record counts must never be treated as independent
-biological observations." Section 2.6 says the same as a design principle. A protein on two
-thousand plasmid records may be one clinical plasmid deposited two thousand times, and every
-claim about how widespread it is inherits that error unless the counts are kept apart.
-
-So this stage reports SEVEN different counts for each family and never collapses them:
-
-    plasmid_occurrence_count          gene copies. The largest number, and the least
-                                      informative on its own.
-    unique_plasmid_count              distinct plasmid records.
-    independent_plasmid_cluster_count distinct Stage 6 lineages. THIS is the denominator a
-                                      recurrence claim needs.
-    host_count                        distinct host species (binomials).
-    genus_count                       distinct host genera, including hosts named only to
-                                      the genus ("Acidovorax sp.").
-    MOB_count                         distinct relaxase types. Breadth of mobility, not of
-                                      evolution - section 33 keeps these separate.
-    habitat_count                     distinct environments.
-
-Section 33.2's worked example is the shape to expect: 2,143 occurrences, 8 MOB clusters, 47
-independent clusters. The three numbers describe different biological properties and a
-reader who is shown only the first will draw the wrong conclusion.
-
-DATABASE RECURRENCE (section 34.1)
-
-    database_source_count   how many source databases contributed the records
-
-These are PROVENANCE, not biology. They are reported because section 34.1 asks for them and
-because a reader should be able to see that a number is large for a database reason; they
-are never the denominator of anything.
-
-WHY THIS IS A SEPARATE STAGE AND NOT A COLUMN ON THE FAMILY TABLE
-
-The family table describes composition - what is in this family. This describes
-distribution - where it has been seen, and how independently. Both are per family, and it
-would be easy to merge them; keeping them apart is what stops the independent count being
-quietly replaced by the occurrence count when someone needs "a number for how common this
-is".
+  plasmid_occurrence_count           gene copies
+  unique_plasmid_count               distinct plasmid records
+  independent_plasmid_cluster_count  distinct Stage 6 lineages, the denominator of a
+                                     recurrence claim
+  host_count, genus_count            distinct observed host species and genera
+                                     (plasmidann.hosts)
+  predicted_host_range_*             MOB-suite's predicted host ranges, never a host
+  MOB_count                          distinct MOB-suite clusters
+  habitat_count                      distinct habitats (hab_top)
+  database_source_count              source databases of the records; provenance, never a
+                                     denominator
 """
 import collections
 import csv
@@ -48,9 +24,6 @@ import _ctx  # noqa: F401
 
 from darkorf import status
 
-# ------------------------------------------------------------------------------------
-# Per-protein provenance: which plasmids, and how many gene copies.
-# ------------------------------------------------------------------------------------
 seq_to_plasmids = collections.defaultdict(set)
 seq_to_orf_count = collections.Counter()
 with open(snakemake.input.map) as fh:
@@ -61,9 +34,6 @@ with open(snakemake.input.map) as fh:
         for orf_id in members:
             seq_to_plasmids[sid].add(orf_id.rsplit("|", 1)[0])
 
-# ------------------------------------------------------------------------------------
-# Per-plasmid metadata and lineage.
-# ------------------------------------------------------------------------------------
 meta_of = {}
 with open(snakemake.input.registry, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
@@ -74,8 +44,7 @@ with open(snakemake.input.lineage, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
         lineage_of[row["plasmid_id"]] = row["plasmid_lineage_cluster"]
 
-# Source databases per plasmid, for the provenance counts. The master table records these
-# as a delimited `sources` string; absence is absence and contributes nothing.
+# Source databases per plasmid: the master table's `sources`, delimited by ',' or ';'.
 sources_of = {}
 with open(snakemake.input.master, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
@@ -87,19 +56,18 @@ with open(snakemake.input.master, newline="") as fh:
 
 COLS = [
     "family_id", "family_resolution", "representative",
-    # section 34, the seven biological counts
     "plasmid_occurrence_count", "unique_plasmid_count",
     "independent_plasmid_cluster_count", "independent_cluster_status",
     "host_count", "genus_count",
-    # how many of the family's plasmids have a recorded host; host_count is NOT_MEASURED,
-    # not 0, when none has (clonal_registry, plasmidann.hosts)
+    # n_plasmids_with_host counts plasmids with a host named to the genus or finer, and
+    # host_count_status is NOT_MEASURED when there is none. With genus-level hosts only,
+    # the status is SUCCESS and host_count is 0 while genus_count is not.
     "n_plasmids_with_host", "n_plasmids_with_species", "host_count_status",
     # MOB-suite's predicted host range over EVERY plasmid, hosted or not: a separate
     # measurement at any rank, never counted as a host (clonal_registry)
     "n_plasmids_with_predicted_range", "predicted_host_range_count",
     "predicted_host_ranges",
     "MOB_count", "habitat_count",
-    # section 34.1, provenance - never a denominator
     "database_source_count",
 ]
 
@@ -137,9 +105,7 @@ with open(snakemake.input.families, newline="") as fh, \
             "plasmid_occurrence_count": occurrences,
             "unique_plasmid_count": len(plasmids),
             "independent_plasmid_cluster_count": len(lineages),
-            # A family whose plasmids are all missing from the lineage table has not been
-            # measured for independence; reporting 0 would read as "no independent
-            # lineages", which is a much stronger and quite different claim (section 2.9).
+            # No member plasmid in the lineage table: independence was not measured.
             "independent_cluster_status": status.SUCCESS if lineages else status.NOT_RUN,
             "host_count": len(species),
             "genus_count": len(genera),
@@ -163,9 +129,8 @@ with open(snakemake.input.families, newline="") as fh, \
                 max_inflation = (inflation, family["family_id"])
 
 print(f"recurrence: {n_rows} families")
-# The headline diagnostic: how far raw plasmid counts overstate independence for the worst
-# family in the run. A ratio near 1 means records and lineages agree; a large one means
-# some family's apparent prevalence is mostly redeposition.
+# The largest record-to-lineage ratio of any family: how far record counts overstate
+# independence in this run.
 if max_inflation[1]:
     print(f"            largest record-to-lineage ratio {max_inflation[0]:.1f}x "
           f"({max_inflation[1]}) - plasmid records overstate independence by this much")
