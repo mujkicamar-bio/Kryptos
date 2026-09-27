@@ -59,8 +59,8 @@ def dimensions_present(record):
             or record.get("synteny_status") or record.get("cooccurrence_status")):
         present.append("GENOMIC_CONTEXT")
 
-    # Status rather than value: NO_DIVERGENCE and SATURATED are measurements, and a family
-    # of identical sequences is what strong conservation looks like.
+    # Status rather than value: a status without a value, such as TOO_SHORT, is a
+    # measurement.
     if record.get("dnds_status") or record.get("rnacode_status"):
         present.append("EVOLUTIONARY_CONSERVATION")
 

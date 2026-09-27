@@ -46,6 +46,7 @@ def test_the_declared_environment_provides_every_required_tool():
                 "macsyfinder": ("macsyfinder",),
                 "integron_finder": ("integron_finder",),
                 "rnacode": ("RNAcode",),
+                "paml": ("yn00",),
                 "eggnog-mapper": ("emapper.py",),
                 "isescan": ("isescan.py",)}
 

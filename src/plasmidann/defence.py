@@ -1,4 +1,4 @@
-"""S8a: DefenseFinder's two phases, each on the representation it needs.
+"""DefenseFinder's two phases, each on the representation it needs.
 
 Phase 1 is an HMM search with the profiles of the DefenseFinder, RM and CasFinder models
 that asks per protein whether it looks like a defence component; it does not depend on gene

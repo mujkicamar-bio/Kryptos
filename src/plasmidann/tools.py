@@ -35,6 +35,8 @@ REQUIRED_TOOLS = [
      "why": "IntegronFinder locates attC sites with an Infernal covariance model"},
     {"name": "isescan.py", "stage": "S8e",
      "why": "IS elements; without it no ORF can be placed inside or beside an IS element"},
+    {"name": "yn00", "stage": "family_evolution",
+     "why": "PAML yn00 pairwise dN/dS; without it every family reports YN00_FAILED"},
     {"name": "RNAcode", "stage": "S7b",
      "why": "coding-potential signal independent of the gene caller, on both strands"},
     {"name": "emapper.py", "stage": "S4b",

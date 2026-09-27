@@ -1,4 +1,5 @@
-"""S8a between the phases: propagate component hits, prune, and write genomic order.
+"""Rule defence_gembase, between the two DefenseFinder phases: propagate component hits,
+prune, and write genomic order.
 
 Inputs: phase 1 component hits per unique protein, the protein map (seq_id -> orf_ids) and
 the ORF index. A hit applies to every ORF sharing the sequence. Plasmids with no component

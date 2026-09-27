@@ -1,4 +1,4 @@
-"""S8f: conjugation and mobilisation systems (CONJScan) on every plasmid.
+"""Rule conjugation_systems: conjugation and mobilisation systems (CONJScan) on every plasmid.
 
 CONJScan 2.1.0 uses model grammar 2.1, which needs MacSyFinder >= 2.1.6, while
 DefenseFinder pins MacSyFinder 2.1.4. CONJScan therefore runs from its own environment,

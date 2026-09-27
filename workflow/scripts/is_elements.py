@@ -1,13 +1,13 @@
-"""S8e: insertion sequence (IS) elements with ISEScan.
+"""Rule is_elements: insertion sequence (IS) elements with ISEScan.
 
 Transposases are already named per protein by the cascade (Pfam, pharokka, Swiss-Prot);
 what nothing else provides is the ELEMENT - its boundaries, its IS family, and whether it
-is complete. S8c records, as cons_is_element, whether a dark ORF overlaps an IS element
-(often a degenerate transposase fragment or an IS-borne accessory gene). It is context
-evidence and does not remove the ORF from the dark set.
+is complete. Rule context_features records, as cons_is_element, whether a dark ORF
+overlaps an IS element (often a degenerate transposase fragment or an IS-borne accessory
+gene). It is context evidence and does not remove the ORF from the dark set.
 
 ISEScan calls its own genes (FragGeneScan), so its ORFs are not ours. Elements are joined
-to our ORFs by coordinates in S8c, exactly as integron arrays are.
+to our ORFs by coordinates in context_features, exactly as integron arrays are.
 
 Default settings, as published (Xie & Tang 2017): partial elements are reported, because
 a partial IS on a plasmid is still an IS-derived region.

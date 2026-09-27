@@ -1,6 +1,7 @@
-"""Stage 9: synteny and context conservation.
+"""Rule synteny: synteny and context conservation.
 
-Stage 8 asks what a dark ORF sits next to, once. This asks whether the arrangement RECURS:
+Rule context_features asks what a dark ORF sits next to, once. This asks whether the
+arrangement RECURS:
 
     A - B - DARK - C - D
     A - B - DARK - C - D
@@ -10,8 +11,8 @@ Stage 8 asks what a dark ORF sits next to, once. This asks whether the arrangeme
 Not four observations of "near B" but one conserved gene order seen four times, which is a
 far stronger claim: order survives because the arrangement matters.
 
-The counting unit is the plasmid LINEAGE (Stage 6), not the occurrence: forty copies of one
-redeposited plasmid are one observation, not forty.
+The counting unit is the plasmid LINEAGE (plasmid_lineage.tsv), not the occurrence: forty
+copies of one redeposited plasmid are one observation, not forty.
 """
 import pytest
 from conftest import FakeSnakemake, read_tsv, run_script, write_tsv
@@ -297,7 +298,7 @@ def test_the_minimum_number_of_lineages_is_a_parameter():
 
 def _run(fixture_dir, genes, pmap, clusters, lineages, small, dark, dark_families,
          topology=None, window=3, levels=("close", "intermediate"), primary="intermediate"):
-    """Write a Stage 9 fixture and run synteny.py on it; returns rows by family_id.
+    """Write a synteny fixture and run synteny.py on it; returns rows by family_id.
 
     genes: (orf_id, start, end, strand); the plasmid is the orf_id before '|'.
     clusters: {level: {member: representative}}.

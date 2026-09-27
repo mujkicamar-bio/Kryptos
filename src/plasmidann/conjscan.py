@@ -1,4 +1,4 @@
-"""S8f: conjugation and mobilisation systems from CONJScan, and the plasmid mobility class.
+"""Conjugation and mobilisation systems from CONJScan, and the plasmid mobility class.
 
 CONJScan (Cury et al. 2020, Methods Mol. Biol. 2075:265) is a set of MacSyFinder models.
 Its `Plasmids` set is the one built for plasmids (Coluzzi et al. 2022, Mol. Biol. Evol.

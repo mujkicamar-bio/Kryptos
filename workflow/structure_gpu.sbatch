@@ -10,14 +10,14 @@
 #SBATCH --dependency=singleton
 #SBATCH -o results/logs/structure_gpu_%j.out
 #
-# S8d structural screening on a GPU. ProstT5 inference is the cost of this stage; nothing
+# Rule structure_search on a GPU. ProstT5 inference is the cost of this stage; nothing
 # else in the pipeline uses a GPU, so the stage gets its own job rather than a GPU idle for
 # the whole run.
 #
-# Optional: by default workflow/run_pipeline.sbatch runs S8d on CPU. To run it here:
+# Optional: by default workflow/run_pipeline.sbatch runs structure_search on CPU. To run it here:
 #
-#   STRUCTURE_ON_GPU=1 sbatch workflow/run_pipeline.sbatch   # up to S8d (--omit-from)
-#   sbatch workflow/structure_gpu.sbatch                     # S8d
+#   STRUCTURE_ON_GPU=1 sbatch workflow/run_pipeline.sbatch   # up to structure_search (--omit-from)
+#   sbatch workflow/structure_gpu.sbatch                     # structure_search
 #   sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
 #
 # All three share the job name dark_plasmidome and --dependency=singleton, so SLURM runs

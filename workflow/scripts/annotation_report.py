@@ -12,9 +12,10 @@ Two files, because there are two natural units:
                               how much of it that explained, what the dark evidence says,
                               its orthology terms, the plasmid label databases' labels of
                               its protein (amr, metal, ta, conj_role, mge, antidefence), its
-                              CONJScan system and its plasmid's mobility class, the
-                              close-level synteny of its close cluster, and - where the ORF
-                              is dark - the evidence assembled for its family.
+                              CONJScan system and its plasmid's mobility class, its
+                              plasmid's geNomad phage-plasmid label, the close-level
+                              synteny of its close cluster, and - where the ORF is dark -
+                              the evidence assembled for its family.
   dark_families_complete.csv  one row per dark family. The selection surface: every piece
                               of evidence the run produced, side by side - annotation,
                               evolution, context, structure, distribution (Stage 7),
@@ -24,10 +25,9 @@ Two files, because there are two natural units:
 
 WHAT CONTEXT HOLDS is not a column here: 12_context_and_structure/family_context_terms.tsv
 is the long table of context terms per family (amr:, metal:, defence:, conj: ...), counted
-over lineages. It carries no top term and no confidence, because the thresholds that would
-make a term a prediction are calibrated after the run (tools/calibrate_context.py); the
-family table carries the descriptive rates (cons_*) only, beside the S8g co-occurrence
-partners, which are pairs of dark protein sequences rather than context terms.
+over lineages. It carries no top term and no confidence; the family table carries the
+descriptive rates (cons_*) only, beside the co-occurrence partners from
+dark_cooccurrence.tsv, which are pairs of dark protein sequences rather than context terms.
 
 CSV, not TSV, because these are the files that get opened in a spreadsheet. Every field is
 quoted by csv.writer where it needs to be, which matters: a DIAMOND stitle is free text and
@@ -37,7 +37,7 @@ NOTHING IS FILTERED AND NOTHING IS RANKED HERE
 
 Every ORF appears, including artefact-flagged ones. Every dark family appears, including
 ORPHANs and families that failed every test. Absence of evidence is written as an explicit
-status - TOO_FEW_MEMBERS, NO_DIVERGENCE, NO_SIGNAL - never as a blank that reads as a failed
+status - TOO_FEW_MEMBERS, TOO_SHORT, NO_SIGNAL - never as a blank that reads as a failed
 test. Choosing what to do with all that is the report's job, and the report is you.
 
 There is no score, rank or candidate column. evidence_dimension_count counts the distinct
@@ -313,6 +313,10 @@ conj_class = {}
 with open(snakemake.input.conjugation_class, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
         conj_class[r["plasmid_id"]] = r["class"]
+# Per plasmid, its phage-plasmid label from geNomad (S8h).
+with open(snakemake.input.phage_plasmids, newline="") as fh:
+    phage_plasmid = {r["plasmid_id"]: r["phage_plasmid"]
+                     for r in csv.DictReader(fh, delimiter="\t")}
 
 CARRIED = ["family_id", "scope", "reality_n", "reality_lines", "darkness_state",
            "dnds_median",
@@ -334,7 +338,8 @@ with open(snakemake.input.annotation, newline="") as fh:
                "eggnog_description", "is_element", "host_species", "host_genus",
                "predicted_host_range"]
             + list(LABEL_COLS.values())
-            + ["conj_system", "conj_component", "plasmid_conjscan_class"]
+            + ["conj_system", "conj_component", "plasmid_conjscan_class",
+               "plasmid_phage_plasmid"]
             + list(CLOSE_COLS) + CARRIED)
     with open(snakemake.output.annotation, "w", newline="") as out:
         w = csv.DictWriter(out, fieldnames=cols, extrasaction="ignore")
@@ -365,6 +370,7 @@ with open(snakemake.input.annotation, newline="") as fh:
             for col, values in conj_of_orf.get(r["orf_id"], {}).items():
                 row[col] = "; ".join(sorted(values))
             row["plasmid_conjscan_class"] = conj_class.get(r["plasmid_id"], "")
+            row["plasmid_phage_plasmid"] = phage_plasmid.get(r["plasmid_id"], "")
             close = close_rows.get(close_of_seq.get(sid, ""))
             if close:
                 row.update({c: close[k] for c, k in CLOSE_COLS.items()})

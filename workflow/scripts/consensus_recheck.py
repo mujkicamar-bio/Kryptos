@@ -1,4 +1,4 @@
-"""S7c: is the family collectively novel, or only individually unmatched?
+"""Rule consensus_recheck: is the family collectively novel, or only individually unmatched?
 
 A protein can miss every per-sequence threshold while its family is collectively
 recognisable: the shared signal is spread across members and none carries enough of it
@@ -7,7 +7,10 @@ back against the reference databases.
 
 It is not a filter. A family whose consensus hits Pfam keeps its row, its members and its
 place in the table - it gains a label, `collectively_novel = 0`, and the name of what its
-consensus matched. Deciding what to do with that belongs to the report, not here.
+consensus matched. A match to a domain or family of unknown function (DUF, UPF: the
+cascade's uninformative names, plasmidann.cascade.is_informative) is recorded but names
+nothing, so the family stays collectively_novel = 1. Deciding what to do with that belongs
+to the report, not here.
 
 The search uses Pfam's curated gathering thresholds, the same authority as T1. A consensus
 is a synthetic sequence, so a global E-value would be even less meaningful for it than for
@@ -21,6 +24,7 @@ import _ctx  # noqa: F401
 
 from darkorf import status
 from plasmidann import scratch
+from plasmidann.cascade import is_informative
 
 db = snakemake.params.db
 ids = [l[1:].split()[0] for l in open(snakemake.input.consensus) if l[0] == ">"]
@@ -66,10 +70,12 @@ with open(snakemake.input.families, newline="") as fh, \
         w.writerow({"family_id": fid, "consensus_status": status.SUCCESS,
                     "consensus_hit": int(bool(label)),
                     "consensus_label": label, "consensus_ievalue": ievalue,
-                    "collectively_novel": int(not label)})
+                    "collectively_novel": int(not is_informative(label))})
 
-print(f"consensus re-check: {len(ids)} families, {len(hits)} recognised collectively "
-      f"({100 * len(hits) / max(len(ids), 1):.1f}%) - labelled, not removed")
+n_named = sum(is_informative(label) for label, _ in hits.values())
+print(f"consensus re-check: {len(ids)} families, {len(hits)} with a Pfam hit, {n_named} "
+      f"recognised collectively ({100 * n_named / max(len(ids), 1):.1f}%) - labelled, not "
+      "removed")
 
 # The scratch directory is removed only here, on the ordinary path. A script that raised
 # never reaches this line, and its intermediates are what the failure is diagnosed from.

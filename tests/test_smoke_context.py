@@ -2,6 +2,8 @@
 
 Each test runs one workflow script against a small fixture.
 """
+import csv
+import gzip
 import os
 import pathlib
 import sys
@@ -18,16 +20,12 @@ from conftest import (
 )
 
 
-@requires("mafft")
-def test_family_evolution_runs_and_reports_a_dnds_status(fixture_dir):
-    """An alignable, divergent family reaches a dN/dS status; the small-plasmid member set
-    is measured on its own."""
+def _evolution_fixture(fixture_dir):
+    """Three alignable members of one family of 21 codons, divergent only at silent sites;
+    two of them are on small plasmids."""
     faa = fixture_dir / "dark.faa"
     cds = fixture_dir / "dark.fna"
     fams = fixture_dir / "families.tsv"
-    out = fixture_dir / "family_evolution.tsv"
-
-    # Three real, alignable members of one family, divergent only at silent sites.
     prot = "MKVLATTLLGAAFAASSALAQ"
     codons = {"M": "ATG", "K": "AAA", "V": "GTG", "L": "CTG", "A": "GCG", "T": "ACC",
               "G": "GGC", "F": "TTT", "S": "AGC", "Q": "CAG"}
@@ -37,35 +35,58 @@ def test_family_evolution_runs_and_reports_a_dnds_status(fixture_dir):
                    for i, a in enumerate(prot))
     var2 = "".join(alt.get(a, codons[a]) if i % 5 == 0 else codons[a]
                    for i, a in enumerate(prot))
-
     write_fasta(faa, [("m1", prot), ("m2", prot), ("m3", prot)])
     write_fasta(cds, [("m1", base), ("m2", var1), ("m3", var2)])
     write_tsv(fams, ["family_id", "representative", "n_members", "n_plasmids",
                      "n_mob_clusters", "family_class", "members", "small_members"],
               [["F0000001", "m1", 3, 3, 2, "FAMILY", "m1,m2,m3", "m1,m2"]])
+    return {"families": str(fams), "faa": str(faa), "cds": str(cds)}
 
+
+def _run_evolution(fixture_dir, min_codons):
+    out = fixture_dir / "family_evolution.tsv"
+    pairs = fixture_dir / "family_yn00_pairs.tsv.gz"
     run_script("family_evolution.py", FakeSnakemake(
-        input={"families": str(fams), "faa": str(faa), "cds": str(cds)},
-        output={"tsv": str(out), "consensus": str(out.parent / "consensus.faa")},
-        params={"evolution": {"min_codons": 20, "min_members_for_dnds": 3,
+        input=_evolution_fixture(fixture_dir),
+        output={"tsv": str(out), "consensus": str(fixture_dir / "consensus.faa"),
+                "pairs": str(pairs)},
+        params={"evolution": {"min_codons": min_codons, "min_members_for_dnds": 3,
                               "dnds_purifying_max": 0.5, "rnacode_max_p": 0.05,
                               "max_members_aligned": 50}},
         threads=2))
+    with gzip.open(pairs, "rt") as fh:
+        pair_rows = list(csv.DictReader(fh, delimiter="\t"))
+    return read_tsv(out), pair_rows
 
-    rows = read_tsv(out)
+
+@requires("mafft", "yn00")
+def test_family_evolution_summarises_the_yn00_pairs(fixture_dir):
+    """The family median is the median yn00 omega over its three pairs, every pair row is
+    written, and the small-plasmid member set is measured on its own."""
+    rows, pairs = _run_evolution(fixture_dir, min_codons=20)
     assert len(rows) == 1
-    # The small-plasmid members are measured on their own: two are too few for dN/dS.
+    assert rows[0]["dnds_status"] == "MEASURED"
+    assert rows[0]["n_pairs"] == "3"
+    omegas = sorted(float(p["omega"]) for p in pairs)
+    assert [p["member_set"] for p in pairs] == ["all"] * 3
+    assert float(rows[0]["dnds_median"]) == pytest.approx(omegas[1], abs=1e-4)
+    assert float(rows[0]["dnds_min"]) == pytest.approx(omegas[0], abs=1e-4)
+    # Two small-plasmid members are too few for dN/dS.
     assert rows[0]["small_dnds_status"] == "TOO_FEW_MEMBERS"
     assert rows[0]["small_n_aligned"] == "0"
-    # The family is alignable and divergent, so a status must have been reached. An empty
-    # status means the script fell through an error branch and reported success.
-    assert rows[0]["dnds_status"], "no dnds_status - the script took a silent error branch"
-    assert rows[0]["dnds_status"] != "ALIGNMENT_FAILED", (
-        "alignment failed with mafft available - the tool is not being invoked correctly")
+
+
+@requires("mafft", "yn00")
+def test_an_alignment_shorter_than_min_codons_is_too_short(fixture_dir):
+    """min_codons applies to the 21 codons yn00 used; the pairs are still written."""
+    rows, pairs = _run_evolution(fixture_dir, min_codons=22)
+    assert rows[0]["dnds_status"] == "TOO_SHORT"
+    assert rows[0]["dnds_median"] == ""
+    assert len(pairs) == 3
 
 
 def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear",
-                 defence_rows=(), conj_rows=()):
+                 defence_rows=(), conj_rows=(), integron_rows=None):
     """One plasmid: dark ORF pl1|1 in a two-gene directon with an annotated partner, and a
     dark ORF pl1|3 inside an integron cassette array. F1 is pl1|1's family."""
     ann = fixture_dir / "plasmid_annotation.tsv"
@@ -85,6 +106,7 @@ def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear",
     integrons = fixture_dir / "integrons.tsv"
     write_tsv(integrons, ["plasmid_id", "integron_id", "element", "start", "end",
                           "integron_type", "annotation", "type_elt"],
+              integron_rows or
               [["pl1", "in1", "protein", 3000, 3300, "complete", "protein", "protein"]])
     master = fixture_dir / "context_master.tsv"
     write_tsv(master, ["plasmid_id", "size_bp", "topology"], [["pl1", 5000, topology]])
@@ -140,9 +162,29 @@ def test_a_not_run_system_stage_gives_an_empty_rate_not_zero(fixture_dir):
     assert row["cons_integron"] == "0.0"
 
 
+def test_only_an_integron_with_a_cassette_array_is_an_island(fixture_dir):
+    """pl1|1 (100..400) lies in an integron element: counted for complete and CALIN
+    integrons, not for In0, an integrase without attC sites."""
+    def rate(integron_type):
+        row = ["pl1", "in1", "intI_1", 50, 450, integron_type, "intI", "protein"]
+        return _run_context(fixture_dir, integron_rows=[row])[0]["cons_integron"]
+    assert (rate("complete"), rate("CALIN"), rate("In0")) == ("1.0", "1.0", "0.0")
+
+
 def test_an_orf_that_is_a_defence_component_gets_defence_context(fixture_dir):
     row = _run_context(fixture_dir, defence_rows=[["pl1|1", "Clover", "SUCCESS"]])[0]
     assert row["cons_defence"] == "1.0"
+
+
+def test_an_orf_that_overlaps_a_component_without_being_one_has_no_system_context(
+        fixture_dir):
+    """pl1|1 overlaps the defence and conjugation component pl1|2 by four bases."""
+    genes = [["pl1", "pl1|1", 100, 400, "+", "", "NONE"],
+             ["pl1", "pl1|2", 397, 700, "+", "MobA_MobL", "FUNCTIONAL"]]
+    row = _run_context(fixture_dir, genes=genes,
+                       defence_rows=[["pl1|2", "Clover", "SUCCESS"]],
+                       conj_rows=[["pl1|2", "pl1", "T4SS_typeF", "s1", "MOBF", "SUCCESS"]])[0]
+    assert row["cons_defence"] == "0.0" and row["cons_conj"] == "0.0"
 
 
 FOLDSEEK_DB = "data/refs/foldseek/pdb"
@@ -216,7 +258,8 @@ def test_family_evolution_reports_coding_potential(fixture_dir):
 
     run_script("family_evolution.py", FakeSnakemake(
         input={"families": str(fams), "faa": str(faa), "cds": str(cds)},
-        output={"tsv": str(out), "consensus": str(out.parent / "consensus.faa")},
+        output={"tsv": str(out), "consensus": str(out.parent / "consensus.faa"),
+                "pairs": str(out.parent / "pairs.tsv.gz")},
         params={"evolution": {"min_codons": 20, "min_members_for_dnds": 3,
                               "dnds_purifying_max": 0.5, "rnacode_max_p": 0.05,
                               "max_members_aligned": 50}},
@@ -254,8 +297,8 @@ def test_extract_cds_recovers_origin_spanning_and_minus_strand_genes(fixture_dir
 
 @requires("mafft")
 def test_family_evolution_writes_a_consensus_per_family(fixture_dir):
-    """S7b writes one consensus per family from its protein alignment, for the S7c
-    re-check."""
+    """family_evolution writes one consensus per family from its protein alignment, for
+    consensus_recheck."""
     prot_a = "MKVLATTLLGAAFAASSALAQKKWLVRDGHIY"
     prot_b = "MKVLATTLLGAAFCASSALAQKKWLVRDGHIY"
     faa = fixture_dir / "dark.faa"
@@ -275,7 +318,8 @@ def test_family_evolution_writes_a_consensus_per_family(fixture_dir):
 
     run_script("family_evolution.py", FakeSnakemake(
         input={"families": str(fams), "faa": str(faa), "cds": str(cds)},
-        output={"tsv": str(out), "consensus": str(cons)},
+        output={"tsv": str(out), "consensus": str(cons),
+                "pairs": str(out.parent / "pairs.tsv.gz")},
         params={"evolution": {"min_codons": 20, "min_members_for_dnds": 3,
                               "dnds_purifying_max": 0.5, "rnacode_max_p": 0.05,
                               "max_members_aligned": 50}},
@@ -328,6 +372,35 @@ def test_the_consensus_recheck_finds_a_family_that_is_collectively_recognisable(
     # F3 had too few members for a consensus: in the table, and saying it was not tested.
     assert rows["F3"]["consensus_status"] == "NOT_RUN"
     assert rows["F3"]["collectively_novel"] == ""
+
+
+def test_a_consensus_that_hits_only_a_duf_or_upf_family_stays_collectively_novel(
+        fixture_dir, monkeypatch):
+    """The hit and its name are recorded, but a domain of unknown function names nothing.
+    The stand-in hmmsearch writes a domain table with one hit per family."""
+    rows = ["F1 - 60 RepA_N PF01051.1 90 1e-20 70 0 1 1 1e-21 1e-21",
+            "F2 - 60 DUF1234 PF06776.1 90 1e-20 70 0 1 1 1e-21 1e-21",
+            "F3 - 60 UPF0126 PF03458.1 90 1e-20 70 0 1 1 1e-21 1e-21"]
+    domtbl = fixture_dir / "hits.domtbl"
+    domtbl.write_text("".join(r + "\n" for r in rows))
+    exe = fixture_dir / "bin" / "hmmsearch"
+    exe.parent.mkdir()
+    exe.write_text("#!/bin/sh\nwhile [ \"$1\" != --domtblout ]; do shift; done\n"
+                   f"cp {domtbl} \"$2\"\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
+    cons = fixture_dir / "family_consensus.faa"
+    write_fasta(cons, [(f, "MKV") for f in ("F1", "F2", "F3")])
+    fams = fixture_dir / "dark_families.tsv"
+    write_tsv(fams, ["family_id"], [["F1"], ["F2"], ["F3"]])
+    out = fixture_dir / "consensus_recheck.tsv"
+    run_script("consensus_recheck.py", FakeSnakemake(
+        input={"consensus": str(cons), "families": str(fams)}, output=[str(out)],
+        params={"db": "Pfam-A.hmm", "args": "--cut_ga", "hmmer_z": 1}))
+    got = {r["family_id"]: (r["consensus_hit"], r["consensus_label"], r["collectively_novel"])
+           for r in read_tsv(out)}
+    assert got == {"F1": ("1", "RepA_N", "0"), "F2": ("1", "DUF1234", "1"),
+                   "F3": ("1", "UPF0126", "1")}
 
 
 def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir):
@@ -542,8 +615,89 @@ def test_an_operon_across_the_origin_of_a_circular_plasmid_counts(fixture_dir):
 
 
 def test_an_orf_inside_an_is_element_gets_is_element_context(fixture_dir):
-    """An IS element is an island, like a defence system or an integron."""
+    """An IS element is an island, like an integron."""
     rows = _run_context(
         fixture_dir,
         is_rows=[["pl1", "pl1|IS1", "IS3", "IS3_1", 50, 450, "+", 1, "1e-50", ""]])
     assert rows[0]["cons_is_element"] == "1.0"
+
+
+# Stand-in for integron_finder: keeps its topology file beside itself and writes one In0
+# integrase per replicon in the IntegronFinder 2.0.6 column order.
+FAKE_INTEGRON_FINDER = """#!{python}
+import pathlib, shutil, sys
+args = sys.argv[1:]
+here = pathlib.Path(sys.argv[0]).parent
+shutil.copy(args[args.index("--topology-file") + 1], here / "topology.txt")
+out = pathlib.Path(args[args.index("--outdir") + 1])
+out.mkdir(parents=True)
+with open(out / "chunk.integrons", "w") as fh:
+    for line in open(args[-1]):
+        if line.startswith(">"):
+            rep = line[1:].split()[0]
+            fh.write("\\t".join(["integron_01", rep, "intI_1", "10", "900", "1", "1e-50",
+                                 "protein", "intI", "intersection_tyr_intI", "In0", "Yes",
+                                 "NA", "circ"]) + "\\n")
+"""
+
+
+def test_integrons_passes_each_plasmid_its_registry_topology(fixture_dir, monkeypatch):
+    exe = fixture_dir / "bin" / "integron_finder"
+    exe.parent.mkdir()
+    exe.write_text(FAKE_INTEGRON_FINDER.replace("{python}", sys.executable))
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, [("c1", "ACGT" * 10), ("l1", "ACGT" * 10), ("d1", "ACGT" * 10)])
+    master = fixture_dir / "master.tsv"
+    write_tsv(master, ["plasmid_id", "topology"],
+              [["c1", "circular"], ["l1", "linear"], ["d1", "direct terminal repeat"]])
+    out = fixture_dir / "out" / "integrons.tsv"
+    out.parent.mkdir()
+    run_script("integrons.py", FakeSnakemake(
+        input={"fasta": str(fasta), "master": str(master)}, output=[str(out)], threads=1))
+    # The format integron_finder.topology parses: "<replicon> <circ|lin>".
+    assert (exe.parent / "topology.txt").read_text().splitlines() == [
+        "c1 circ", "l1 lin", "d1 circ"]
+    assert {r["plasmid_id"]: r["integron_type"] for r in read_tsv(out)} == {
+        "c1": "In0", "l1": "In0", "d1": "In0"}
+
+
+# Stand-in for geNomad end-to-end: writes the virus summary and the gene table in its
+# layout, <outdir>/<prefix>_summary and <outdir>/<prefix>_annotate.
+FAKE_GENOMAD = """#!{python}
+import pathlib, sys
+args = sys.argv[1:]
+fasta, out = pathlib.Path(args[-3]), pathlib.Path(args[-2])
+prefix = fasta.name.split(".")[0]
+(out / f"{prefix}_summary").mkdir(parents=True)
+(out / f"{prefix}_annotate").mkdir()
+(out / f"{prefix}_summary" / f"{prefix}_virus_summary.tsv").write_text(
+    "seq_name\\tlength\\tvirus_score\\n"
+    "whole\\t5000\\t0.95\\n"
+    "pro|provirus_100_2000\\t1901\\t0.9\\n")
+(out / f"{prefix}_annotate" / f"{prefix}_genes.tsv").write_text(
+    "gene\\tstart\\tend\\tplasmid_hallmark\\tvirus_hallmark\\n"
+    "hall_mark_1\\t1\\t300\\t0\\t1\\n"
+    "hall_mark_2\\t400\\t900\\t0\\t0\\n"
+    "none_1\\t1\\t300\\t1\\t0\\n")
+"""
+
+
+def test_phage_plasmids_labels_each_plasmid_from_genomad_alone(fixture_dir):
+    """A virus call on the whole plasmid, a provirus inside it, or one virus hallmark gene
+    labels it a phage-plasmid; a plasmid hallmark does not."""
+    exe = fixture_dir / "genomad"
+    exe.write_text(FAKE_GENOMAD.replace("{python}", sys.executable))
+    exe.chmod(0o755)
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, [(p, "ACGT") for p in ("whole", "pro", "hall_mark", "none")])
+    out = fixture_dir / "out" / "phage_plasmids.tsv"
+    out.parent.mkdir()
+    run_script("phage_plasmids.py", FakeSnakemake(
+        input={"fasta": str(fasta)}, output={"tsv": str(out)},
+        params={"exe": str(exe), "db": "genomad_db"}, threads=1))
+    got = {r["plasmid_id"]: (r["genomad_virus"], r["n_virus_hallmarks"], r["phage_plasmid"])
+           for r in read_tsv(out)}
+    assert got == {"whole": ("whole", "0", "1"), "pro": ("pro|provirus_100_2000", "0", "1"),
+                   "hall_mark": ("", "1", "1"), "none": ("", "0", "0")}

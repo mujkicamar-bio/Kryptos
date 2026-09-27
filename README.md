@@ -226,8 +226,7 @@ sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
 ```
 
 A run that asked for a GPU and did not get one fails loudly rather than silently taking ten
-times longer. Calibrating the context terms is a separate step after the run:
-`python tools/calibrate_context.py --help`.
+times longer.
 
 ### The SLURM account
 

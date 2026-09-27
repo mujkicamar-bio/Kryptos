@@ -1,4 +1,5 @@
-"""S8c context terms: what a family's neighbours are, counted per independent lineage.
+"""Context terms (rule context_features, family_context_terms.tsv): what a family's
+neighbours are, counted per independent lineage.
 
 WHAT A TERM IS
 
@@ -34,7 +35,8 @@ is never excluded - it is where the ORF sits, not a neighbour.
 THE UNIT IS THE LINEAGE
 
 Clonal copies of one plasmid are one observation. A family's conservation of a term is the
-fraction of the Stage 6 lineages it occurs in where at least one occurrence has the term.
+fraction of the plasmid lineages (plasmid_lineage.tsv) it occurs in where at least one
+occurrence has the term.
 Below two lineages there is nothing to conserve across: the row has status
 TOO_FEW_LINEAGES and no conservation.
 """
@@ -58,7 +60,7 @@ SUCCESS = "SUCCESS"
 # Conservation across one lineage is a single observation, not a conservation.
 MIN_LINEAGES = 2
 
-COLUMNS = ["family_id", "family_set", "term_type", "term", "n_lineages",
+COLUMNS = ["family_id", "term_type", "term", "n_lineages",
            "n_lineages_with_term", "conservation", "status",
            "window_covers_plasmid_fraction"]
 
@@ -119,13 +121,13 @@ def window_covers_plasmid(near, n_genes):
     return len(set(near)) == n_genes - 1
 
 
-def family_term_rows(family_id, family_set, occurrences, family_of_orf, lineage_of):
+def family_term_rows(family_id, occurrences, family_of_orf, lineage_of):
     """One row per term in a family's context, in COLUMNS order.
 
     `occurrences` holds (orf_id, sources, covers) for every ORF of the family's members,
     with sources from orf_term_sources and covers from window_covers_plasmid. orf_id is
-    '<plasmid_id>|<ordinal>'. A plasmid missing from `lineage_of` raises KeyError: Stage 6
-    assigns every analysed plasmid a lineage, so a gap is an input mismatch.
+    '<plasmid_id>|<ordinal>'. A plasmid missing from `lineage_of` raises KeyError: rule
+    plasmid_lineage assigns every analysed plasmid a lineage, so a gap is an input mismatch.
 
     conservation is counted over lineages, and is empty under TOO_FEW_LINEAGES;
     window_covers_plasmid_fraction is the fraction of the family's occurrences (ORFs)
@@ -137,8 +139,8 @@ def family_term_rows(family_id, family_set, occurrences, family_of_orf, lineage_
     for orf_id, sources, covers in occurrences:
         plasmid_id = orf_id.rsplit("|", 1)[0]
         if plasmid_id not in lineage_of:
-            raise KeyError(f"plasmid {plasmid_id} of family {family_id} has no Stage 6 "
-                           "lineage")
+            raise KeyError(f"plasmid {plasmid_id} of family {family_id} has no "
+                           "plasmid lineage")
         lineage = lineage_of[plasmid_id]
         lineages.add(lineage)
         n_covers += bool(covers)
@@ -150,7 +152,7 @@ def family_term_rows(family_id, family_set, occurrences, family_of_orf, lineage_
     covers_fraction = round(n_covers / len(occurrences), 6) if occurrences else 0.0
     measured = n >= MIN_LINEAGES
     return [{
-        "family_id": family_id, "family_set": family_set,
+        "family_id": family_id,
         "term_type": term.split(":", 1)[0], "term": term,
         "n_lineages": n, "n_lineages_with_term": len(with_term[term]),
         "conservation": round(len(with_term[term]) / n, 6) if measured else "",

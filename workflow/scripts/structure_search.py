@@ -1,5 +1,5 @@
-"""S8d: structural homology for dark-family representatives (or every dark protein), via
-Foldseek with ProstT5.
+"""Rule structure_search: structural homology for dark-family representatives (or every
+dark protein), via Foldseek with ProstT5.
 
 Sequence search has already failed on these proteins by definition. Structure is
 conserved longer than sequence, so a family with no sequence homolog can still match a
