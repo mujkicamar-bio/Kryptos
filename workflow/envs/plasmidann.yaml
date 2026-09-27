@@ -1,20 +1,12 @@
 # ONE environment for the whole workflow.
 #
-# WHY NOT ONE ENVIRONMENT PER RULE
-#
-# Because the pre-flight rule has to be able to check every tool the run will use, and
-# under per-rule environments it cannot: pre-flight would run inside its own environment
-# and report that mafft is present or absent there, which says nothing about the
-# environment S7b will actually get. A pre-flight that checks a different environment from
-# the one the work runs in is not a pre-flight.
-#
-# Splitting also caused the failure it was supposed to prevent. envs/targets.yaml declared
-# integron_finder without prodigal or infernal, which IntegronFinder shells out to, so the
-# stage failed at run time with both tools visibly installed on the machine.
+# One environment, so that the pre-flight rule checks the same environment the searches
+# run in. pharokka, AMRFinderPlus and CONJScan's MacSyFinder have their own environments
+# because their pins conflict with this one; config names them by path.
 #
 # Versions are the ones the pipeline was built and verified against, pinned so a rebuild
 # reproduces them. `envs/plasmidann` in the project root is a materialised copy of this
-# specification; workflow/run_pipeline.sbatch puts it on PATH.
+# file; workflow/run_pipeline.sbatch puts it on PATH.
 name: plasmidann
 channels: [conda-forge, bioconda]
 dependencies:
@@ -39,11 +31,10 @@ dependencies:
   - eggnog-mapper=2.1.12   # S4b COG and KEGG terms for the annotated fraction
   # --- S8 context and structure --------------------------------------------------------
   - foldseek=10.941cd33    # structural homology from sequence, via ProstT5
-  - prodigal=2.6.3         # IntegronFinder calls genes with it and exits non-zero without
-  - infernal=1.1.5
+  - prodigal=2.6.3         # IntegronFinder calls genes with it
+  - infernal=1.1.5         # cmsearch, used by IntegronFinder for attC sites
   - isescan=1.7.3          # S8e insertion sequence elements (brings FragGeneScan)
-  # Stage 6 plasmid lineage clustering (spec section 33.1 names Mash)
-  - mash=2.3         # IntegronFinder locates attC sites with cmsearch
+  - mash=2.3               # Stage 6 plasmid lineages (Ondov et al. 2016)
   # --- the Python libraries the src/ modules import ------------------------------------
   - pyyaml=6.0.3           # config parsing
   - networkx=3.6.1         # plasmidann.network, Stage 5b communities

@@ -32,8 +32,8 @@
 #
 # Wall time does NOT transfer by multiplication. Three reasons, in order of size:
 #
-#   1. The streamed-database tiers are mostly fixed cost. nr measured at ~41 min of fixed
-#      cost plus 1.71 s per query on a full node. At 100 plasmids the fixed cost is
+#   1. The streamed-database tiers are mostly a per-pass cost. nr measured at ~41 min per
+#      pass plus 1.71 s per query on a full node. At 100 plasmids the per-pass cost is
 #      essentially the whole figure; at 143,503 it is a rounding error. Extrapolating the
 #      test figure linearly overestimates production by orders of magnitude, and
 #      extrapolating the slope alone underestimates it.

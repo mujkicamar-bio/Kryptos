@@ -44,7 +44,7 @@ rule preflight:
 
 
 rule check_hmmer_z:
-    """S2z: refuse a declared -Z that no longer describes the protein set, as soon as
+    """S2z: refuse a declared -Z that does not describe the protein set, as soon as
     dereplication has produced it - before the artefact screen or any tier searches."""
     input:
         unique=f"{OUT}/03_dereplication/unique_proteins.faa",
@@ -98,7 +98,7 @@ rule tier_search:
     """Search one tier, then hand the next tier only what stayed unexplained.
 
     One job per tier, with every core the run has. A search against a streamed database
-    - DIAMOND reads the whole of nr per invocation - has a fixed cost that sharding the
+    - DIAMOND reads the whole of nr per invocation - has a per-pass cost that sharding the
     query set multiplies by the shard count, which is why the cascade is not sharded.
     """
     input:
@@ -122,7 +122,7 @@ rule tier_search:
     conda:
         "../envs/plasmidann.yaml"
     resources:
-        # PER TIER, and MEASURED rather than declared, on full nr (T5 is now ClusteredNR,
+        # PER TIER, and MEASURED rather than declared, on full nr (T5 searches ClusteredNR,
         # which has not been measured).
         #
         #   nr     136 GB at 152 queries, 185 GB at 3,808 (bench_nr, job 6928733) and 180 GB
@@ -134,7 +134,7 @@ rule tier_search:
         #   others   8 GB measured (pharokka, the largest); the HMMER tiers peak at 0.35 GB
         #            because hmmsearch memory-maps the pressed library rather than loading it.
         mem_mb=lambda wc: 220000 if TIER_BY_ID[wc.tier]["source"] == "nr" else 24000,
-        # nr on full nr: ~45 min fixed per pass and ~1.7 s per query on 96 threads
+        # nr on full nr: ~45 min per pass and ~1.7 s per query on 96 threads
         # standalone (bench_nr, -k 5); ~40 min and ~1.9 s inside the pipeline
         # (results_bench). Production uses -k 25, which was not benchmarked. Local
         # execution does not enforce runtime; the figure documents the expectation.

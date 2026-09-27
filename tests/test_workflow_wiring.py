@@ -78,7 +78,7 @@ def test_the_submission_script_activates_the_environment_it_declares():
 
 
 def test_each_cascade_tier_is_one_job_with_every_core():
-    """A search against a streamed database has a fixed cost per invocation (DIAMOND reads
+    """A search against a streamed database has a constant cost per invocation (DIAMOND reads
     the whole database each time), so a tier is one job and takes every core the run has."""
     assert "threads: workflow.cores" in _rule("tier_search"), (
         "tier_search does not take every core, so a single-job tier runs on a fraction "

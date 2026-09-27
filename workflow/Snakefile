@@ -123,7 +123,7 @@ rule analysis_set:
         fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
         # The plasmids below the size cut-off: what "small plasmid" means downstream.
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
-        # Circular records whose ends repeated, and how many bases were removed.
+        # Circular records whose ends repeated, and how many bases S0 trimmed.
         repeats=f"{OUT}/01_analysis_set/terminal_repeats.tsv",
         # The length of every written record, after that removal: gene coordinates refer
         # to it, and size_bp in the master table does not.

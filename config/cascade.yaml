@@ -46,7 +46,7 @@ full_at: 0.8
 partial_at: 0.5
 
 # --- Search statistics ---------------------------------------------------------------
-# Fixed database size for every hmmer tier, passed as -Z and --domZ.
+# One database size for every hmmer tier, passed as -Z and --domZ.
 #
 # hmmsearch reports E = (sequences searched) x P(score | null), and by default the first
 # term is the actual input size. T2's input is whatever T1 could not resolve, so without

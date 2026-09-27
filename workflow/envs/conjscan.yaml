@@ -5,9 +5,9 @@
 # model grammar 2.1, which needs MacSyFinder >= 2.1.6 with MacSyLib >= 1.0.4 (CONJScan
 # README and changelog). The main environment cannot be upgraded instead:
 # mdmparis-defense-finder 3.0.0 declares macsyfinder==2.1.4 and imports the `macsypy`
-# package, which MacSyFinder 2.1.6 no longer ships, so DefenseFinder would break.
+# package, which MacSyFinder 2.1.6 does not ship, so DefenseFinder would break.
 #
-# `envs/conjscan` in the project root is a materialised copy of this specification, built
+# `envs/conjscan` in the project root is a materialised copy of this file, built
 # by tools/install_tool_envs.py, which also installs the models into data/refs/conjscan.
 name: conjscan
 channels: [conda-forge, bioconda]
