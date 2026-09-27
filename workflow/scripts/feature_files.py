@@ -81,7 +81,7 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
         """Write one plasmid's GFF3 and GenBank records."""
         global n_features, n_records
         # The record's own length: ORF coordinates wrap on this sequence, which is shorter
-        # than the master table's size_bp wherever a terminal repeat was removed.
+        # than the master table's size_bp wherever the analysis set trimmed a terminal repeat.
         L = len(seq)
         rows = genes.get(name, [])
         n_records += 1
