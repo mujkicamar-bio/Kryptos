@@ -364,6 +364,35 @@ def test_the_consensus_recheck_finds_a_family_that_is_collectively_recognisable(
     assert rows["F3"]["collectively_novel"] == ""
 
 
+def test_a_consensus_that_hits_only_a_duf_or_upf_family_stays_collectively_novel(
+        fixture_dir, monkeypatch):
+    """The hit and its name are recorded, but a domain of unknown function names nothing.
+    The stand-in hmmsearch writes a domain table with one hit per family."""
+    rows = ["F1 - 60 RepA_N PF01051.1 90 1e-20 70 0 1 1 1e-21 1e-21",
+            "F2 - 60 DUF1234 PF06776.1 90 1e-20 70 0 1 1 1e-21 1e-21",
+            "F3 - 60 UPF0126 PF03458.1 90 1e-20 70 0 1 1 1e-21 1e-21"]
+    domtbl = fixture_dir / "hits.domtbl"
+    domtbl.write_text("".join(r + "\n" for r in rows))
+    exe = fixture_dir / "bin" / "hmmsearch"
+    exe.parent.mkdir()
+    exe.write_text("#!/bin/sh\nwhile [ \"$1\" != --domtblout ]; do shift; done\n"
+                   f"cp {domtbl} \"$2\"\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
+    cons = fixture_dir / "family_consensus.faa"
+    write_fasta(cons, [(f, "MKV") for f in ("F1", "F2", "F3")])
+    fams = fixture_dir / "dark_families.tsv"
+    write_tsv(fams, ["family_id"], [["F1"], ["F2"], ["F3"]])
+    out = fixture_dir / "consensus_recheck.tsv"
+    run_script("consensus_recheck.py", FakeSnakemake(
+        input={"consensus": str(cons), "families": str(fams)}, output=[str(out)],
+        params={"db": "Pfam-A.hmm", "args": "--cut_ga", "hmmer_z": 1}))
+    got = {r["family_id"]: (r["consensus_hit"], r["consensus_label"], r["collectively_novel"])
+           for r in read_tsv(out)}
+    assert got == {"F1": ("1", "RepA_N", "0"), "F2": ("1", "DUF1234", "1"),
+                   "F3": ("1", "UPF0126", "1")}
+
+
 def test_defence_systems_keeps_component_status_and_system_wholeness(fixture_dir):
     """A mandatory component of a complete system and a neutral component of a fragment
     are different evidence; MacSyFinder's hit_status and sys_wholeness say which."""

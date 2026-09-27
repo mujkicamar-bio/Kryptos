@@ -380,7 +380,8 @@ rule consensus_recheck:
     """S7c: is the family collectively novel, or only individually unmatched?
 
     A label, never a filter. A family whose consensus hits Pfam keeps its row and gains
-    `collectively_novel = 0` plus the name of what it matched.
+    the name of what it matched, and `collectively_novel = 0` unless that name is a DUF or
+    UPF family of unknown function.
     """
     input:
         consensus=f"{OUT}/11_distribution_and_evolution/family_consensus.faa",
