@@ -23,8 +23,9 @@ UNINFORMATIVE = re.compile(
     r"""
       hypothetical                # 'hypothetical protein', the canonical case
     | uncharacteri[sz]ed          # both spellings; UniProt and NCBI differ
-    | \bDUF\d*\b                  # DUF1234, and bare 'DUF domain-containing protein'
-    | \bUPF\d+                    # UniProt uncharacterized protein family
+    # Domain / UniProt protein family of unknown function: DUF1234, bare 'DUF', and Pfam
+    # names with a suffix (DUF2201_N, UPF0102_N, Chloroplast_duf); not inside a word.
+    | (?<![a-z])(?:DUF|UPF)\d*(?![a-z])
     | unknown\ function
     | unnamed\ protein            # 'unnamed protein product', common in older GenBank
     # 'putative', 'predicted' or 'conserved protein' only as the whole name: at the start
@@ -272,7 +273,7 @@ def n_dark_databases(hits):
 # from the plasmids its family occurs on, not from database title prefixes.
 _EVIDENCE_RUNGS = [
     # A curator built and named a family for it. Strongest evidence of reality.
-    ("CURATED_FAMILY", re.compile(r"\bDUF\d*\b|\bUPF\d+", re.I)),
+    ("CURATED_FAMILY", re.compile(r"(?<![a-z])(?:DUF|UPF)\d*(?![a-z])", re.I)),
     # Homologs exist; no function.
     ("CONSERVED", re.compile(r"\bconserved\b", re.I)),
     # One algorithm's output and nothing more.

@@ -27,6 +27,13 @@ UNINFORMATIVE_LABELS = [
     "WP_1.1 MULTISPECIES: conserved protein [Enterobacteriaceae]",
     "P1.1 RecName: Full=Putative protein; AltName: Full=X [Escherichia coli]",
     "P2.1 predicted protein",
+    # Pfam DUF/UPF families with a suffix
+    "DUF2201_N",
+    "DUF1357_C",
+    "DUF3108_like",
+    "DUF34_NIF3",
+    "Chloroplast_duf",
+    "UPF0102_N",
 ]
 
 FUNCTIONAL_LABELS = [
@@ -42,6 +49,7 @@ FUNCTIONAL_LABELS = [
     "RelB",
     "conjugal transfer protein TraD",
     "ParE toxin",
+    "upfront",
     # putative / predicted / conserved protein as part of a longer name
     "WP_1.1 putative protein kinase [Escherichia coli]",
     "Putative protein-export protein",
