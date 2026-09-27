@@ -53,18 +53,10 @@ ignore = [
     # Line length is governed by the formatter setting above, not by a second rule that
     # would flag prose in the long explanatory comments this codebase relies on.
     "E501",
-    # `l` as a loop variable over lines. Twenty-seven occurrences, all of the form
-    # `for l in open(path)`. Renaming them is cosmetic, and two of the sites are
-    # multi-line comprehensions where a mechanical rewrite is not safe. Left as a
-    # deliberate decision rather than churned immediately before a release.
+    # `l` for a line, as in `for l in open(path)`.
     "E741",
-    # `zip()` without `strict=`. NOT cosmetic, and NOT resolved - see below. Six sites,
-    # most of them parsing a tool's TSV output into a dict via `dict(zip(header, fields))`,
-    # where a short row is silently truncated instead of raising. Adding `strict=True`
-    # is very probably correct, but it converts silent data loss into a hard failure and
-    # so changes the behaviour of a validated pipeline. That is a scientific decision
-    # about how to treat malformed tool output, not a lint fix, and it is recorded in
-    # docs/PARAMETER_PROVENANCE.md rather than made here by a linter.
+    # zip() without strict=: strict=True would turn a short tool output row into a failure,
+    # which is a decision about how to treat malformed tool output, not a lint fix.
     "B905",
 ]
 
