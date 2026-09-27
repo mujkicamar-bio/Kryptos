@@ -1,9 +1,9 @@
 """Stage 5: the family table, with what the cascade found in each family.
 
-Inputs: the cluster files of the three resolutions (close, intermediate and broad, written by
-protein_clustering.py over every unique protein, annotated or not), protein_annotation.tsv,
-the dark ids, small_plasmids.txt, the protein map, the clonal registry and the Stage 6
-lineages. A family is a sequence cluster and nothing else: size and distribution are
+Inputs: one cluster file per configured resolution (close, intermediate and broad in
+config/targets.yaml), written by protein_clustering.py over every unique protein, annotated
+or not; protein_annotation.tsv, the dark ids, small_plasmids.txt, the protein map, the
+clonal registry and the Stage 6 lineages. A family is a sequence cluster and nothing else: size and distribution are
 attributes, never filters, and a cluster of one is kept and labelled ORPHAN.
 family_id = <resolution>:<representative>, so an id does not depend on cluster order.
 
