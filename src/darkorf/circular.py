@@ -1,97 +1,30 @@
-"""Circular-origin repair: making gene calling independent of where the circle was cut.
+"""Circular-origin repair.
 
-THE PROBLEM
-
-A plasmid is physically a circle. A FASTA record is a line. To write the circle as a line
-you cut it at an arbitrary point, and any gene spanning that cut is split into two
-fragments - one at the start of the record, one at the end.
-
-Measured on the current analysis set:
-
-    160,375 partial ORFs        1.72% of 9,317,050, i.e. 1.12 per plasmid
-     88,600 of them start at coordinate <= 3
-    134,748 of 143,503 plasmids (93.9%) are effectively circular
-                                  75,231 'circular' + 59,517 'direct terminal repeat'
-
-1.12 per plasmid is what you would predict when a random cut point in a gene-dense
-circular molecule usually lands inside a gene.
-
-WHY IT MATTERS HERE SPECIFICALLY
-
-These are REAL genes, artificially truncated - which is the opposite of the artefact class
-AntiFam catches, and needs the opposite treatment. A truncated protein aligns to only part
-of any domain, so its coverage drops, pushing it toward DOMAIN_ONLY; if the cut removes
-the domain entirely it gets no hit at all and is classed dark. Either way, half of a
-perfectly well-understood RepA can enter the screening pool as a novel dark protein - and
-synthesising half a protein guarantees a dead well.
-
-THE APPROACH
-
-Append the first `overlap` bases to the end, call genes on the extended sequence, then map
-coordinates back. A gene that straddled the cut is now wholly inside the extended sequence
-and is called intact, with the correct translation.
-
-    original    [1 .................................... L]
-    extended    [1 .................................... L][1 ... overlap]
-                                              ^gene now contiguous^
-
-An analogy with text makes the mechanism concrete. Consider a sentence written around a
-ring, so that it has no first or last word. Transcribing the ring onto a line requires a
-cut, and the cut usually falls inside a word:
-
-    transcribed     ELLO WORLD HOW ARE YOU H
-                                           ^ the cut
-
-A reader of the line sees two fragments, "ELLO" and "H", and has no way to tell that they
-are two halves of one word. Continue transcribing past the cut, repeating the first few
-words, and the word reappears whole:
-
-    extended        ELLO WORLD HOW ARE YOU H ELLO WORLD
-                                           ^ HELLO is now contiguous
-
-Read the words off the extended line and then discard what the repetition introduced:
-"ELLO" at the start, because it is the head of a word already read whole, and the second
-"WORLD", because it is a copy of the first. The ring is the plasmid, the words are genes,
-the fragments are the two partial ORFs that a linear caller reports, and the pipeline
-never joins the fragments; it discards them and reads the gene whole from the extended
-sequence.
-
-Four cases when mapping back, handled by resolve_origin_genes:
-
-    end <= L            an ordinary gene            keep unchanged
-    start <= 3, partial truncated at the record   the head fragment of a gene now called
-                        start                      intact across the cut; drop
-    start <= L < end    the gene crossed the cut    keep, wrap end, flag origin_spanning
-    start > L           wholly in the appended tail duplicate of one already kept; drop
-
-THE INVARIANT (success criterion SC6)
-
-Calling genes on any rotation of a circular sequence must yield the same protein set. If it
-does not, the coordinate system is contributing biology, which it must never do. Tested in
-tests/test_circular.py.
+A circular molecule written as a FASTA record is cut at an arbitrary point, and a gene
+crossing that point is split into a fragment at each end. For a closed molecule the first
+min(MAX_OVERLAP_BP, L) bases are appended to the record before gene calling, so a gene
+crossing the cut is contiguous and is called whole. Every gene in the appended copy is
+then called twice; resolve_origin_genes keeps one copy per gene and maps it back onto the
+record, writing a gene that crosses position L with start > end. Topologies other than
+CIRCULAR_TOPOLOGIES, including unknown ones, are treated as linear.
 """
 
-# Long enough to contain any plausible plasmid gene - the largest known plasmid proteins
-# are well under 5 kb of coding sequence - and short enough that the extra calling cost is
-# negligible against a 143,503-plasmid set.
+# Longer than the coding sequence of almost every plasmid gene. A gene crossing the cut
+# and longer than this is kept as a partial (see resolve_origin_genes). The cap bounds the
+# extra calling cost on large plasmids.
 MAX_OVERLAP_BP = 5000
 
-# Topologies that denote a closed molecule. 'direct terminal repeat' is the signature of a
-# circular molecule that an assembler resolved and reported linearly, with the overlap
-# between its two ends left in the record: measured on 400 such records, every one begins
-# with an exact copy of its own last >= 20 bp, and in 76% the copy is not a multiple of 3
-# long. Joining those ends as they stand shifts the reading frame of every gene across the
-# junction, so S0 removes one copy first (terminal_repeat_length, rule analysis_set).
+# Topologies that denote a closed molecule. 'direct terminal repeat' is a circular molecule
+# an assembler reported linearly with the overlap between its two ends left in the record:
+# measured on 400 such records, every one begins with an exact copy of its own last >= 20
+# bp, and in 76% the copy is not a multiple of 3 long, so S0 removes one copy before gene
+# calling (terminal_repeat_length, rule analysis_set).
 #
-# 'inverted terminal repeat' is deliberately NOT here. An ITR is the signature of a
-# genuinely linear replicon with hairpin or protein-capped telomeres - the Borrelia and
-# Streptomyces linear plasmids, phi29, adenovirus - so joining its ends would fabricate a
-# gene across a junction that does not exist in the cell.
-#
-# Anything not listed, including a missing or unrecognised value, is treated as linear. The
-# two errors are not symmetric: calling a circular molecule linear loses the ~1.7% of genes
-# that cross the origin, while calling a linear molecule circular invents genes outright.
-# Losing real data is recoverable; inventing it is not.
+# 'inverted terminal repeat' is not listed: it marks a genuinely linear replicon with
+# hairpin or protein-capped telomeres (the Borrelia and Streptomyces linear plasmids), and
+# joining its ends would invent a gene across a junction that does not exist in the cell.
+# Treating a circular molecule as linear loses the genes that cross the origin; treating a
+# linear molecule as circular invents genes, so anything not listed is linear.
 CIRCULAR_TOPOLOGIES = frozenset({
     "circular",
     "direct terminal repeat",
@@ -123,89 +56,66 @@ def terminal_repeat_length(seq, min_repeat):
 
 
 def overlap_for(length):
-    """How much sequence to append to the end, for a molecule of this length.
+    """How many bases of the record's start to append to its end: the whole molecule, so
+    that any gene crossing the cut is contiguous, up to MAX_OVERLAP_BP."""
+    return min(MAX_OVERLAP_BP, length)
 
-    Capped at MAX_OVERLAP_BP, and never more than half the molecule. The half limit is not
-    cosmetic: appending more than half would let a single short gene be called three times
-    - once in place, twice in the tail - which resolve_origin_genes deduplicates only for
-    the tail region as a whole, not for repeated copies within it.
+
+def resolve_origin_genes(genes, original_length, extended_length):
+    """Map genes called on the extended sequence back onto the record.
+
+    `genes` are dicts with start, end (1-based inclusive on the extended sequence of
+    `extended_length` bases), strand and partial. Returns new dicts, each with
+    `origin_spanning`; a gene crossing the cut has start > end and is read as
+    start..original_length followed by 1..end (the GenBank join convention).
+
+    Every base of the appended copy lies in the record too, so a gene there can be called
+    twice: once in the record and once in the copy, the two calls lying original_length
+    apart in the same reading frame on the same strand. Of the two, the call farther from
+    the ends of the extended sequence is kept, because near an end the caller sees only
+    part of the gene's context and truncates the gene there (a partial call). This drops
+    the head fragment of a gene called whole across the cut, keeps the whole copy of a gene
+    whose record copy was truncated at position 1, and leaves a gene longer than the
+    appended copy partial. A call with no twin is dropped if it lies in the appended copy,
+    whose bases the record's own calls already cover, or if it is partial: a circle has no
+    end to run off, and a partial call without a twin is one the caller made only because
+    edge genes need no start codon.
     """
-    return min(MAX_OVERLAP_BP, length // 2)
+    length = original_length
 
+    def margin(g):
+        return min(g["start"] - 1, extended_length - g["end"])
 
-def rotate(seq, offset):
-    """Rotate a circular sequence so that `offset` becomes the new origin.
+    def twins(a, b):
+        # b shifted back by one molecule length overlaps a in the same frame and strand.
+        start, end = b["start"] - length, b["end"] - length
+        return (a is not b and a["strand"] == b["strand"] and (a["end"] - end) % 3 == 0
+                and a["start"] <= end and start <= a["end"])
 
-    Used only for testing the invariant; the pipeline never rotates real data. Kept here
-    rather than in the test file so that the definition of "rotation" the invariant is
-    stated against lives beside the code it constrains.
-    """
-    if not seq:
-        return seq
-    offset %= len(seq)
-    return seq[offset:] + seq[:offset]
+    twinned, dropped = set(), set()
+    for j, b in enumerate(genes):
+        if b["end"] <= length:
+            continue
+        for i, a in enumerate(genes):
+            if twins(a, b):
+                twinned |= {i, j}
+                dropped.add(i if margin(b) > margin(a) else j)
+    dropped |= {i for i, g in enumerate(genes)
+                if i not in twinned and (g["start"] > length or g["partial"])}
 
-
-def resolve_origin_genes(genes, original_length):
-    """Map genes called on the extended sequence back onto the original coordinates.
-
-    `genes` are dicts with at least start, end (1-based inclusive, on the EXTENDED
-    sequence), strand, partial and the reconstructed CDS. Returns a new list; inputs are
-    not mutated.
-
-    Every returned gene carries `origin_spanning`: True if it crosses the cut point, else
-    False. For such a gene, start > end, and the feature is read as start..original_length
-    followed by 1..end - the GenBank join() convention. Coordinates are reported unrotated,
-    because ids.occurrence_id is built from them; normalising them into a linear-looking
-    range would change the identifier. Downstream writers (GFF3, GenBank) must honour the
-    convention; a naive end - start length calculation would be negative and is a bug.
-
-    Genes lying wholly beyond original_length are duplicates of genes already called near
-    the start of the record and are dropped. Without this, every circular plasmid would
-    gain phantom ORFs equal to whatever fits in the appended tail.
-
-    Genes truncated at the start of the record are dropped for the mirror reason. The
-    caller only ever flags a gene partial at coordinate 1-3 when it ran off the left edge,
-    and on a closed molecule that edge is not real: the gene is the one the extension has
-    just called intact across the cut, and keeping both would emit every origin-spanning
-    protein twice, once whole and once as its stub.
-    """
     kept = []
-    for g in genes:
-        start, end = g["start"], g["end"]
-
-        if start > original_length:
-            # Wholly inside the appended tail: the same gene was already called at the
-            # start of the record.
+    for i, g in enumerate(genes):
+        if i in dropped:
             continue
-        if start <= 3 and g.get("partial"):
-            # Truncated at the record start: the head fragment of a gene that the
-            # extension calls whole across the origin.
-            continue
-
-        out = dict(g)
-        if end > original_length:
-            # Crossed the cut. The translation from the extended sequence is the real,
-            # intact protein - which is the entire point of the exercise.
-            out["end"] = ((end - 1) % original_length) + 1
-            # orf_occurrences.origin_spanning is a declared column (spec 8.4, 9.4), so the
-            # flag is carried explicitly on every gene rather than inferred downstream from
-            # end < start.
-            out["origin_spanning"] = True
-            # A gene reconstructed across the origin is by definition no longer truncated
-            # by the coordinate system.
-            out["partial"] = 0
-        else:
-            out["origin_spanning"] = False
+        out = dict(g, origin_spanning=g["start"] <= length < g["end"])
+        if g["start"] > length:
+            out["start"] -= length
+        if g["end"] > length:
+            out["end"] -= length
         kept.append(out)
     return kept
 
 
 def is_circular(topology):
-    """Whether a topology string denotes a closed molecule needing origin repair.
-
-    Unknown or missing topology is treated as NOT circular. Extending a genuinely linear
-    molecule would fabricate a junction that does not exist and could invent a chimeric
-    gene across the two ends - a worse failure than leaving a real gene truncated.
-    """
+    """Whether a topology string denotes a closed molecule needing origin repair."""
     return (topology or "").strip().lower() in CIRCULAR_TOPOLOGIES

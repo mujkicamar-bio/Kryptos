@@ -200,29 +200,31 @@ def test_the_artefact_screen_uses_antifams_curated_thresholds(fixture_dir):
 
 
 def test_orf_call_reconstructs_a_gene_across_the_origin(fixture_dir):
-    """tests/test_circular.py proves resolve_origin_genes in isolation. This proves the
-    script actually drives it: the same plasmid cut inside a gene must yield the same
-    protein set as the uncut plasmid, with the straddling gene written start > end and
-    flagged spans_origin=1 in orf_index.tsv."""
+    """orf_call drives the origin repair: a plasmid cut inside a gene yields the same
+    proteins as the uncut plasmid, with the gene written start > end and spans_origin=1.
+    The second pair carries a gene longer than half the molecule."""
     import random
     pytest.importorskip("pyrodigal")
-    from darkorf.circular import rotate
 
-    random.seed(11)
-    sense = [a + b + c for a in "ACGT" for b in "ACGT" for c in "ACGT"
-             if a + b + c not in ("TAA", "TAG", "TGA")]
-    def background(n):
-        return "".join(random.choice("ACGT") for _ in range(n))
-    gene = "ATG" + "".join(random.choice(sense) for _ in range(300)) + "TAA"
-    uncut = background(1_000) + gene + background(1_000)
-    cut = rotate(uncut, 1_000 + len(gene) // 2)   # the new origin lies mid-gene
+    def planted(seed, n_codons, left, right, cut):
+        rng = random.Random(seed)
+        sense = [a + b + c for a in "ACGT" for b in "ACGT" for c in "ACGT"
+                 if a + b + c not in ("TAA", "TAG", "TGA")]
+        gene = "ATG" + "".join(rng.choice(sense) for _ in range(n_codons)) + "TAA"
+        flank = "".join(rng.choice("ACGT") for _ in range(left + right))
+        uncut = flank[:left] + gene + flank[left:]
+        cut_at = left + cut                         # the new origin lies inside the gene
+        return uncut, uncut[cut_at:] + uncut[:cut_at]
 
+    short_uncut, short_cut = planted(11, 300, 1_000, 1_000, 453)
+    long_uncut, long_cut = planted(5, 400, 700, 0, 100)
+    records = [("uncut", short_uncut), ("cut", short_cut),
+               ("long_uncut", long_uncut), ("long_cut", long_cut)]
     master = fixture_dir / "master.tsv"
-    write_tsv(master, ["plasmid_id", "topology"],
-              [["uncut", "circular"], ["cut", "circular"]])
-    fasta = fixture_dir / "shard.fna"
-    write_fasta(fasta, [("uncut", uncut), ("cut", cut)])
-    out = fixture_dir / "orf_index.tsv"
+    write_tsv(master, ["plasmid_id", "topology"], [[pid, "circular"] for pid, _ in records])
+    fasta = fixture_dir / "analysis_set.fna"
+    write_fasta(fasta, records)
+    out = fixture_dir / "orfs.tsv"
 
     run_script("orf_call.py", FakeSnakemake(
         input={"fasta": str(fasta), "master": str(master)},
@@ -231,17 +233,17 @@ def test_orf_call_reconstructs_a_gene_across_the_origin(fixture_dir):
 
     rows = read_tsv(out)
     proteins = {pid: sorted(r["seq"] for r in rows if r["plasmid_id"] == pid)
-                for pid in ("uncut", "cut")}
+                for pid, _ in records}
     assert proteins["uncut"] == proteins["cut"], "protein set depends on the cut point"
+    assert proteins["long_uncut"] == proteins["long_cut"], "long gene depends on the cut"
 
-    planted = [r for r in rows if r["plasmid_id"] == "cut" and len(r["seq"]) == 301]
-    assert len(planted) == 1, "the planted gene was not called exactly once on the cut record"
-    assert planted[0]["spans_origin"] == "1"
-    assert int(planted[0]["start"]) > int(planted[0]["end"]), "wrapped end not applied"
-    assert planted[0]["partial"] == "0"
-    assert not any(r["partial"] == "1" for r in rows), (
-        "a left-edge stub survived alongside the gene it is a fragment of")
-    # The translation table is recorded on every gene (open issue: table 4 in meta mode).
+    for pid, n_aa in (("cut", 301), ("long_cut", 401)):
+        gene = [r for r in rows if r["plasmid_id"] == pid and len(r["seq"]) == n_aa]
+        assert len(gene) == 1, f"the planted gene was not called exactly once on {pid}"
+        assert gene[0]["spans_origin"] == "1"
+        assert int(gene[0]["start"]) > int(gene[0]["end"]), "wrapped end not applied"
+        assert gene[0]["partial"] == "0"
+    assert not any(r["partial"] == "1" for r in rows), "a left-edge stub survived"
     assert {r["translation_table"] for r in rows} <= {"11", "4"}, rows[0]
 
 

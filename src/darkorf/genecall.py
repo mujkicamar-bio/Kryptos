@@ -10,49 +10,39 @@ import pyrodigal
 from darkorf.circular import is_circular, overlap_for, resolve_origin_genes
 
 _finder = None
-_min_gene_nt = None
 
 
 def configure(min_gene_nt):
     """Set the gene caller's floor for this process. Called once per pool worker."""
-    global _finder, _min_gene_nt
-    _min_gene_nt = min_gene_nt
+    global _finder
     _finder = pyrodigal.GeneFinder(
         meta=True,                              # no training set: every plasmid is called alone
         min_gene=min_gene_nt,
-        min_edge_gene=min(min_gene_nt, 60),     # edge genes on genuinely linear molecules
+        min_edge_gene=min(min_gene_nt, 60),     # Prodigal's default floor for edge genes
     )
 
 
 def call_genes(plasmid_id, sequence, topology):
-    """Call one record: (plasmid_id, genes, redundant_dropped).
+    """Call one record; circular topologies get origin repair.
 
-    Topology decides whether the record gets origin repair. Unknown topology is treated as
-    linear: extending a genuinely linear molecule would fabricate a junction that does not
-    exist and could invent a chimeric gene across the two ends.
+    Returns (plasmid_id, genes, redundant_dropped).
     """
     length = len(sequence)
     if not length:
         return plasmid_id, [], 0
 
     circular = is_circular(topology)
-    if circular:
-        # Append the head to the tail so a gene straddling the cut becomes contiguous.
-        search_seq = sequence + sequence[:overlap_for(length)]
-    else:
-        search_seq = sequence
+    search_seq = sequence + sequence[:overlap_for(length)] if circular else sequence
 
     raw = [{"start": g.begin, "end": g.end, "strand": g.strand,
             "partial": int(g.partial_begin or g.partial_end),
-            # OPEN ISSUE (spec section 8, translation table): meta mode picks a model per
-            # plasmid and some models use table 4 (TGA = Trp). Recorded so the affected
-            # genes can be found; how to treat them is not decided yet.
+            # Meta mode picks one model per call, and some models use table 4 (TGA = Trp).
             "translation_table": g.translation_table,
             "seq": g.translate().rstrip("*")}
            for g in _finder.find_genes(search_seq)]
 
     if circular:
-        genes = resolve_origin_genes(raw, original_length=length)
+        genes = resolve_origin_genes(raw, length, len(search_seq))
         return plasmid_id, genes, len(raw) - len(genes)
     return plasmid_id, [dict(g, origin_spanning=False) for g in raw], 0
 
