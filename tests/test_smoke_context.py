@@ -86,7 +86,7 @@ def test_an_alignment_shorter_than_min_codons_is_too_short(fixture_dir):
 
 
 def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear",
-                 defence_rows=(), conj_rows=()):
+                 defence_rows=(), conj_rows=(), integron_rows=None):
     """One plasmid: dark ORF pl1|1 in a two-gene directon with an annotated partner, and a
     dark ORF pl1|3 inside an integron cassette array. F1 is pl1|1's family."""
     ann = fixture_dir / "plasmid_annotation.tsv"
@@ -106,6 +106,7 @@ def _run_context(fixture_dir, is_rows=(), genes=None, topology="linear",
     integrons = fixture_dir / "integrons.tsv"
     write_tsv(integrons, ["plasmid_id", "integron_id", "element", "start", "end",
                           "integron_type", "annotation", "type_elt"],
+              integron_rows or
               [["pl1", "in1", "protein", 3000, 3300, "complete", "protein", "protein"]])
     master = fixture_dir / "context_master.tsv"
     write_tsv(master, ["plasmid_id", "size_bp", "topology"], [["pl1", 5000, topology]])
@@ -159,6 +160,15 @@ def test_a_not_run_system_stage_gives_an_empty_rate_not_zero(fixture_dir):
                        conj_rows=[["", "", "", "", "", "NOT_RUN"]])[0]
     assert row["cons_defence"] == "" and row["cons_conj"] == ""
     assert row["cons_integron"] == "0.0"
+
+
+def test_only_an_integron_with_a_cassette_array_is_an_island(fixture_dir):
+    """pl1|1 (100..400) lies in an integron element: counted for complete and CALIN
+    integrons, not for In0, an integrase without attC sites."""
+    def rate(integron_type):
+        row = ["pl1", "in1", "intI_1", 50, 450, integron_type, "intI", "protein"]
+        return _run_context(fixture_dir, integron_rows=[row])[0]["cons_integron"]
+    assert (rate("complete"), rate("CALIN"), rate("In0")) == ("1.0", "1.0", "0.0")
 
 
 def test_an_orf_that_is_a_defence_component_gets_defence_context(fixture_dir):

@@ -6,7 +6,8 @@ For every dark family, the fraction of the plasmids carrying it on which a membe
 
     cons_defence                 is a component of a DefenseFinder system
     cons_conj                    is a component of a CONJScan system
-    cons_integron                overlaps an integron cassette array (IntegronFinder)
+    cons_integron                overlaps an element of an integron with a cassette array
+                                 (IntegronFinder type complete or CALIN; not In0)
     cons_is_element              overlaps an IS element (ISEScan)
     cons_annotated_neighbour     has a FUNCTIONAL gene within the +-window neighbourhood
     cons_operon_with_annotated   shares a directon with a FUNCTIONAL gene
@@ -112,11 +113,14 @@ with open(snakemake.input.map) as fh:
                 seq_of_source[oid] = sid
 
 # ------------------------------------------------------------------------------------
-# Islands, as intervals per plasmid: integron elements and IS elements.
+# Islands, as intervals per plasmid: the elements of integrons with a cassette array, and
+# IS elements. An In0 integron is an integrase without attC sites, so no cassette array.
 # ------------------------------------------------------------------------------------
 islands = collections.defaultdict(list)
 with open(snakemake.input.integrons, newline="") as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
+        if r["integron_type"] not in ("complete", "CALIN"):
+            continue
         islands[r["plasmid_id"]].append(
             {"name": "integron", "start": int(r["start"]), "end": int(r["end"])})
 
