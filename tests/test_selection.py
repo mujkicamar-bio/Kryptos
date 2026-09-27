@@ -1,9 +1,9 @@
 """S2s: which proteins the cascade annotates (plasmidann.selection).
 
-A broad family is annotated when a small plasmid carries a protein in it that Tier 0 has
-not explained; then every member Tier 0 has not explained is annotated, whatever plasmid
-it is on. Nothing else is. An AntiFam-flagged protein is never searched and, like a Tier 0
-protein, does not open its family for searching.
+A family (clustering.primary) is annotated when a small plasmid carries a protein in it
+that Tier 0 has not explained; then every member Tier 0 has not explained is annotated,
+whatever plasmid it is on. Nothing else is. An AntiFam-flagged protein is never searched
+and, like a Tier 0 protein, does not open its family for searching.
 """
 from plasmidann.selection import select
 

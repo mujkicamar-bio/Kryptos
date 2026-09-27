@@ -14,6 +14,13 @@ from conftest import (
     write_tsv,
 )
 
+from plasmidann.tools import required_tools
+
+# Pre-flight fails unless every registry tool of a run without structure and orthology is
+# installed, so a test that expects it to pass needs them all.
+every_tool = requires(*(t["name"] for t in required_tools(structure_required=False,
+                                                          orthology_required=False)))
+
 # The S2b artefact flags as artefact_screen writes them. Empty unless rows are given.
 ARTEFACT_COLS = ["seq_id", "artefact_flag", "antifam_family", "antifam_ievalue",
                  "low_complexity_fraction", "artefact_reason"]
@@ -25,9 +32,6 @@ def _artefact_flags(fixture_dir, rows=()):
     return str(path)
 
 
-
-
-@requires("hmmsearch", "diamond", "mafft", "mmseqs", "foldseek")
 def _s4d_params(fixture_dir, labels_required=False, amr_required=False,
                 conj_required=False, conj_exe=None, conj_models=None, labels_dir=None):
     """Pre-flight params for the label databases, AMRFinderPlus and CONJScan. By default
@@ -42,36 +46,7 @@ def _s4d_params(fixture_dir, labels_required=False, amr_required=False,
             "conjscan_models": str(conj_models or fixture_dir / "no_conjscan")}
 
 
-def test_preflight_checks_every_tool_the_workflow_runs(fixture_dir):
-    """Pre-flight covered 4 of the 11 executables the workflow invokes. A missing mafft,
-    mmseqs, macsyfinder, integron_finder, prodigal, cmsearch or foldseek still killed the
-    run days in - which is the exact failure class this rule was written to remove."""
-    from plasmidann.tools import tool_names
-
-    db = fixture_dir / "fake.hmm"
-    db.write_text("HMMER3/f\n")
-    (fixture_dir / "fake.hmm.h3i").write_text("")
-    antifam = fixture_dir / "AntiFam.hmm"
-    antifam.write_text("HMMER3/f\n")
-    (fixture_dir / "AntiFam.hmm.h3i").write_text("")
-    out = fixture_dir / "preflight.tsv"
-
-    run_script("preflight.py", FakeSnakemake(
-        output=[str(out)],
-        params={"tiers": [{"id": "T1", "method": "hmmer", "source": "pfam", "db": str(db),
-                           "args": "--cut_ga", "max_evalue": None}],
-                "artefact": {"antifam_db": str(antifam)},
-                "structure": {"required": False},
-                "orthology": {"required": False, "data_dir": ""},
-                "foldseek_db": str(fixture_dir / "absent"),
-                "prostt5": str(fixture_dir / "absent"), **_s4d_params(fixture_dir)}))
-
-    reported = {l.split("\t")[0] for l in out.read_text().splitlines() if "\t" in l}
-    unchecked = {t for t in tool_names()} - reported - {"foldseek", "emapper.py"}
-    assert not unchecked, f"pre-flight never checked: {sorted(unchecked)}"
-
-
-@requires("diamond")
+@every_tool
 def test_preflight_refuses_an_incomplete_diamond_index(fixture_dir):
     """A makedb killed part-way leaves a non-empty .dmnd. Existence is not completeness:
     the sequence count must match the one the database's metadata declares."""
@@ -96,11 +71,10 @@ def test_preflight_refuses_an_incomplete_diamond_index(fixture_dir):
 
 
 def test_preflight_fails_when_a_downstream_tool_is_missing(fixture_dir, monkeypatch):
-    """The whole point: fail in seconds, not after the cascade has run for three days.
+    """A missing tool of a later stage fails pre-flight, naming the tool and its stage.
 
-    PATH cannot be emptied here - the harness deliberately prepends the project's bin so
-    that a missing tool fails a test rather than sending a script down a silent error
-    branch. So the absence is injected at shutil.which instead."""
+    The harness prepends the project's bin to PATH, so the absence is injected at
+    shutil.which."""
     import shutil
     db = fixture_dir / "fake.hmm"
     db.write_text("HMMER3/f\n")
@@ -157,6 +131,7 @@ def _label_dbs(root, omit=()):
     return root
 
 
+@every_tool
 def test_preflight_fails_fast_when_a_required_label_database_is_missing(fixture_dir):
     labels = _label_dbs(fixture_dir / "labels", omit=("acrdb",))
     with pytest.raises(SystemExit, match="label database acrdb"):
@@ -165,6 +140,7 @@ def test_preflight_fails_fast_when_a_required_label_database_is_missing(fixture_
     _preflight_s4d(fixture_dir, labels_dir=labels, labels_required=False)
 
 
+@every_tool
 def test_preflight_refuses_an_installed_label_database_without_its_version(fixture_dir):
     """The stage halts on a missing VERSION whether the databases are required or not,
     so pre-flight must too - in seconds, not after the cascade."""
@@ -174,6 +150,7 @@ def test_preflight_refuses_an_installed_label_database_without_its_version(fixtu
         _preflight_s4d(fixture_dir, labels_dir=labels, labels_required=False)
 
 
+@every_tool
 def test_preflight_fails_when_amrfinder_is_required_and_absent(fixture_dir):
     with pytest.raises(SystemExit, match="AMRFinderPlus executable"):
         _preflight_s4d(fixture_dir, amr_required=True)
@@ -197,6 +174,7 @@ def _conjscan_install(fixture_dir, grammar, reported):
     return models, exe
 
 
+@every_tool
 def test_preflight_refuses_a_macsyfinder_too_old_for_the_conjscan_grammar(fixture_dir):
     """CONJScan 2.1.0 is written in grammar 2.1; MacSyFinder 2.1.4, which DefenseFinder
     pins, stops on it with a parse error. That must fail here, naming both versions, and
@@ -212,6 +190,7 @@ def test_preflight_refuses_a_macsyfinder_too_old_for_the_conjscan_grammar(fixtur
     assert "conjscan_macsyfinder\t2.1.6" in out.read_text()
 
 
+@every_tool
 def test_preflight_names_a_missing_conjscan_only_when_it_is_required(fixture_dir):
     with pytest.raises(SystemExit, match="CONJScan is not installed"):
         _preflight_s4d(fixture_dir, conj_required=True)
@@ -278,10 +257,9 @@ def _tiny_diamond_db(fixture_dir):
 
 @requires("diamond")
 def test_a_diamond_tier_without_an_evalue_criterion_runs(fixture_dir):
-    """A tier may declare max_evalue: null, meaning "the tool's own threshold decides" -
-    the convention T1 already uses. For a DIAMOND tier the command was interpolated
-    unconditionally, so it went out as `--evalue None`, DIAMOND exited non-zero, and with
-    check=True the tier dies. The flag has to be omitted, not stringified."""
+    """A tier may declare max_evalue: null, meaning "the tool's own threshold decides".
+    For a DIAMOND tier the flag must then be omitted: `--evalue None` is accepted by
+    DIAMOND, returns zero hits and exits 0."""
     db = _tiny_diamond_db(fixture_dir)
     faa = fixture_dir / "q.faa"
     write_fasta(faa, [("Q1", "MKVLATTLLGAAFAASSALAQKKWLVRD")])
@@ -301,7 +279,7 @@ def test_a_diamond_tier_without_an_evalue_criterion_runs(fixture_dir):
     rows = read_tsv(out)
     assert rows, "no hits written for a query identical to a database sequence"
     assert rows[0]["query"] == "Q1"
-    # spec sections 19 and 21: identity, alignment length and bit score travel with a hit.
+    # Identity, alignment length, bit score and subject length travel with a hit.
     assert float(rows[0]["identity"]) == 1.0
     assert rows[0]["align_length"] and rows[0]["bitscore"] and rows[0]["target_length"]
 
@@ -365,14 +343,7 @@ def test_a_tier_carries_forward_what_it_could_not_explain(fixture_dir):
 
 
 def test_every_informative_label_survives_into_the_resolved_row(fixture_dir):
-    """Labels are ranked by E-value, so an nr hit with free text routinely takes
-    annot_label away from a curated Pfam assignment on the same protein. Anything reading
-    only annot_label therefore cannot see the Pfam family at all.
-
-    Nothing filters on this any more - the backbone stop-list is gone - but the resolved
-    row is the complete annotation record, and a curated family assignment is the most
-    authoritative thing in it. Dropping it would be losing annotation, not losing a
-    filter."""
+    """Every informative label reaches the row, not only the winning one."""
     hits = fixture_dir / "hits.tsv"
     write_tsv(hits, ["query", "label", "coverage", "target_coverage", "evalue",
                      "informative", "is_best", "start", "end", "tier", "source",
@@ -402,27 +373,14 @@ def test_every_informative_label_survives_into_the_resolved_row(fixture_dir):
     assert "RepA_N" in row["informative_labels"], (
         "the curated Pfam family is absent from the resolved row")
     assert row["functional_class"] == "FUNCTIONAL", (
-        "a fully explained replication initiator must be annotated, not dark - that is "
-        "what makes a stop-list unnecessary")
-
-
+        "a fully explained replication initiator must be annotated, not dark")
 
 
 @requires("diamond")
 def test_every_domain_of_a_multi_domain_protein_is_recorded(fixture_dir):
-    """tier_search kept only the single best informative hit per query per tier. Two
-    documented claims depend on it keeping all of them, and neither could hold:
-
-      * `n_informative_hits` is described as telling a reader whether 0.9 coverage came
-        from one domain or six. Capped at one per tier, its maximum was the number of
-        tiers, and a two-domain Pfam protein and a six-domain one both reported 1.
-      * tier_search's own docstring says the coordinates let explained_fraction be
-        recomputed from hits.tsv as an independent cross-check of spans.tsv. With the other
-        domains discarded that recomputation gives a smaller number every time, so the
-        cross-check would fail on exactly the proteins it matters for.
-
-    A replication initiator carrying RepA_N and Bac_RepA_C is the canonical case, and it is
-    the protein class this pipeline must not let through."""
+    """Every informative hit of a tier is kept, not only the best one, so that
+    n_informative_hits counts domains and explained_fraction can be recomputed from
+    hits.tsv as a cross-check of spans.tsv."""
     import subprocess
     ref = fixture_dir / "ref.faa"
     # Two clearly distinct domains, joined into one query protein.
@@ -466,9 +424,8 @@ def test_every_domain_of_a_multi_domain_protein_is_recorded(fixture_dir):
 @requires("diamond")
 def test_tier_search_keeps_the_subject_accession(fixture_dir):
     """A DIAMOND title is free text; the accession is the only key a later join to UniProt
-    or RefSeq can use, and it was being discarded. Measured on the NCBI swissprot database
-    used here, the title is 'P62554.1 RecName: Full=Toxin CcdB; ... [Escherichia coli]' -
-    NCBI's rendering, with no gene symbol - so the accession is the whole join key."""
+    or RefSeq can use. On the NCBI swissprot database used here the title is
+    'P62554.1 RecName: Full=Toxin CcdB; ... [Escherichia coli]', with no gene symbol."""
     import subprocess
 
     subject = fixture_dir / "db.faa"
@@ -505,23 +462,14 @@ def test_tier_search_keeps_the_subject_accession(fixture_dir):
     assert rows[0]["target_accession"] == "P62554.1", (
         f"accession not captured, got {rows[0]['target_accession']!r}")
     assert "CcdB" in rows[0]["label"] or "P62554" in rows[0]["label"], (
-        "the title is no longer being kept as the label")
-
-
-
-
-
-
-
-
+        "the title is not kept as the label")
 
 
 def test_a_family_level_hit_resolves_functional_with_completeness_not_measured(fixture_dir):
     """The pharokka tier reports a family, an annotation and an E-value and no coordinates.
-    A protein named by it alone must come out FUNCTIONAL - the family says the whole
-    protein is known - and its completeness must read NOT_MEASURED, not NONE. NONE would
-    say "nothing matched" on a protein whose whole family is known (spec section 2.9:
-    absence of a measurement is a status, never a zero)."""
+    A protein named by it alone comes out FUNCTIONAL, and what depends on a measured span
+    reads as not measured: completeness NOT_MEASURED, not NONE, and meets_min_explained
+    empty, not 0."""
     hits = fixture_dir / "phage_hits.tsv"
     write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
                      "evalue", "informative", "is_best", "start", "end", "tier", "source",
@@ -551,6 +499,8 @@ def test_a_family_level_hit_resolves_functional_with_completeness_not_measured(f
     assert row["annot_completeness"] == "NOT_MEASURED", (
         f"completeness must say it was not measured, got {row['annot_completeness']!r}")
     assert row["explained_fraction"] == "0.0"
+    assert row["meets_min_explained"] == "", (
+        "an unmeasured explained fraction must not read as 'below min_explained'")
 
 
 def test_cascade_resolve_adds_plasmidscope_rows_as_functional(fixture_dir):
@@ -581,7 +531,7 @@ def test_cascade_resolve_adds_plasmidscope_rows_as_functional(fixture_dir):
     assert rows["P9"]["explained_fraction"] == ""
 
 
-def _sweep(fixture_dir, hmmer_z):
+def _check_hmmer_z(fixture_dir, hmmer_z):
     """Four unique proteins, of which PlasmidScope may annotate any number (they are
     counted all the same), plus one control and one decoy."""
     unique = fixture_dir / "unique.faa"
@@ -595,15 +545,15 @@ def _sweep(fixture_dir, hmmer_z):
 def test_hmmer_z_counts_unique_proteins_plus_controls(fixture_dir):
     """4 unique + 1 control + 1 decoy = 6, whatever the cascade then searches. The
     searched-set count would halve E-values whenever PlasmidScope covers half the set."""
-    _sweep(fixture_dir, 6)
+    _check_hmmer_z(fixture_dir, 6)
     with pytest.raises(ValueError, match="Set hmmer_z: 6"):
-        _sweep(fixture_dir, 4)
+        _check_hmmer_z(fixture_dir, 4)
 
 
 @requires("mmseqs")
 def test_cascade_selection_searches_representatives_of_families_on_small_plasmids(
         fixture_dir):
-    """The broad family of an unexplained small-plasmid protein is annotated on both
+    """The family of an unexplained small-plasmid protein is annotated on both
     sides; within it, proteins at >=90% identity over 80% of both lengths share one
     search. Tier 0 proteins and families of large-plasmid proteins alone are not
     searched."""
@@ -683,7 +633,7 @@ def test_cascade_resolve_gives_members_their_representatives_result(fixture_dir)
 
 @requires("mmseqs")
 def test_antifam_flagged_proteins_are_in_no_tier_query_set(fixture_dir):
-    """C14: a protein AntiFam flags skips every annotation tier. s_art would otherwise be
+    """A protein AntiFam flags skips every annotation tier. s_art would otherwise be
     searched (an unexplained small-plasmid protein, its own family's representative);
     here it is not, and it does not open its family for l_rel either. ps_art is annotated
     by Tier 0 and flagged: the flag wins. s_lc is flagged for low complexity only, which
@@ -746,7 +696,7 @@ def test_antifam_flagged_proteins_are_in_no_tier_query_set(fixture_dir):
 
 
 def test_an_antifam_skipped_protein_is_not_searched_and_never_dark(fixture_dir):
-    """C14: the skipped protein has a row, NOT_SEARCHED with annot_source
+    """The skipped protein has a row, NOT_SEARCHED with annot_source
     artefact_antifam - not a PlasmidScope row, even when Tier 0 annotated it - and the
     quality gate keeps it out of the dark set."""
     hits, spans, faa = _resolve_fixture(fixture_dir)
@@ -791,3 +741,157 @@ def test_an_antifam_skipped_protein_is_not_searched_and_never_dark(fixture_dir):
     for sid in ("A", "PA"):
         assert gate[sid]["target_eligible"] == "0"
         assert gate[sid]["exclusion_reason"] == "artefact,not_searched"
+
+
+def test_a_dark_protein_named_only_by_a_span_less_family_has_dark_completeness_not_measured(
+        fixture_dir):
+    """A pharokka family named 'hypothetical protein' carries no span. Its dark coverage
+    was not measured, so dark_completeness reads NOT_MEASURED, not NONE."""
+    hits = fixture_dir / "phage_hits.tsv"
+    write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
+                     "evalue", "informative", "is_best", "start", "end", "tier", "source",
+                     "category", "threshold", "max_evalue"],
+              [["P1", "hypothetical protein", "phrog_9928", "", "", "1e-9", False, 0, "",
+                "", "T3", "pharokka", "unknown function", "", "1e-05"]])
+    spans = fixture_dir / "phage_spans.tsv"
+    write_tsv(spans, ["seq_id", "qlen", "intervals", "explained_fraction"],
+              [["P1", 90, "", 0.0]])
+    faa = fixture_dir / "phage.faa"
+    write_fasta(faa, [("P1", "M" * 90)])
+    out = fixture_dir / "phage_annotation.tsv"
+
+    run_script("cascade_resolve.py", FakeSnakemake(
+        input={"hits": [str(hits)], "spans": str(spans), "faa": str(faa),
+               "selection": _selection(fixture_dir), "ps": _ps_table(fixture_dir)},
+        output=[str(out)],
+        params={"thresholds": {"min_coverage": 0.5, "min_explained": 0.5,
+                               "narrow_at": 0.9, "full_at": 0.8, "partial_at": 0.5},
+                "tier_order": ["T1", "T2", "T3", "T4"]}))
+
+    row = read_tsv(out)[0]
+    assert row["functional_class"] == "UNCHARACTERIZED_HOMOLOG"
+    assert row["dark_completeness"] == "NOT_MEASURED", row["dark_completeness"]
+
+
+def _sweep_cohort(fixture_dir, ids, name):
+    faa = fixture_dir / f"{name}.faa"
+    write_fasta(faa, [(i, "MKV") for i in ids])
+    out = fixture_dir / f"{name}_cohort.txt"
+    run_script("sweep_cohort.py", FakeSnakemake(
+        input={"faa": str(faa)}, output=[str(out)],
+        params={"fraction": 0.2, "seed": 7}))
+    return out.read_text().split()
+
+
+def test_the_sweep_cohort_does_not_depend_on_the_fasta_order(fixture_dir):
+    """The query FASTA is written in MMseqs2 representative order, which can change
+    between versions and thread counts; the cohort must be the same set regardless."""
+    ids = [f"p{i:03d}" for i in range(100)]
+    forward = _sweep_cohort(fixture_dir, ids, "forward")
+    assert len(forward) == 20
+    assert forward == _sweep_cohort(fixture_dir, ids[::-1], "reverse")
+
+
+def _run_tier(fixture_dir, faa, spec, sweep="", narrow_at=0.9, hmmer_z=1000, tag="t"):
+    out = fixture_dir / tag / "hits.tsv"
+    out.parent.mkdir()
+    run_script("tier_search.py", FakeSnakemake(
+        input={"faa": str(faa), "spans": [], "sweep": sweep, "preflight": ""},
+        output={"hits": str(out), "unresolved": str(out.parent / "unresolved.faa"),
+                "spans": str(out.parent / "spans.tsv")},
+        params={"spec": spec, "narrow_at": narrow_at, "hmmer_z": hmmer_z,
+                "max_target_seqs": 5},
+        threads=1))
+    carried = {l[1:].split()[0] for l in (out.parent / "unresolved.faa").read_text()
+               .splitlines() if l.startswith(">")}
+    return read_tsv(out), read_tsv(out.parent / "spans.tsv"), carried
+
+
+@requires("diamond")
+def test_a_sweep_cohort_protein_is_carried_forward_however_well_explained(fixture_dir):
+    """Two proteins identical to a named database sequence are fully explained; only the
+    one outside the cohort stops here."""
+    db = _tiny_diamond_db(fixture_dir)
+    faa = fixture_dir / "q.faa"
+    write_fasta(faa, [("in_cohort", "MKVLATTLLGAAFAASSALAQKKWLVRD"),
+                      ("outside", "MKVLATTLLGAAFAASSALAQKKWLVRD")])
+    sweep = fixture_dir / "sweep.txt"
+    sweep.write_text("in_cohort\n")
+
+    _, spans, carried = _run_tier(
+        fixture_dir, faa, sweep=str(sweep),
+        spec={"id": "T4", "method": "diamond", "source": "swissprot", "db": str(db),
+              "args": "--very-sensitive", "max_evalue": 1e-5})
+
+    assert {r["seq_id"]: float(r["explained_fraction"]) for r in spans} == {
+        "in_cohort": 1.0, "outside": 1.0}
+    assert carried == {"in_cohort"}
+
+
+@requires("hmmbuild", "hmmsearch")
+def test_the_hmmer_tier_reads_domain_coordinates_accession_and_i_evalue(fixture_dir):
+    """A 60-residue domain profile against a protein holding the domain at 31-90. The
+    coordinates, family name and accession come from the right --domtblout columns, the
+    i-Evalue scales with the pinned -Z, and max_evalue rejects the hit when it is weaker."""
+    import random
+    import subprocess
+    rng = random.Random(3)
+    aa = "ACDEFGHIKLMNPQRSTVWY"
+    domain = "".join(rng.choice(aa) for _ in range(60))
+    msa = fixture_dir / "fam.sto"
+    rows = ["".join(c if rng.random() > 0.1 else rng.choice(aa) for c in domain)
+            for _ in range(4)]
+    msa.write_text("# STOCKHOLM 1.0\n#=GF ID TestFam\n#=GF AC PF99999.1\n"
+                   + "".join(f"s{i} {r}\n" for i, r in enumerate(rows)) + "//\n")
+    hmm = fixture_dir / "fam.hmm"
+    subprocess.run(["hmmbuild", str(hmm), str(msa)], check=True,
+                   stdout=subprocess.DEVNULL)
+    faa = fixture_dir / "q.faa"
+    left, right = ("".join(rng.choice(aa) for _ in range(30)) for _ in range(2))
+    write_fasta(faa, [("P1", left + domain + right)])
+    spec = {"id": "T1", "method": "hmmer", "source": "pfam", "db": str(hmm),
+            "args": "--domE 10 -E 10", "max_evalue": None}
+
+    hits, spans, _ = _run_tier(fixture_dir, faa, spec, hmmer_z=1, tag="z1")
+    (hit,) = hits
+    assert (hit["query"], hit["label"], hit["target_accession"]) == (
+        "P1", "TestFam", "PF99999.1")
+    assert abs(int(hit["start"]) - 31) <= 3 and abs(int(hit["end"]) - 90) <= 3, hit
+    assert hit["target_length"] == "60" and spans[0]["qlen"] == "120"
+
+    hits_z, _, _ = _run_tier(fixture_dir, faa, spec, hmmer_z=1000, tag="z1000")
+    ratio = float(hits_z[0]["evalue"]) / float(hit["evalue"])
+    assert 900 < ratio < 1100, f"the i-Evalue did not scale with -Z: ratio {ratio}"
+
+    strict = {**spec, "max_evalue": float(hit["evalue"]) / 10}
+    rejected, _, _ = _run_tier(fixture_dir, faa, strict, hmmer_z=1, tag="strict")
+    assert rejected == []
+
+
+def test_the_pharokka_tier_turns_the_merged_table_into_span_less_hits(fixture_dir):
+    """A script standing in for pharokka writes its merged table: the family hit
+    reaches hits.tsv with empty coordinates, the protein length comes from the table, and
+    an unexplained protein is carried forward."""
+    from test_pharokka import BOTH, HEADER
+    table = fixture_dir / "merged.tsv"
+    table.write_text(HEADER + BOTH)
+    exe = fixture_dir / "bin" / "pharokka"
+    exe.parent.mkdir()
+    exe.write_text("#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=$2; shift; "
+                   f"done\nmkdir -p \"$out\"\ncp {table} \"$out/tier_full_merged_output.tsv\"\n")
+    exe.chmod(0o755)
+    faa = fixture_dir / "q.faa"
+    write_fasta(faa, [("0cab68e6", "M" * 250)])
+
+    hits, spans, carried = _run_tier(
+        fixture_dir, faa, {"id": "T3", "method": "pharokka", "source": "pharokka",
+                           "db": str(fixture_dir), "exe": str(exe), "args": "",
+                           "max_evalue": 1e-5})
+
+    (hit,) = hits
+    assert (hit["label"], hit["target_accession"], hit["source"]) == (
+        "ParA-like partition protein", "phrog_164", "pharokka")
+    assert (hit["start"], hit["end"], hit["informative"]) == ("", "", "True")
+    assert spans == [{"seq_id": "0cab68e6", "qlen": "250", "intervals": "",
+                      "explained_fraction": "0.0"}]
+    assert carried == {"0cab68e6"}

@@ -1,11 +1,4 @@
-"""Scratch directories are removed when a stage succeeds and kept when it fails.
-
-Six scripts created a working directory beside their output and none removed it. On the
-100-plasmid test set that left mmseqs_tmp_close, mmseqs_tmp_intermediate,
-mmseqs_tmp_broad, foldseek_tmp and two anonymous mkdtemp directories behind; at production
-scale the same directories hold the intermediate databases of a 3.5M-protein clustering,
-so the leak is measured in hundreds of gigabytes rather than in tidiness.
-"""
+"""Scratch directories are removed when a stage succeeds and kept when it fails."""
 from plasmidann.scratch import release, scratch_dir
 
 
@@ -44,8 +37,8 @@ def test_a_stale_directory_from_a_failed_attempt_is_cleared_first(tmp_path):
 
 
 def test_an_unnamed_directory_is_unique_per_caller(tmp_path):
-    """Sharded rules run concurrently in the same output directory. Two shards sharing one
-    scratch path would overwrite each other's intermediates."""
+    """Without a name, every call gets its own directory, so two jobs writing into one
+    output directory cannot overwrite each other's intermediates."""
     a = scratch_dir(tmp_path)
     b = scratch_dir(tmp_path)
 

@@ -1,20 +1,9 @@
-"""S3 pre-flight: fail in seconds if a tool or database is missing, not after 45 hours.
+"""S3 pre-flight: confirm every tool and database the whole workflow needs is present.
 
-v1's most expensive failure was a job that ran for 45 hours and then died because DIAMOND
-was not on PATH - the module load line had been written for HMMER and MMseqs2 and never
-updated when the tier list changed. The identical failure occurred twice.
-
-This rule is a dependency of every tier, so the DAG cannot start a search until every tool
-and every database the run needs has been confirmed present. It costs about a second.
-
-IT CHECKS THE WHOLE PIPELINE, NOT JUST THE CASCADE.
-
-An earlier version walked only the configured tier list, which is four tools of the eleven
-the workflow runs. That left the original failure class wide open one stage further down: a
-missing mafft still killed S7b after the cascade had run for days, a missing prodigal made
-all 600 IntegronFinder shards fail, and a missing foldseek silently emptied the novel_fold
-stratum. The registry now lives in plasmidann.tools and a test scans workflow/scripts/ for
-subprocess calls, so it cannot fall behind the code again.
+Checks every executable in plasmidann.tools, each cascade tier's database (and that it is
+pressed or complete), AntiFam, the optional structure and orthology data, the S4d label
+databases, AMRFinderPlus, and CONJScan with a MacSyFinder that can read its models. Every
+tier depends on this rule, so a failure stops the run before any search.
 """
 import os
 import pathlib
@@ -25,8 +14,7 @@ import _ctx  # noqa: F401
 
 from plasmidann import labeldb
 from plasmidann.conjscan import installed_version
-from plasmidann.tools import (grammar_problem, macsyfinder_version, model_grammars,
-                              required_tools)
+from plasmidann.tools import grammar_problem, macsyfinder_version, model_grammars, required_tools
 
 tiers = snakemake.params.tiers
 artefact = snakemake.params.artefact
@@ -35,8 +23,7 @@ structure_required = bool(structure.get("required"))
 orthology = snakemake.params.get("orthology") or {}
 orthology_required = bool(orthology.get("required"))
 
-# method -> the executable that method actually invokes
-EXECUTABLE = {"hmmer": "hmmsearch", "diamond": "diamond", "pharokka": None}
+METHODS = {"hmmer", "diamond", "pharokka"}
 
 # What a pharokka database directory must hold for protein mode: the phage families as an
 # MMseqs2 profile database and as HMMER3 profiles, the annotation table that names and
@@ -64,7 +51,7 @@ for entry in required_tools(structure_required=structure_required,
 # ------------------------------------------------------------------------------------
 checked_dbs = set()
 for tier in tiers:
-    if tier["method"] not in EXECUTABLE:
+    if tier["method"] not in METHODS:
         problems.append(f"{tier['id']}: unknown method {tier['method']!r}")
         continue
     db = tier["db"]
@@ -97,8 +84,8 @@ for tier in tiers:
                             f"{tier['expected_sequences']} - the index is incomplete; "
                             "rebuild it")
     elif tier["method"] == "hmmer" and not os.path.exists(db + ".h3i"):
-        # An unpressed HMM library makes hmmsearch re-parse a multi-gigabyte flat file on
-        # every shard. Pfam-A is 2.2 GB; the pressed index is what makes it tractable.
+        # An unpressed HMM library makes hmmsearch re-parse a multi-gigabyte flat file.
+        # Pfam-A is 2.2 GB; the pressed index is what makes it tractable.
         problems.append(f"{tier['id']}: {db} is not pressed - run `hmmpress {db}`")
 
 # The artefact screen has its own database and runs before the cascade.
@@ -107,10 +94,9 @@ if not os.path.exists(artefact["antifam_db"]):
 elif not os.path.exists(artefact["antifam_db"] + ".h3i"):
     problems.append(f"artefact screen: {artefact['antifam_db']} is not pressed")
 
-# Structure evidence. When declared required, a missing database fails HERE, in seconds,
-# rather than producing an empty table after the cascade has already run for days. When not
-# required the stage is skipped entirely and structure is recorded as NOT_RUN - which is
-# honest - rather than "searched and found nothing", which is not.
+# Orthology and structure evidence. When declared required, a missing database fails here
+# rather than after the cascade has run. When not required the stage is skipped and its
+# evidence is recorded as NOT_RUN rather than as "searched and found nothing".
 if orthology_required and not os.path.isdir(orthology.get("data_dir", "")):
     problems.append(
         f"orthology.required is true but the eggNOG data directory is missing: "

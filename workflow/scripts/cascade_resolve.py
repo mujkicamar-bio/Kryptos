@@ -1,12 +1,11 @@
 """S3 final step: turn every tier's hits into one row per protein.
 
-This is where the cascade's evidence becomes a decision. Two principles govern it:
+Two principles govern it:
 
-  * The class is a property of the PROTEIN. Coverage is merged across all informative hits
-    from all tiers before anything is decided. Classifying per hit put 17% of Pfam-hit
-    proteins into DOMAIN_ONLY at >=50% explained - and since DOMAIN_ONLY is
-    target-eligible, complete replication initiators and T4SS ATPases were walking into
-    the screening pool.
+  * The class is a property of the PROTEIN (cascade.classify). Coverage is merged across
+    all informative hits from all tiers before anything is decided, so a replication
+    initiator explained by RepA_N and Bac_RepA_C together is annotated although neither
+    domain alone covers half of it.
 
   * min_explained is applied HERE, post hoc, not during the search. The search narrowed on
     narrow_at (0.7), so every protein explained below 0.7 was seen by every tier and this
@@ -110,19 +109,14 @@ cols = [
     # 1 when every informative name is domain-level ("X domain-containing protein"), which
     # makes the protein DOMAIN_ONLY however much of it those names cover.
     "named_by_domain_only",
-    # EVERY informative label, not just the winning one. The backbone stop-list matches
-    # Pfam family names, and only the Pfam tiers emit those; when labels were ranked by
-    # E-value alone an nr hit with free text routinely took annot_label away from a curated
-    # Pfam assignment on the same protein. A complete replication initiator carrying
-    # RepA_N at T1 then reached the screening pool with the guard that exists to stop it
-    # never firing, because the only column S5 could read no longer held a Pfam name.
+    # every informative label and its tier, not only the winning one
     "informative_labels", "informative_tiers",
     # how much of it is accounted for
     "explained_fraction", "annot_completeness", "meets_min_explained",
     # what the dark evidence says
     "dark_covered_fraction", "dark_completeness", "dark_evidence",
     "n_dark_databases", "uninformative_labels", "uninformative_tiers",
-    # provenance: every row carries the thresholds that produced it (P4)
+    # provenance: every row carries the thresholds that produced it
     "thr_min_coverage", "thr_min_explained", "thr_narrow_at", "thr_full_at", "thr_partial_at",
 ]
 
@@ -137,9 +131,12 @@ with open(snakemake.output[0], "w", newline="") as out:
         n = named.get(sid, [])
         labels = [x["label"] for x in u]
 
-        # Dark coverage: the same merge, over the spans of hits that named nothing.
-        dcf = explained_fraction(length, uninformative_spans(
-            [x for x in u if x["start"] != "" and x["end"] != ""]))
+        # Dark coverage: the same merge, over the spans of hits that named nothing. Not
+        # measured when every such hit is span-less (a pharokka family named
+        # 'hypothetical protein'), as for annot_completeness below.
+        u_spanned = [x for x in u if x["start"] != "" and x["end"] != ""]
+        dcf = explained_fraction(length, uninformative_spans(u_spanned))
+        dark_measured = bool(u_spanned) or not u
 
         classified = classify(by_query.get(sid, []), explained=ef,
                               min_coverage=cfg["min_coverage"], tier_order=tier_order)
@@ -150,19 +147,22 @@ with open(snakemake.output[0], "w", newline="") as out:
             "annot_source": "self",
             **classified,
             "explained_fraction": ef,
-            # NOT_MEASURED when the class rests on a family-level assignment alone: the
-            # explained fraction is then 0 because nothing measured it, and reporting
-            # completeness NONE would read as "nothing matched" on a protein whose whole
-            # family is known. Spec section 2.9: absence of a measurement is a status.
+            # NOT_MEASURED when the class rests on span-less hits alone: the explained
+            # fraction is then 0 because nothing measured it, and NONE would read as
+            # "nothing matched" on a protein whose whole family is known. The absence of a
+            # measurement is reported as a status, never as a zero.
             "annot_completeness": (
                 completeness(ef, full_at=cfg["full_at"], partial_at=cfg["partial_at"])
                 if span_measured else "NOT_MEASURED"),
             # min_explained as a reported flag rather than a filter: the protein is in the
-            # table either way, and this column can be recomputed at any threshold.
-            "meets_min_explained": int(ef >= cfg["min_explained"]),
+            # table either way, and this column can be recomputed at any threshold. Empty
+            # when the explained fraction was not measured.
+            "meets_min_explained": (int(ef >= cfg["min_explained"])
+                                    if span_measured else ""),
             "dark_covered_fraction": dcf,
-            "dark_completeness": completeness(dcf, full_at=cfg["full_at"],
-                                              partial_at=cfg["partial_at"]),
+            "dark_completeness": (
+                completeness(dcf, full_at=cfg["full_at"], partial_at=cfg["partial_at"])
+                if dark_measured else "NOT_MEASURED"),
             "dark_evidence": dark_evidence(labels),
             "n_dark_databases": n_dark_databases(u),
             # The labels themselves are kept: someone else has described this protein, and
