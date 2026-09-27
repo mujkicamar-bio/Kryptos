@@ -29,24 +29,21 @@ outdir: results_test
 orf:
   min_call_length_aa: 20
   # A circular record whose first and last bases repeat for at least this many bp carries
-  # the assembler's overlap; S0 removes one copy (rule analysis_set). 20 bp is CheckV's
+  # the assembler's overlap; rule analysis_set removes one copy. 20 bp is CheckV's
   # direct-terminal-repeat criterion (Nayfach et al. 2021, Nat. Biotechnol. 39:578).
   # Measured: 400 of 400 sampled 'direct terminal repeat' records carry one.
   min_terminal_repeat_bp: 20
-discovery:
-  min_dark_candidate_length_aa: 20
 references:
   pfam_dat: data/refs/pfam/Pfam-A.hmm.dat.gz
   pfam_version: '38.2'
   swissprot_version: '2025-03-03'
-  nr_version: '2025-03-03'
+  nr_version: "ClusteredNR 2026-08-30"
   eggnog_version: 5.0.2
   # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
   # covers the phage families (PHROG v4 table), CARD and VFDB together.
   pharokka_db_version: "1.8.0"
   macsyfinder_models: data/refs/macsyfinder
   conjscan_models: data/refs/conjscan
-  kegg_ko_list: data/refs/labels/kegg_ko/raw/list_ko.txt
 labels:
   dir: data/refs/labels
   required: true
@@ -57,7 +54,5 @@ amrfinder:
 genomad:
   executable: envs/genomad/bin/genomad
   database: data/refs/genomad/genomad_db
-qc:
-  max_opposite_strand_overlap_fraction: 0.6
 seed: 20260916
 cascade_config: config/test/cascade.yaml

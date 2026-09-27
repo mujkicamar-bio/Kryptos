@@ -43,15 +43,10 @@ orf:
   # (rule orf_call): plasmids are too short to train a single-genome model on.
   min_call_length_aa: 20
   # A circular record whose first and last bases repeat for at least this many bp carries
-  # the assembler's overlap; S0 removes one copy (rule analysis_set). 20 bp is CheckV's
+  # the assembler's overlap; rule analysis_set removes one copy. 20 bp is CheckV's
   # direct-terminal-repeat criterion (Nayfach et al. 2021, Nat. Biotechnol. 39:578).
   # Measured: 400 of 400 sampled 'direct terminal repeat' records carry one.
   min_terminal_repeat_bp: 20
-
-discovery:
-  # Not read by any rule: the discovery_excluded_short flag it is meant to set is not
-  # implemented.
-  min_dark_candidate_length_aa: 20
 
 # Reference releases the LABELS carry, so a label can always be traced to the database
 # that produced it. A label without its release cannot be reproduced, and a functional
@@ -73,23 +68,18 @@ references:
   # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
   # covers the phage families (PHROG v4 table), CARD and VFDB together.
   pharokka_db_version: "1.8.0"
-  # MacSyFinder model sets: DefenseFinder for S8 defence systems. Only the DefenseFinder
-  # and CasFinder models are in this tree (`macsydata list` shows CasFinder-3.1.0 and
-  # defense-finder-models-3.1.0); CONJScan is NOT installed here.
+  # MacSyFinder model sets for the defence systems (rule defence_systems). Only the
+  # DefenseFinder and CasFinder models are in this tree (`macsydata list` shows
+  # CasFinder-3.1.0 and defense-finder-models-3.1.0); CONJScan is NOT installed here.
   macsyfinder_models: data/refs/macsyfinder
   # CONJScan 2.1.0 (Cury et al. 2020, Methods Mol. Biol. 2075:265; the Plasmids models of
   # Coluzzi et al. 2022, Mol. Biol. Evol. 39:msac115), in its own tree, installed with
   # tools/install_tool_envs.py. Its grammar needs MacSyFinder >= 2.1.6, so it runs from
   # envs/conjscan (conjugation.exe in config/targets.yaml), not from the plasmidann env.
   conjscan_models: data/refs/conjscan
-  # KEGG's KO list (rest.kegg.jp/list/ko, verbatim), used ONLY to name the gene symbols of
-  # PlasmidScope's Tier 0 KOs in 08_protein_labels/label_disagreements.tsv. KEGG gives no
-  # label and no context term. Installed by tools/download_label_dbs.py; the release is in
-  # data/refs/labels/kegg_ko/VERSION.
-  kegg_ko_list: data/refs/labels/kegg_ko/raw/list_ko.txt
 
-# S4d: plasmid-specific label databases (plasmidann.labeldb). Each is its own label kind in
-# 08_protein_labels/protein_labels.tsv; PlasAnn's database and labels are not used.
+# Plasmid-specific label databases (rule label_databases, plasmidann.labeldb). Each is its
+# own label kind in 08_protein_labels/protein_labels.tsv; PlasAnn's database and labels are not used.
 #   TADB 3.0 (validated), BacMet 2.0 (EXP), oriTDB 2.0, and mobileOG-db beatrix-1.6,
 #   dbAPIS and Anti-CRISPRdb 2.2 with every evidence class kept (Manual / Homology /
 #   Keyword Search; verified / homolog; Verified / PLiterature / Putative), the class of
@@ -122,12 +112,6 @@ amrfinder:
 genomad:
   executable: envs/genomad/bin/genomad
   database: data/refs/genomad/genomad_db
-
-qc:
-  # Not read by any rule: the flag for a protein whose coding region is mostly antisense
-  # to a longer ORF on the opposite strand (a shadow ORF) is not implemented. The AntiFam
-  # screen is configured in config/cascade.yaml (artefact_screen).
-  max_opposite_strand_overlap_fraction: 0.6
 
 # Seed for every stochastic step, so a rerun selects the identical sample.
 seed: 20260916
