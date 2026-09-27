@@ -118,6 +118,29 @@ def test_analysis_set_keeps_every_plasmid_and_lists_the_small_ones(fixture_dir):
     assert open(out["small_ids"]).read().split() == ["small"]
 
 
+def test_analysis_set_lists_only_plasmids_with_a_sequence(fixture_dir):
+    """An in-scope plasmid with no FASTA record would enter the small-plasmid denominators
+    without any genes; a record given twice would contribute its genes twice."""
+    master = fixture_dir / "master.tsv"
+    write_tsv(master, ["plasmid_id", "hab_top", "size_bp"],
+              [["p1", "Unknown", 4], ["p2", "Unknown", 4]])
+    fasta = fixture_dir / "in.fna"
+    out = {k: str(fixture_dir / f"{k}.out")
+           for k in ("ids", "fasta", "small_ids", "repeats", "lengths")}
+    snake = FakeSnakemake(
+        input={"master": str(master), "fasta": str(fasta)}, output=out,
+        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20})
+
+    write_fasta(fasta, [("p1", "ATGC")])
+    run_script("analysis_set.py", snake)
+    assert open(out["ids"]).read().split() == ["p1"]
+    assert open(out["small_ids"]).read().split() == ["p1"]
+
+    write_fasta(fasta, [("p1", "ATGC"), ("p1", "ATGC")])
+    with pytest.raises(SystemExit, match="twice"):
+        run_script("analysis_set.py", snake)
+
+
 def test_a_circular_records_terminal_repeat_is_written_once(fixture_dir):
     """A 'direct terminal repeat' record starts with a copy of its own last bases. S0
     writes the molecule with the last copy removed; a linear record with the same ends is
