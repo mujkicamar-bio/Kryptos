@@ -117,8 +117,15 @@ def cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together
             pairs.update(itertools.combinations(present, 2))
         together.update(pairs)
 
+    # Every counted pair enters the correction, but a row is built only for a reported
+    # pair, so an unreported pair costs one p-value and one q-value in memory.
+    counted = list(together.items())
+    pvalues = [hypergeom_sf(k, n_lineages, lineages_of_family[a], lineages_of_family[b])
+               for (a, b), k in counted]
     rows = []
-    for (a, b), k in together.items():
+    for ((a, b), k), p, q in zip(counted, pvalues, benjamini_hochberg(pvalues)):
+        if k < min_lineages_together:
+            continue
         K, n = lineages_of_family[a], lineages_of_family[b]
         rows.append({
             "family_a": a, "family_b": b,
@@ -126,12 +133,8 @@ def cooccurrence(plasmid_families, lineage_of, n_lineages, min_lineages_together
             "n_lineages_together": k, "n_lineages_total": n_lineages,
             "fraction_of_a": round(k / K, 4), "fraction_of_b": round(k / n, 4),
             "expected_together": round(K * n / n_lineages, 4),
-            "p_value": hypergeom_sf(k, n_lineages, K, n),
+            "p_value": p, "q_value": q, "status": status.SUCCESS,
         })
-    for row, q in zip(rows, benjamini_hochberg([r["p_value"] for r in rows])):
-        row["q_value"] = q
-        row["status"] = status.SUCCESS
-    rows = [r for r in rows if r["n_lineages_together"] >= min_lineages_together]
     rows.sort(key=lambda r: (r["p_value"], r["family_a"], r["family_b"]))
     return rows
 
