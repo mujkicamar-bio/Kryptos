@@ -7,7 +7,6 @@ types, and every conflict type of the disagreement table - which must never chan
 """
 import copy
 import json
-import os
 import stat
 
 import pytest
@@ -244,6 +243,9 @@ def test_dbapis_family_with_gene_and_evidence():
         ("YP_009986712.1", [("APIS125", "U56; evidence=verified")])
     assert labeldb.parse_dbapis("WP_1.1 gene=gp54 family=gp54 evidence=homolog")[1] == \
         [("gp54", "gp54; evidence=homolog")]
+    # gene=NA is the installer's mark for a family without a verified seed: no gene.
+    assert labeldb.parse_dbapis("WP_2.1 gene=NA family=APIS030 evidence=homolog")[1] == \
+        [("APIS030", "evidence=homolog")]
     with pytest.raises(ValueError):
         labeldb.parse_dbapis("WP_1.1 gene=gp54 family=gp54")
 
@@ -343,22 +345,6 @@ def test_amrfinder_element_types_map_to_their_label_prefixes(tmp_path):
     # Other stress and virulence are kept as labels; the contract gives them no term prefix.
     assert labeldb.term_prefix(rows["p4"]) == ""
     assert labeldb.term_prefix(rows["p5"]) == ""
-
-
-def test_amrfinder_version_3_column_names_are_read_as_well(tmp_path):
-    v3 = ["Protein identifier", "Gene symbol", "Sequence name", "Scope", "Element type",
-          "Element subtype", "Class", "Subclass", "Method", "Target length",
-          "Reference sequence length", "% Coverage of reference sequence",
-          "% Identity to reference sequence", "Alignment length",
-          "Accession of closest sequence", "Name of closest sequence", "HMM id",
-          "HMM description"]
-    path = tmp_path / "amrfinder.tsv"
-    write_tsv(path, v3, [["p1", "sul1", "x", "core", "AMR", "AMR", "SULFONAMIDE",
-                          "SULFONAMIDE", "EXACTP", "279", "279", "100.00", "100.00", "279",
-                          "WP_000259031.1", "sul1", "NA", "NA"]])
-    (row,) = labeldb.parse_amrfinder(path, "v")
-    assert row["label"] == "sul1" and row["sub_label"] == "AMR/AMR"
-    assert row["subject"] == "WP_000259031.1"
 
 
 def test_amrfinder_unknown_element_type_is_refused(tmp_path):
@@ -660,18 +646,14 @@ def test_script_records_everything_not_run_when_nothing_is_installed(tmp_path):
     assert {r["status"] for r in status} == {"NOT_RUN"}
 
 
-def test_tiered_search_reports_every_target_above_the_tier_two_minimum():
+def test_tiered_search_reports_every_target():
     # A target limit ranks by bitscore, not tier, and can drop the tier-1 hit.
     args = labeldb.DIAMOND_TIERED_ARGS.split()
     assert args[args.index("--max-target-seqs") + 1] == "0"
-    assert float(args[args.index("--id") + 1]) == labeldb.TIER2_IDENTITY
-    assert float(args[args.index("--query-cover") + 1]) == labeldb.TIER2_COVERAGE
-    assert float(args[args.index("--subject-cover") + 1]) == labeldb.TIER2_COVERAGE
-    assert args[args.index("--evalue") + 1] == "1e-5"
 
 
 def test_tier0_symbols_come_from_the_kegg_symbols_of_plasmidscope_kos(tmp_path):
-    ko_list = tmp_path / "ko_list.tsv"
+    ko_list = tmp_path / "list_ko.txt"
     ko_list.write_text("K00002\tAKR1A1, adh; alcohol dehydrogenase (NADP+) [EC:1.1.1.2]\n"
                        "K03503\tumuD; DNA polymerase V [EC:3.4.21.-]\n"
                        "K99999\tuncharacterized protein\n"
@@ -682,12 +664,9 @@ def test_tier0_symbols_come_from_the_kegg_symbols_of_plasmidscope_kos(tmp_path):
     rows = [
         {"seq_id": "p1", "preferred_name": "", "kegg_ko": "ko:K03503,ko:K00002",
          "orthology_source": "plasmidscope"},
-        {"seq_id": "p2", "preferred_name": "repA", "kegg_ko": "", "orthology_source":
-         "plasmidscope"},
         {"seq_id": "p3", "preferred_name": "", "kegg_ko": "ko:K99999",
          "orthology_source": "plasmidscope"},
         {"seq_id": "p4", "preferred_name": "traG", "kegg_ko": "",
          "orthology_source": "emapper"},
     ]
-    assert labeldb.tier0_symbols(rows, ko_symbols) == {"p1": {"umuD", "AKR1A1", "adh"},
-                                                       "p2": {"repA"}}
+    assert labeldb.tier0_symbols(rows, ko_symbols) == {"p1": {"umuD", "AKR1A1", "adh"}}

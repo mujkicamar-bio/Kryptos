@@ -4,7 +4,7 @@ WHAT THIS ADDS TO THE LABEL VOCABULARY
 
 The cascade and eggNOG name a protein; they do not say that it is a relaxase of the MOBP
 family, a type II antitoxin, a mercury-resistance gene or an anti-CRISPR. Seven curated
-databases say exactly that, each within its own domain, and each is its own label kind so
+databases and AMRFinderPlus say exactly that, each within its own domain, and each is its own label kind so
 that a statement from one is never mistaken for a statement from another:
 
     source     label kind          label                         sub_label
@@ -17,8 +17,7 @@ that a statement from one is never mistaken for a statement from another:
     acrdb      acrdb_family        Acr family (AcrIF1)           CRISPR type; evidence
     amrfinder  amrfinder_gene      element symbol (blaTEM-1)     element type/subtype
 
-PlasAnn's own database is not used, and neither are its labels (user decision, 2026-09-25):
-only its tier thresholds are taken, from the paper.
+PlasAnn's database and labels are not used; only its tier thresholds are, from the paper.
 
 WHY COVERAGE ON BOTH SEQUENCES
 
@@ -27,8 +26,8 @@ pipeline"). The paper states identity and coverage; this module requires the cov
 the query AND on the subject. Query coverage alone lets a 40-residue fragment carry the
 label of a 400-residue reference, and subject coverage alone lets a multidomain protein
 carry the label of one of its domains. Measured on the 100-plasmid test set against the
-PlasAnn database (Step 0), the stricter rule labels 1,188 proteins where query coverage
-alone labels 1,267.
+PlasAnn database, the stricter rule labels 1,188 proteins where query coverage alone
+labels 1,267.
 
 WHY CARD HAS ITS OWN RULE
 
@@ -88,21 +87,21 @@ TIER2_COVERAGE = 70.0
 # Every target is reported (--max-target-seqs 0), pre-filtered at the tier-2 minimum, which
 # no tier-qualifying hit falls below. A target limit is ranked by bitscore, not by tier, so
 # a partial high-scoring hit can push the tier-1 hit out: measured on the 100-plasmid test
-# set (leaf 1.2, G2 and G4), 50 targets without the pre-filter (Step 0's search) lost 1
-# oriTDB and 3 mobileOG-db labels and gave 2 + 2 more the wrong tier, and even 1,000 targets
-# truncated oriTDB queries that have more qualifying relaxases than that. The pre-filter
-# keeps the output small: 17,856 oriTDB and 83,770 mobileOG-db (all 775,257 entries) rows
-# for 5,304 proteins.
+# set, a limit of 50 targets without the pre-filter lost 1 oriTDB and 3 mobileOG-db labels
+# and gave 2 + 2 more the wrong tier, and even 1,000 targets truncated oriTDB queries that
+# have more qualifying relaxases than that. The pre-filter keeps the output small: 17,856
+# oriTDB and 83,770 mobileOG-db (all 775,257 entries) rows for 5,304 proteins.
 DIAMOND_TIERED_ARGS = (f"--more-sensitive --evalue 1e-5 --max-target-seqs 0 "
                        f"--id {TIER2_IDENTITY:g} --query-cover {TIER2_COVERAGE:g} "
                        f"--subject-cover {TIER2_COVERAGE:g}")
 # DIAMOND for CARD exactly as RGI runs it (app/Diamond.py): --more-sensitive with DIAMOND's
 # default e-value and target count. The curated bitscore cut-off, not the e-value, decides
-# a Strict call; Step 0 reproduced the July RGI calls on all 16 positive test plasmids.
+# a Strict call. These settings reproduced the RGI calls on all 16 AMR-positive plasmids of
+# the 100-plasmid test set.
 DIAMOND_CARD_ARGS = "--more-sensitive"
 
-# Term prefixes for context terms (contract of the labels-build plan). AMRFinderPlus is
-# split by element type below; other STRESS subtypes and VIRULENCE get no prefix.
+# Context-term prefix per source. AMRFinderPlus is split by element type below; its other
+# STRESS subtypes and VIRULENCE get no prefix.
 _PREFIX = {"card": "amr", "bacmet": "metal", "tadb": "ta", "oritdb": "conj_role",
            "mobileog": "mge", "dbapis": "antidefence", "acrdb": "antidefence"}
 # AMRFinderPlus Type/Subtype values (NCBI AMRFinderPlus documentation, "Output format").
@@ -320,16 +319,19 @@ def parse_mobileog(header):
 def parse_dbapis(header):
     """dbAPIS as installed: '<accession> gene=<gene> family=<family> evidence=verified|homolog
     <description>'. A verified seed that formed no family has its gene as family (gp54).
+    gene=NA marks a homologue whose family has no verified seed, so it names no gene.
     """
     fields = _fields(header)
     if not fields.get("family") or not fields.get("evidence"):
         raise ValueError(f"dbAPIS header lacks family= or evidence=: {header!r}")
+    gene = fields.get("gene", "")
     return header.split()[0], [(fields["family"],
-                                _with_evidence(fields.get("gene", ""), fields["evidence"]))]
+                                _with_evidence("" if gene == "NA" else gene,
+                                               fields["evidence"]))]
 
 
 def parse_acrdb(header):
-    """Anti-CRISPRdb v2.2 as installed from its core dataset: '<anti_CRISPR_id>
+    """Anti-CRISPRdb version 2.2 as installed from its core dataset: '<anti_CRISPR_id>
     family=<Family> type=<Anti_type> acc=<Accession> evidence=<Verified|PLiterature|
     Putative>'. The family is the label; the CRISPR type it inhibits and the evidence class
     are the sub_label.
@@ -384,16 +386,16 @@ def label_rows(source, best, entries, version):
 # ------------------------------------------------------------------------------------
 # AMRFinderPlus (Feldgarden et al. 2021, Sci. Rep. 11:12728), protein mode with --plus
 # ------------------------------------------------------------------------------------
-# Output column names in AMRFinderPlus 4, then the name the same column has in 3.x.
+# Output column names of AMRFinderPlus 4.
 _AMR_COLUMNS = {
-    "seq_id": ("Protein id", "Protein identifier"),
-    "symbol": ("Element symbol", "Gene symbol"),
-    "type": ("Type", "Element type"),
-    "subtype": ("Subtype", "Element subtype"),
-    "method": ("Method",),
-    "scov": ("% Coverage of reference", "% Coverage of reference sequence"),
-    "pident": ("% Identity to reference", "% Identity to reference sequence"),
-    "subject": ("Closest reference accession", "Accession of closest sequence"),
+    "seq_id": "Protein id",
+    "symbol": "Element symbol",
+    "type": "Type",
+    "subtype": "Subtype",
+    "method": "Method",
+    "scov": "% Coverage of reference",
+    "pident": "% Identity to reference",
+    "subject": "Closest reference accession",
 }
 
 
@@ -408,11 +410,8 @@ def parse_amrfinder(path, version):
     """
     rows = []
     with open(path, newline="") as fh:
-        reader = csv.DictReader(fh, delimiter="\t")
-        col = {k: next(n for n in names if n in reader.fieldnames)
-               for k, names in _AMR_COLUMNS.items()}
-        for r in reader:
-            value = {k: ("" if r[c] == "NA" else r[c]) for k, c in col.items()}
+        for r in csv.DictReader(fh, delimiter="\t"):
+            value = {k: ("" if r[c] == "NA" else r[c]) for k, c in _AMR_COLUMNS.items()}
             if (value["type"], value["subtype"]) not in _AMRFINDER_PREFIX:
                 raise ValueError(f"AMRFinderPlus element type {value['type']}/"
                                  f"{value['subtype']} is not known to plasmidann.labeldb")
@@ -481,17 +480,14 @@ def read_ko_symbols(path):
 def tier0_symbols(orthology_rows, ko_symbols):
     """{seq_id: gene symbols} for the Tier 0 proteins of orthology.tsv.
 
-    PlasmidScope's eggNOG annotation carries KOs but, measured on the test set, not one
-    eggNOG preferred name (0 of 2,724 Tier 0 proteins), so the symbols are the KEGG gene
-    symbols of its KOs, plus the preferred name where one exists.
+    PlasmidScope publishes KOs but no eggNOG preferred name, so the symbols are the KEGG
+    gene symbols of its KOs.
     """
     out = {}
     for r in orthology_rows:
         if r["orthology_source"] != "plasmidscope":
             continue
         symbols = set()
-        if r["preferred_name"] not in ("", "-"):
-            symbols.add(r["preferred_name"])
         for ko in r["kegg_ko"].split(","):
             symbols.update(ko_symbols.get(ko.strip().removeprefix("ko:"), ()))
         if symbols:
