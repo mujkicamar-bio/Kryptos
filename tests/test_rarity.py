@@ -36,6 +36,22 @@ def test_a_genuinely_widespread_family_is_labelled_so():
     assert {"CROSS_MOB", "CROSS_HOST", "CROSS_TAXON"} <= set(labels)
 
 
+def test_the_widespread_threshold_is_the_nearest_rank_percentile_of_measured_counts():
+    assert rarity.widespread_threshold(range(1, 101), 99) == 99
+    assert rarity.widespread_threshold([1] * 95 + [2, 3, 4, 50, 60], 95) == 1
+    # A count of 0 is not measured and does not dilute the distribution.
+    assert rarity.widespread_threshold([0] * 1000 + [1, 2, 3, 4], 50) == 2
+    assert rarity.widespread_threshold([0, 0], 99) is None
+    # 7 * 100 / 100 is exactly rank 7; 0.07 * 100 in floating point would round up to 8.
+    assert rarity.widespread_threshold(range(1, 101), 7) == 7
+
+
+def test_a_family_without_a_measured_lineage_count_is_not_widespread():
+    labels = rarity.rarity_labels({"independent_plasmid_cluster_count": 0},
+                                  {**THRESHOLDS, "widespread_min_lineages": None})
+    assert "WIDESPREAD" not in labels
+
+
 def test_a_family_can_carry_several_labels_at_once():
     family = {"independent_plasmid_cluster_count": 2,
               "MOB_count": 4, "host_count": 6, "genus_count": 4}

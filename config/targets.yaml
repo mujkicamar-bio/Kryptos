@@ -19,8 +19,14 @@ rarity:
   # that can distinguish a repeated observation from a single one; it is a descriptive
   # boundary and nothing selects on it.
   rare_max_lineages: 3
-  # At or above this many, WIDESPREAD.
-  widespread_min_lineages: 50
+  # WIDESPREAD: a lineage count at or above this percentile (nearest rank) of the lineage
+  # counts of the families at the same resolution, measured on the run and written with
+  # the computed threshold to family_rarity.tsv and the log. 99 names the upper 1% of
+  # families by breadth: the distribution is strongly right-skewed (results_test: 375 of
+  # 414 intermediate families in one lineage, 31 in two), so a lower percentile falls on
+  # the one- and two-lineage mass that RARE already describes. Families tied at the
+  # threshold are all WIDESPREAD.
+  widespread_percentile: 99
   cross_min_hosts: 2
   cross_min_genera: 2
   # Random orderings averaged for the rarefaction curve. A single ordering is one arbitrary

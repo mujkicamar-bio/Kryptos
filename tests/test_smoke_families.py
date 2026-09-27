@@ -280,12 +280,13 @@ def test_dark_cooccurrence_writes_the_tested_pairs(fixture_dir):
     assert (row["fraction_of_a"], row["fraction_of_b"]) == ("0.6667", "1.0")
 
 
-def _run_rarity(fixture_dir, small_plasmids, lineages=None):
+def _run_rarity(fixture_dir, small_plasmids, lineages=None, recurrence_rows=None):
     """One dark family d, on small plasmid S1 and large plasmid L1. Each plasmid is its own
     lineage unless `lineages` maps it to another."""
     recurrence = fixture_dir / "recurrence.tsv"
-    write_tsv(recurrence, ["family_id", "independent_plasmid_cluster_count"],
-              [["broad:d", 2]])
+    write_tsv(recurrence, ["family_id", "family_resolution",
+                           "independent_plasmid_cluster_count"],
+              recurrence_rows or [["broad:d", "broad", 2]])
     fams = fixture_dir / "dark_families.tsv"
     write_tsv(fams, ["family_id", "members", "small_members"], [["broad:d", "d", "d"]])
     mapping = fixture_dir / "protein_map.tsv"
@@ -302,7 +303,7 @@ def _run_rarity(fixture_dir, small_plasmids, lineages=None):
                "map": str(mapping), "small_ids": str(small_ids),
                "lineage": str(lineage)},
         output={"rarity": str(fixture_dir / "rarity.tsv"), "rarefaction": str(out)},
-        params={"rarity": {"rare_max_lineages": 3, "widespread_min_lineages": 50,
+        params={"rarity": {"rare_max_lineages": 3, "widespread_percentile": 99,
                            "cross_min_hosts": 2, "cross_min_genera": 2,
                            "rarefaction_replicates": 5},
                 "seed": 1}))
@@ -326,14 +327,36 @@ def test_rarefaction_counts_redeposited_plasmids_of_one_lineage_once(fixture_dir
     assert final["mean_families"] == "1.0"
 
 
-def test_family_rarity_writes_the_labels_and_the_thresholds_behind_them(fixture_dir):
-    """broad:d is in two lineages: RARE (at most 3), not LINEAGE_SPECIFIC (exactly 1)."""
+def test_family_rarity_writes_the_labels_and_the_thresholds_behind_them(fixture_dir, capsys):
+    """broad:d is in two lineages: RARE (at most 3), not LINEAGE_SPECIFIC (exactly 1). As
+    the only broad family it sets the WIDESPREAD threshold at 2 lineages, and the log says
+    that this threshold overlaps RARE."""
     _run_rarity(fixture_dir, ["S1"])
     (row,) = read_tsv(fixture_dir / "rarity.tsv")
     assert (row["family_id"], row["rarity_labels"],
-            row["independent_plasmid_cluster_count"]) == ("broad:d", "RARE", "2")
-    assert (row["rare_max_lineages"], row["widespread_min_lineages"]) == ("3", "50")
+            row["independent_plasmid_cluster_count"]) == ("broad:d", "RARE,WIDESPREAD", "2")
+    assert "both RARE and WIDESPREAD" in capsys.readouterr().out
+    assert (row["rare_max_lineages"], row["widespread_percentile"],
+            row["widespread_min_lineages"]) == ("3", "99", "2")
     assert "rarity_version" not in row
+
+
+def test_the_widespread_threshold_is_measured_per_resolution(fixture_dir, capsys):
+    """100 broad families in 1-100 lineages: the 99th percentile is 99 lineages, so b99 and
+    b100 are WIDESPREAD. The one close family sets its own threshold, and a family with no
+    measured lineage count takes no part."""
+    rows = [[f"broad:b{i}", "broad", i] for i in range(1, 101)]
+    rows += [["close:c", "close", 5], ["broad:z", "broad", 0]]
+    _run_rarity(fixture_dir, ["S1"], recurrence_rows=rows)
+
+    out = {r["family_id"]: r for r in read_tsv(fixture_dir / "rarity.tsv")}
+    widespread = {f for f, r in out.items() if "WIDESPREAD" in r["rarity_labels"]}
+    assert widespread == {"broad:b99", "broad:b100", "close:c"}
+    assert {out[f]["widespread_min_lineages"] for f in out if f.startswith("broad:")} == {
+        "99"}
+    assert out["close:c"]["widespread_min_lineages"] == "5"
+    log = capsys.readouterr().out
+    assert "WIDESPREAD at broad: >= 99 lineages, the 99th percentile of 100 families" in log
 
 
 def test_an_undefined_saturation_is_not_reported_as_flattened(fixture_dir, capsys):

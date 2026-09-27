@@ -170,7 +170,7 @@ properties:
     type: object
     required:
     - rare_max_lineages
-    - widespread_min_lineages
+    - widespread_percentile
     - cross_min_hosts
     - cross_min_genera
     - rarefaction_replicates
@@ -178,9 +178,10 @@ properties:
       rare_max_lineages:
         type: integer
         minimum: 1
-      widespread_min_lineages:
-        type: integer
-        minimum: 1
+      widespread_percentile:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 100
       cross_min_hosts:
         type: integer
         minimum: 1

@@ -4,7 +4,9 @@ Inputs: recurrence.tsv (the Stage 7 counts), dark_families.tsv, the protein map,
 small_plasmids.txt and the Stage 6 lineages. Outputs:
 
   family_rarity.tsv            the rarity labels of each family (plasmidann.rarity) with
-                               the counts and the lineage thresholds behind them
+                               the counts and the lineage thresholds behind them; the
+                               WIDESPREAD threshold is computed per resolution, from the
+                               lineage counts of that resolution's families
   dark_family_rarefaction.tsv  dark families discovered against lineages sampled; every
                                lineage holding a small plasmid is on the axis, with a dark
                                family or without, and a family is discovered in a lineage
@@ -15,13 +17,31 @@ import csv
 
 import _ctx  # noqa: F401
 
-from plasmidann.rarity import rarefaction, rarity_labels, saturation
+from plasmidann.rarity import rarefaction, rarity_labels, saturation, widespread_threshold
 
 cfg = snakemake.params.rarity
 
 COLS = ["family_id", "rarity_labels", "independent_plasmid_cluster_count",
         "unique_plasmid_count", "MOB_count", "host_count", "genus_count",
-        "n_plasmids_with_species", "rare_max_lineages", "widespread_min_lineages"]
+        "n_plasmids_with_species", "rare_max_lineages", "widespread_percentile",
+        "widespread_min_lineages"]
+
+# First pass: the lineage counts per resolution, from which the WIDESPREAD threshold is
+# measured. Families of different resolutions are different units and are not pooled.
+lineage_counts = collections.defaultdict(list)
+with open(snakemake.input.recurrence, newline="") as fh:
+    for family in csv.DictReader(fh, delimiter="\t"):
+        lineage_counts[family["family_resolution"]].append(
+            int(family["independent_plasmid_cluster_count"] or 0))
+widespread = {res: widespread_threshold(c, cfg["widespread_percentile"])
+              for res, c in lineage_counts.items()}
+for res, t in sorted(widespread.items()):
+    n = sum(1 for c in lineage_counts[res] if c > 0)
+    print(f"WIDESPREAD at {res}: >= {t} lineages, the {cfg['widespread_percentile']}th "
+          f"percentile of {n} families with a measured lineage count")
+    if t is not None and t <= cfg["rare_max_lineages"]:
+        print(f"  the threshold is at most rare_max_lineages ({cfg['rare_max_lineages']}), "
+              "so a family at it is both RARE and WIDESPREAD")
 
 counts = collections.Counter()
 n_families = 0
@@ -30,7 +50,8 @@ with open(snakemake.input.recurrence, newline="") as fh, \
     writer = csv.DictWriter(out, fieldnames=COLS, delimiter="\t")
     writer.writeheader()
     for family in csv.DictReader(fh, delimiter="\t"):
-        labels = rarity_labels(family, cfg)
+        threshold = widespread[family["family_resolution"]]
+        labels = rarity_labels(family, {**cfg, "widespread_min_lineages": threshold})
         counts.update(labels or ["(none)"])
         n_families += 1
         writer.writerow({
@@ -44,7 +65,8 @@ with open(snakemake.input.recurrence, newline="") as fh, \
             "genus_count": family.get("genus_count", ""),
             "n_plasmids_with_species": family.get("n_plasmids_with_species", ""),
             "rare_max_lineages": cfg["rare_max_lineages"],
-            "widespread_min_lineages": cfg["widespread_min_lineages"],
+            "widespread_percentile": cfg["widespread_percentile"],
+            "widespread_min_lineages": "" if threshold is None else threshold,
         })
 
 print(f"rarity: {n_families} families")

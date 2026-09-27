@@ -5,15 +5,27 @@ LINEAGE_SPECIFIC and WIDESPREAD count independent Stage 6 lineages
 (independent_plasmid_cluster_count), never plasmid records, so a family on four hundred
 redeposits of one plasmid is one observation. The MOB labels count MOB-suite clusters and
 the host labels observed host species and genera. The labels are descriptive and nothing
-selects on them. The thresholds are configuration (config/targets.yaml, `rarity`); the two
-lineage thresholds are recorded on every output row.
+selects on them. The thresholds are configuration (config/targets.yaml, `rarity`), except
+the WIDESPREAD threshold, which is measured on the run: the configured percentile of the
+lineage counts of the families at that resolution (widespread_threshold). The two lineage
+thresholds are recorded on every output row.
 
 The rarefaction curve counts dark families discovered against Stage 6 lineages sampled,
 averaged over random orderings: a lineage is one observation, so redeposited copies of one
 plasmid do not flatten the curve. saturation() compares the final slope with the initial
 slope, in families gained per lineage added.
 """
+import math
 import random
+
+
+def widespread_threshold(lineage_counts, percentile):
+    """The lineage count at the given percentile (nearest-rank method) of the counts above
+    0; None when no count is above 0. A count of 0 means independence was not measured."""
+    measured = sorted(c for c in lineage_counts if c > 0)
+    if not measured:
+        return None
+    return measured[math.ceil(percentile * len(measured) / 100) - 1]
 
 
 def rarity_labels(family, thresholds):
@@ -22,7 +34,9 @@ def rarity_labels(family, thresholds):
 
     `family` holds the Stage 7 distribution counts: independent_plasmid_cluster_count,
     MOB_count, host_count, genus_count, n_plasmids_with_species, unique_plasmid_count.
-    The labels describe different axes, so a family may carry several.
+    `thresholds` holds the rarity configuration and widespread_min_lineages, the measured
+    WIDESPREAD threshold (None when no family was measured). The labels describe different
+    axes, so a family may carry several.
     """
     def count(name):
         try:
@@ -37,7 +51,7 @@ def rarity_labels(family, thresholds):
         labels.append("RARE")
     if lineages == 1:
         labels.append("LINEAGE_SPECIFIC")
-    if lineages >= thresholds["widespread_min_lineages"]:
+    if lineages and lineages >= thresholds["widespread_min_lineages"]:
         labels.append("WIDESPREAD")
 
     # MOB-suite clusters are reported as a label only, never as a lineage count: MOB-suite
