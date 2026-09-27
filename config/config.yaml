@@ -1,18 +1,18 @@
-# Every threshold the pipeline uses lives here (spec §6). Values are stamped into the run
-# manifest and into the output rows they govern, so a result can always be traced to the
-# configuration that produced it.
+# Pipeline settings outside the annotation cascade (config/cascade.yaml) and the evidence
+# stages (config/targets.yaml). Thresholds are written into the output rows they govern,
+# so a result can be traced to the configuration that produced it.
 
 input:
-  # The analysis set: the master table with the locked artifact exclusions already applied.
-  # The plasmid count is NOT recorded here - it is derived at runtime and written to the
-  # manifest (spec §3.1), because a hard-coded denominator silently goes stale.
+  # The master table of the collection, one row per plasmid. The plasmid count is not
+  # recorded here: it is counted at run time, so it cannot go stale.
   master_table: data/plasmidscope_primary/analysis_set.tsv
   # The plasmid sequences, ONE FILE, plain or gzipped. Records outside the analysis set
   # (the exclusion below) are dropped at S0, so this may be the whole working set: the
   # analysis scope is the master table's filter, not the content of this file.
   fasta: data/plasmidscope_primary/provenance/working_set.fna.gz
-  # The locked exclusion (spec section 3.1). "Simulated communities" is a PlasmidScope
-  # ecosystem artifact, not an environment, and it is excluded from every analysis.
+  # Plasmids whose hab_top is listed here are excluded from every analysis (rule
+  # analysis_set). "Simulated communities" is a PlasmidScope ecosystem artefact, not an
+  # environment.
   exclude_hab_top: ["Simulated-artifact"]
   # The study is about SMALL plasmids: size_bp below this. Every plasmid is processed, but
   # the cascade annotates only families holding a small-plasmid protein (rule
@@ -24,9 +24,10 @@ input:
   # is described by Smillie et al. 2010, Microbiol. Mol. Biol. Rev. 74:434.
   max_plasmid_size_bp: 20000
   # PlasmidScope's per-protein table for its whole ALL set (Li et al., Nucleic Acids Res.
-  # 2025, 53:D179), fetched by tools/download_plasmidscope_annotation.sh. Proteins of ours
-  # with an identical, eggNOG-annotated protein in it skip the cascade (rule
-  # plasmidscope_import, plasmidann.plasmidscope).
+  # 2025, 53:D179), fetched by tools/download_plasmidscope_annotation.sh on 2026-09-23
+  # (PlasmidScope has no release number; its labels come from eggNOG-mapper 2.1.12).
+  # Proteins of ours with an identical, eggNOG-annotated protein in it skip the cascade
+  # (rule plasmidscope_import, plasmidann.plasmidscope).
   plasmidscope_proteins: data/PlasmidScope/annotation/ALL.protein_list.tsv.gz
   # Host names beyond PLSDB's: PlasmidScope's per-record host (IMG/PR's among them) and the
   # GenBank/RefSeq source organism. With PLSDB species they name a host for 61.1% of the
@@ -38,11 +39,9 @@ input:
 outdir: results
 
 orf:
-  # The gene caller's own floor. Distinct from the discovery cutoff below (spec §11.1).
+  # The shortest ORF the gene caller reports. Pyrodigal always runs in metagenomic mode
+  # (rule orf_call): plasmids are too short to train a single-genome model on.
   min_call_length_aa: 20
-  # Prodigal in metagenomic mode: plasmids are too short and too compositionally varied to
-  # train a single-genome model on.
-  meta_mode: true
   # A circular record whose first and last bases repeat for at least this many bp carries
   # the assembler's overlap; S0 removes one copy (rule analysis_set). 20 bp is CheckV's
   # direct-terminal-repeat criterion (Nayfach et al. 2021, Nat. Biotechnol. 39:578).
@@ -50,7 +49,8 @@ orf:
   min_terminal_repeat_bp: 20
 
 discovery:
-  # Proteins shorter than this are flagged discovery_excluded_short, never deleted (spec §10, §11).
+  # Not read by any rule: the discovery_excluded_short flag it is meant to set is not
+  # implemented.
   min_dark_candidate_length_aa: 20
 
 # Reference releases the LABELS carry, so a label can always be traced to the database
@@ -70,9 +70,6 @@ references:
   # data/refs/clustered_nr by tools/download_clustered_nr.sh.
   nr_version: "ClusteredNR 2026-08-30"
   eggnog_version: "5.0.2"
-  # PlasmidScope has no release number; the download date identifies the tables used.
-  # Its labels come from eggNOG-mapper 2.1.12 (Li et al. 2025).
-  plasmidscope_version: "2026-09-23"
   # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
   # covers the phage families (PHROG v4 table), CARD and VFDB together.
   pharokka_db_version: "1.8.0"
@@ -121,17 +118,10 @@ amrfinder:
   required: true
 
 qc:
-  # Spec §9.3. A protein whose coding region is mostly antisense to a longer ORF on the
-  # opposite strand is the classic shadow-ORF artifact: it passes the whole cascade cleanly
-  # because it is not a protein and no database contains it. Flag, never delete.
+  # Not read by any rule: the flag for a protein whose coding region is mostly antisense
+  # to a longer ORF on the opposite strand (a shadow ORF) is not implemented. The AntiFam
+  # screen is configured in config/cascade.yaml (artefact_screen).
   max_opposite_strand_overlap_fraction: 0.6
-  antifam:
-    db: data/refs/antifam/AntiFam.hmm
-    # AntiFam's curated per-family gathering thresholds. Measured on this database: 274 of
-    # 278 profiles carry a GA looser than E=1e-5, so a blanket E-value floor would override
-    # the curator across essentially the whole database (Eberhardt et al. 2012, Database
-    # 2012:bas003).
-    threshold: cut_ga
 
 controls:
   # Spec §58. Positive controls test recall; negative controls test the opposite direction.
@@ -149,5 +139,10 @@ controls:
     # pipeline behaving correctly. 50 matches the control length floor.
     min_length: 50
 
-# Seed for every stochastic step, so a rerun selects the identical sample (spec §61).
+# Seed for every stochastic step, so a rerun selects the identical sample.
 seed: 20260916
+
+# Foldseek target database and ProstT5 weights for the structure search (rule
+# structure_search), also checked by rule preflight.
+foldseek_db: data/refs/foldseek/pdb
+prostt5_model: data/refs/foldseek/prostt5

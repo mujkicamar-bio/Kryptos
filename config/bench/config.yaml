@@ -7,17 +7,17 @@
 # "what will the production run cost", and the two questions need different tier sets.
 # The smoke set omits nr because nr would make a correctness check cost a production run
 # (config/test/README.md). A cost measurement that omits nr measures everything except
-# the stage that dominates, so here the cascade is the full production T1..T5.
+# the stage that dominates, so here the cascade has five tiers, T5 on full nr
+# (config/bench/cascade.yaml).
 #
-# It differs from config/test/config.yaml in exactly two lines, both of which exist to
-# keep the two runs from colliding:
+# Overrides config/config.yaml, which the Snakefile always loads first; keys not set here
+# are the production values. Against config/test/config.yaml it sets:
 #
 #   outdir          results_bench, so a cost run never overwrites a smoke run.
-#   cascade_config  config/bench/cascade.yaml, the production tiers at test scale.
+#   cascade_config  config/bench/cascade.yaml, five tiers at test scale.
 #
-# Everything else is the test configuration unchanged, including the 100-plasmid set and
-# the 100 + 100 controls. hmmer_z therefore stays 5504 and stays correct: the query set
-# and the control counts are the same, and those are what -Z counts.
+# The plasmid set and the 100 + 100 controls are those of the test configuration, so
+# hmmer_z stays 5504: -Z counts the unique proteins and the controls.
 #
 # What the resulting numbers can and cannot support is in the header of
 # workflow/bench_pipeline.sbatch. In short: per-stage memory transfers to production,
@@ -32,7 +32,6 @@ input:
 outdir: results_bench
 orf:
   min_call_length_aa: 20
-  meta_mode: true
 discovery:
   min_dark_candidate_length_aa: 20
 references:
@@ -41,7 +40,6 @@ references:
   swissprot_version: '2025-03-03'
   nr_version: '2025-03-03'
   eggnog_version: 5.0.2
-  plasmidscope_version: "2026-09-23"
   # The pharokka database bundle, from data/refs/pharokka/VERSION_x_y_z. One version
   # covers the phage families (PHROG v4 table), CARD and VFDB together.
   pharokka_db_version: "1.8.0"
@@ -57,9 +55,6 @@ amrfinder:
   required: true
 qc:
   max_opposite_strand_overlap_fraction: 0.6
-  antifam:
-    db: data/refs/antifam/AntiFam.hmm
-    threshold: cut_ga
 controls:
   positive:
     raw_faa: data/refs/control/raw.faa

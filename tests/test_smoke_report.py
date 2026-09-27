@@ -1,4 +1,4 @@
-"""Smoke tests: the final annotation report and script logging.
+"""Smoke tests: the final annotation report.
 
 Each test runs one workflow script against a small fixture.
 """
@@ -48,8 +48,7 @@ def _report_fixture(fixture_dir):
                       "host_count", "genus_count", "MOB_count",
                       "habitat_count", "database_source_count"],
               [["F1", "broad", "S2", 1, 1, 1, "SUCCESS", 1, 1, 1, 1, 1],
-               # 40 gene copies on 9 records that are only 2 independent lineages: the
-               # shape section 34.2 exists to keep visible.
+               # 40 gene copies on 9 records that are only 2 independent lineages.
                ["F2", "broad", "S3", 40, 9, 2, "SUCCESS", 3, 2, 3, 2, 1]])
     syn = fixture_dir / "synteny.tsv"
     measures = ["n_occurrences", "context_recurrence", "n_lineages",
@@ -80,12 +79,7 @@ def _report_fixture(fixture_dir):
 
 
 def _run_report(fixture_dir, *tables):
-    """Drive annotation_report.py. With no tables passed, build the standard fixture.
-
-    Two tests need the deliverable written: one checks what is in it, the other checks
-    what must never be (spec section 76). Sharing a written file between them would make
-    the second silently skip whenever it ran alone.
-    """
+    """Drive annotation_report.py. With no tables passed, build the standard fixture."""
     if not tables:
         tables = _report_fixture(fixture_dir)
     ann, pmap, fams, evo, rec, ctx, struct, orth, recur, syn, rarity_tsv = tables
@@ -136,8 +130,7 @@ def _run_report(fixture_dir, *tables):
                "labels_plasmid": str(labels_plasmid), "conjugation": str(conj),
                "conjugation_class": str(conj_class), "cooccurrence": str(cooc)},
         output={"annotation": str(out_ann), "families": str(out_fam)},
-        params={"prioritisation": {"min_reality_lines": 2, "min_mob_clusters": 2},
-                "evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5},
+        params={"evolution": {"min_members_for_dnds": 3, "dnds_purifying_max": 0.5},
                 "cooccurrence": {"min_lineages_together": 2, "fdr": 0.05}}))
     return out_ann, out_fam
 
@@ -148,7 +141,6 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     and nothing is ranked - selecting candidates is a decision made on this table, not one
     baked into a rule."""
     out_ann, out_fam = _run_report(fixture_dir)
-
 
     import csv as _csv
     orfs = list(_csv.DictReader(open(out_ann)))
@@ -176,17 +168,14 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     assert fam_rows["F2"]["reality_lines_implied"] == "is_family"
     # multi_lineage is read from Stage 6 lineages (2 for F2), not MOB-suite clusters.
     assert "multi_lineage" in fam_rows["F2"]["reality_lines"].split("+")
-    # The column sets are the contract, asserted by equality rather than by the absence
-    # of one remembered name: a renamed S7d leftover, or a new column nobody documented,
-    # fails here either way. Orthology columns come from the eggNOG table's own header,
-    # so they are excluded from the ORF-side check.
+    # The column sets are the contract, asserted by equality, so an added, renamed or
+    # removed column fails here. It also keeps any score or rank column out of the report.
     FAMILY_COLUMNS = [
         "family_id", "representative", "family_class",
         "n_members", "n_orfs", "n_plasmids", "n_mob_clusters",
-        # section 31.2
         "dark_member_count", "annotated_member_count", "percentage_dark_in_family",
         "dark_only",
-        # small plasmids and large ones (spec section 13.3)
+        # small plasmids and large ones
         "n_small_members", "n_large_members", "scope", "known_from",
         "reality_n", "reality_lines", "reality_lines_implied",
         "dnds_median", "dnds_min", "dnds_status", "under_purifying_selection", "n_pairs",
@@ -273,9 +262,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     assert relaxase["close_family_id"] == relaxase["close_synteny_status"] == ""
 
     # --- Stage 7: the counts stay apart ---------------------------------------------
-    # Section 34.2: "Database record counts must never be treated as independent
-    # biological observations." F2 is 40 gene copies on 9 records that are 2 lineages. If
-    # any of those three numbers can be read off another, the distinction is gone.
+    # F2 is 40 gene copies on 9 records that are 2 lineages: three separate counts.
     assert fam_rows["F2"]["plasmid_occurrence_count"] == "40"
     assert fam_rows["F2"]["unique_plasmid_count"] == "9"
     assert fam_rows["F2"]["independent_plasmid_cluster_count"] == "2", (
@@ -317,29 +304,6 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     assert fam_rows["F2"]["supporting_observations_are_not_independent"] == "1", (
         "the observation count must carry its own warning, because a column selected "
         "into a downstream ranking takes the warning with it")
-
-
-def test_the_report_has_no_composite_score_or_rank(fixture_dir):
-    """Spec section 76 draws the Layer C boundary: the core pipeline produces no
-    top_1000, no candidate_score, no novelty_score and no experimental_rank.
-
-    Section 2.3 gives the reason, and it is not tidiness. Two proteins with the same total
-    can be entirely different bets - one with overwhelming evidence that it is a real
-    protein and no idea what it does, the other with a sharp hypothesis resting on almost
-    nothing - and those demand different experiments. A composite destroys exactly the
-    information a screening decision needs.
-
-    evidence_dimension_count is a count of distinct measurements present, which is why it
-    is allowed where a score is not.
-    """
-    import csv as _csv
-    _, out_fam = _run_report(fixture_dir)
-    columns = next(iter(_csv.DictReader(open(out_fam))))
-
-    forbidden = {"candidate_score", "novelty_score", "experimental_rank", "priority",
-                 "rank", "score", "total_score", "composite"}
-    assert not (set(columns) & forbidden), (
-        f"a ranking column reappeared in the deliverable: {set(columns) & forbidden}")
 
 
 def test_the_report_names_the_is_family_of_an_orf_inside_an_element(fixture_dir):

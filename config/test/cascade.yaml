@@ -2,20 +2,17 @@
 #
 # Differs from config/cascade.yaml in exactly two ways, both forced by the set size:
 #
-#   hmmer_z  5504: all 5,304 unique proteins, searched or not (those PlasmidScope
-#            annotates skip the cascade but are still counted; see
-#            workflow/scripts/sweep_cohort.py), plus the 100 spiked positive controls
-#            and the 100 decoys this configuration asks for. It therefore has to change
-#            whenever controls.positive.n or controls.negative changes, and
-#            plasmidann.cascade.check_hmmer_z refuses the mismatch with the value to
-#            set. hmmsearch reports
+#   hmmer_z  5504: every unique protein of the test set, searched or not (5,297 in the
+#            last run), plus the 100 spiked positive controls and the 100 decoys this
+#            configuration asks for. Rule check_hmmer_z accepts a 2% difference and
+#            otherwise stops the run with the value to set. hmmsearch reports
 #            E = (sequences searched) x P(score | null), so a -Z pinned to the
 #            production value would rescale every E-value in the run.
 #
-#   tiers    the nr tier is absent. nr is 375 GB and DIAMOND streams the whole
-#            database whatever the query size, so including it would make a smoke run
-#            cost the same as a production run. T1 and T2 exercise hmmer, T3
-#            exercises diamond, so both search methods are still covered.
+#   tiers    T5 (ClusteredNR, 208 GB) is absent: DIAMOND streams the whole database
+#            whatever the query size, so including it would make a smoke run cost as
+#            much as a production run. T1 and T2 exercise hmmer, T3 pharokka and T4
+#            DIAMOND, so every search method is still covered.
 #
 # Every other threshold is identical to production, deliberately: a smoke run that
 # used different thresholds would not be testing the pipeline that produces results.

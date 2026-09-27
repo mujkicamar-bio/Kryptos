@@ -20,7 +20,7 @@ makes the set reproducible rather than merely archived.
 ## Running it
 
 ```bash
-snakemake --configfile config/test/config.yaml -j 8 --use-conda
+envs/plasmidann/bin/snakemake -s workflow/Snakefile --configfile config/test/config.yaml -c 8
 ```
 
 Outputs land in `results_test/`, so a smoke run can never overwrite a production run.
@@ -62,8 +62,8 @@ with different thresholds is not testing the pipeline that produces results.
 
 | setting | test | production | why it must differ |
 |---|---|---|---|
-| `hmmer_z` | 5504 | 3498616 | hmmsearch reports `E = Z x P(score \| null)`, and Z counts every unique protein plus the controls, including the proteins PlasmidScope annotates and the cascade does not search. A `-Z` pinned to the production size would rescale every E-value in the run. `plasmidann.cascade.check_hmmer_z` refuses the mismatch at load time rather than letting it through. |
-| tiers | T1, T2, T3 | T1..T4 | nr is 375 GB and DIAMOND streams the whole database whatever the query size, so including it would make a smoke run cost a production run. T1 and T2 exercise hmmer, T3 exercises diamond, so both search methods stay covered. |
+| `hmmer_z` | 5504 | 3498616 | hmmsearch reports `E = Z x P(score \| null)`, and Z counts every unique protein plus the controls, including the proteins PlasmidScope annotates and the cascade does not search. A `-Z` pinned to the production size would rescale every E-value in the run. Rule `check_hmmer_z` stops the run after dereplication if the count differs by more than 2%. |
+| tiers | T1..T4 | T1..T5 | T5 searches ClusteredNR (208 GB), and DIAMOND streams the whole database whatever the query size, so including it would make a smoke run cost a production run. T1 and T2 exercise hmmer, T3 pharokka and T4 DIAMOND, so every search method stays covered. |
 | `outdir` | `results_test` | `results` | a smoke run must not overwrite a production run. |
 | controls | 100 + 100 | 500 + 500 | the gate needs at least 100 positives to measure recall at 1% resolution; below that one failure is a 1% swing. |
 

@@ -1,22 +1,12 @@
 # ---- Large data trees: regenerable or too big for git ----
-# Root-anchored. An unanchored `envs/` also matched workflow/envs/plasmidann.yaml, the
-# one file that specifies the environment, and silently kept it out of every commit.
+# Root-anchored, so that workflow/envs/ (the environment specifications) is not matched.
 /data/
 /envs/
 
-# ---- Vendored tool binaries (keep the README and our own scripts) ----
-#
-# The test-set generator is code, not a vendored binary: the SHARDS it writes are ignored
-# with the rest of /data/, because they are regenerable from the seeded script, and
-# committing the script rather than its output is what makes the test set reproducible.
+# ---- tools/: our own scripts are tracked, anything else placed there is not ----
 tools/*
-!tools/README.md
 !tools/*.py
-
-# ---- Auxiliary reference databases ----
-orit_db_folder/
-transposon_db_folder/
-refs/
+!tools/*.sh
 
 # ---- Python / Jupyter cruft ----
 __pycache__/
@@ -30,6 +20,8 @@ slurm-*.out
 
 # ---- Pipeline ----
 .venv/
+# Tool caches (XDG_CACHE_HOME in workflow/run_pipeline.sbatch).
+/.cache/
 results*/
 .snakemake/
 

@@ -3,7 +3,7 @@
 WHAT IS INSTALLED
 
   envs/conjscan         from workflow/envs/conjscan.yaml (MacSyFinder 2.1.6, HMMER 3.4)
-  data/refs/conjscan    CONJScan 2.1.0 models, `msf_data install` (formerly macsydata) from that environment
+  data/refs/conjscan    CONJScan 2.1.0 models, `msf_data install` from that environment
   envs/amrfinder        from workflow/envs/amrfinder.yaml (NCBI AMRFinderPlus)
   data/refs/amrfinder   the AMRFinderPlus database, `amrfinder_update` from that environment
 
@@ -32,6 +32,8 @@ import subprocess
 import sys
 import tempfile
 
+# Must equal conjugation.version in config/targets.yaml (tests/test_config.py checks it);
+# this script uses the standard library only, so it cannot read the YAML.
 CONJSCAN_VERSION = "2.1.0"
 
 
@@ -85,7 +87,7 @@ def build_env(root, name):
             cmd = [exe, "env", "create", "-y", "-p", str(prefix), "-f", str(spec)]
         else:
             # --no-rc: the site configuration redirects channels to a local mirror; the
-            # specification names conda-forge and bioconda, and those are what is solved.
+            # environment file names conda-forge and bioconda, and those are what is solved.
             cmd = [exe, "create", "-y", "--no-rc", "--override-channels",
                    "-c", "conda-forge", "-c", "bioconda", "--strict-channel-priority",
                    "-p", str(prefix), "-f", str(spec)]

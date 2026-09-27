@@ -84,13 +84,13 @@ measured rather than assumed. Proteins flagged by AntiFam are not searched by an
 | T2 | hmmsearch | Pfam-A at `-E 1e-5 --domE 1e-5` | divergent homologues below the curatorial bar, kept as a lower-authority claim |
 | T3 | pharokka | PHROG, CARD, VFDB | the phage tier |
 | T4 | diamond | Swiss-Prot | highest label quality available, and nearly free |
-| T5 | diamond | NCBI nr | reaches environmental sequence nothing else does |
+| T5 | diamond | NCBI ClusteredNR (nr clustered at 90% identity), skipping proteins Pfam or Swiss-Prot named | reaches environmental sequence nothing else does |
 
 ---
 
 ## Quick start
 
-Every command in this section was run against a fresh clone before being written here.
+The commands of steps 1 and 2 were run against a fresh clone before being written here.
 
 ```bash
 git clone git@github.com:mujkicamar-bio/Rebus.git
@@ -108,7 +108,7 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python -m pytest -q -m "not slow"
 ```
 
-The linter reports the workflow is in good condition, and 556 tests pass (3 slow tool integration tests are deselected; 559 in all, measured 2026-09-25). This verifies
+The linter reports the workflow is in good condition, and 577 tests pass (2 slow tool integration tests are deselected; 579 in all, measured 2026-09-27). This verifies
 the checkout is complete and internally consistent, which is as far as anyone can get
 without the reference data.
 
@@ -156,10 +156,10 @@ they are several hundred gigabytes.
 | AntiFam | `config/cascade.yaml` → `artefact_screen` | 50 MB |
 | pharokka database bundle | `config/cascade.yaml` → T3 | 1.5 GB |
 | Swiss-Prot (DIAMOND) | `config/cascade.yaml` → T4 | 264 MB |
-| NCBI nr (DIAMOND) | `config/cascade.yaml` → T5 | 357 GB |
+| NCBI ClusteredNR (DIAMOND), built by `tools/download_clustered_nr.sh` | `config/cascade.yaml` → T5 | 208 GB |
 | eggNOG data | `config/targets.yaml` → `orthology` | 50 GB |
 | Foldseek target DB and ProstT5 | `config/config.yaml` → `foldseek_db`, `prostt5_model` | 20 GB |
-| MacSyFinder models | `config/config.yaml` → `macsyfinder_models` | 100 MB |
+| MacSyFinder models | `config/config.yaml` → `references.macsyfinder_models` | 100 MB |
 | plasmid label databases and the KEGG KO list | `config/config.yaml` → `labels`, `references.kegg_ko_list` | 0.9 GB |
 | AMRFinderPlus and its database | `config/config.yaml` → `amrfinder` | 0.24 GB, plus 1.0 GB for `envs/amrfinder` |
 | CONJScan 2.1.0 and its MacSyFinder 2.1.6 | `config/config.yaml` → `references.conjscan_models`; `config/targets.yaml` → `conjugation` | 17 MB, plus 0.7 GB for `envs/conjscan` |
@@ -172,6 +172,14 @@ python tools/download_label_dbs.py    # data/refs/labels/<db>/, with VERSION, SO
 python tools/install_tool_envs.py     # envs/conjscan, envs/amrfinder, data/refs/conjscan, data/refs/amrfinder
 ```
 
+pharokka (tier T3) runs from its own environment, `envs/pharokka`, with its database in
+`data/refs/pharokka`:
+
+```bash
+conda env create -p envs/pharokka -f workflow/envs/pharokka.yaml
+envs/pharokka/bin/install_databases.py -o data/refs/pharokka
+```
+
 Both are idempotent: a second run downloads and builds nothing. AMRFinderPlus and CONJScan
 run from their own environments, named by path in config, because their pins conflict with
 the main one - DefenseFinder needs MacSyFinder 2.1.4, CONJScan 2.1.0 needs 2.1.6. Pre-flight
@@ -180,11 +188,11 @@ MacSyFinder can read CONJScan's model grammar. `labels.required` and `amrfinder.
 are `true`, so a missing database stops the run in pre-flight rather than turning into an
 empty result.
 
-`hmmer_z` in `config/cascade.yaml` **must** equal the number of sequences actually
-searched — the unique-protein count of your analysis set plus your controls and decoys.
-hmmsearch reports `E = (sequences searched) × P(score | null)`, so a stale `-Z` rescales
-every E-value in the run. `plasmidann.cascade.check_hmmer_z` refuses a mismatch at load
-time and names the value to set.
+`hmmer_z` in `config/cascade.yaml` is the number of unique proteins of your analysis set
+plus the configured controls and decoys, whether or not the cascade searches them.
+hmmsearch reports `E = Z × P(score | null)`, so a stale `-Z` rescales every E-value in the
+run. Rule `check_hmmer_z` stops the run after dereplication if the count differs by more
+than 2%, and names the value to set.
 
 ### 4. Running it
 
@@ -234,7 +242,9 @@ what a smaller set forces: the tier list, `hmmer_z`, the control counts and `out
 
 ## Measured performance
 
-From a full run on a 100-plasmid set (5,504 cascade queries) on one 96-core node.
+From a benchmark run (`config/bench`, `workflow/bench_pipeline.sbatch`) on a 100-plasmid
+set (5,504 cascade queries) on one 96-core node, with T5 on full NCBI nr rather than
+ClusteredNR and the rule set of that run.
 
 | stage | wall | peak RSS |
 |---|---|---|
@@ -244,7 +254,7 @@ From a full run on a 100-plasmid set (5,504 cascade queries) on one 96-core node
 | T2 Pfam sub-GA | 6.5 min | 0.32 GB |
 | T3 pharokka | 2.4 min | 8.2 GB |
 | T4 Swiss-Prot | 6.3 s | 2.4 GB |
-| all 27 remaining rules | 8.6 min combined | ≤ 6.8 GB |
+| all other rules of that run | 8.6 min combined | ≤ 6.8 GB |
 
 Two properties matter when sizing a larger run.
 
@@ -255,7 +265,7 @@ number for a large one.
 
 **The nr tier is mostly fixed cost.** Across three measurements — 152, 3,808 and 3,910
 queries — the pass costs about `2,400 s + 1.9 s per query`. At small query counts nearly
-all of that is the single pass over the 357 GB database; at large ones the slope dominates.
+all of that is the single pass over the 357 GB nr database; at large ones the slope dominates.
 This is why the cascade runs one job per tier and is not sharded: sharding into *N* pieces
 would pay the fixed cost *N* times.
 
@@ -269,9 +279,8 @@ python -m pytest -q                  # adds the tool integration tests
 ```
 
 `tests/conftest.py` supplies the `snakemake` global that Snakemake injects, so a workflow
-script can run against a small fixture in milliseconds. That harness exists because
-repeated review found that essentially every serious defect lived in the one layer no test
-touched — including stages that wrote well-formed empty tables and reported success.
+script can run against a small fixture in milliseconds. `tests/test_workflow_wiring.py`
+resolves the rule graph of the test configuration, which needs Snakemake but no data.
 
 ---
 

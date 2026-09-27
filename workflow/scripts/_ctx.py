@@ -7,15 +7,9 @@ IMPORT PATH
     `from plasmidann...` fails without this.
 
 LOG CAPTURE
-    Every rule declares `log:`, and for `script:` rules Snakemake creates that path but
-    does NOT redirect the script's stdout into it - that redirection only happens for
-    `shell:` and `run:` directives. All 26 log files therefore stayed empty while the
-    diagnostics the scripts print (hit counts, rejected hits, background rates, per-tier
-    control resolution) went to one SLURM output file, interleaved across up to 1,481
-    concurrent jobs and impossible to attribute to a rule.
-
-    Output is TEED rather than moved: the log gets the rule's own record, and the SLURM
-    file keeps a live progress trace. A script that declares no log is unaffected.
+    Snakemake does not redirect a `script:` rule's output to its log: file, so stdout and
+    stderr are copied (teed) to the rule's log file; the Slurm log keeps a live trace. A
+    script that declares no log is unaffected.
 """
 import atexit
 import pathlib

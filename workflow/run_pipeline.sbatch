@@ -7,11 +7,11 @@
 #SBATCH -t 10-00:00:00
 #SBATCH -J dark_plasmidome
 #SBATCH --dependency=singleton
-#SBATCH -o results/logs/pipeline_%j.out
+#SBATCH -o slurm-%x-%j.out
 #
 # The whole pipeline: 143,503 plasmids -> a complete, evidence-rich annotation of every
-# plasmid ORF and its dark subset. It produces no ranking and no candidate list; spec
-# section 76 puts experimental prioritisation in a separate downstream workflow.
+# plasmid ORF and its dark subset. It produces no ranking and no candidate list. The Slurm
+# log is written to the submit directory (the repository root).
 #
 # ONE SUBMISSION ANNOTATES EVERYTHING. `sbatch workflow/run_pipeline.sbatch` runs every
 # stage in this one job: the cascade, the plasmid label databases and AMRFinderPlus
@@ -21,14 +21,10 @@
 #
 # ENVIRONMENT
 #
-# envs/plasmidann is a materialised copy of workflow/envs/plasmidann.yaml and holds all
-# eleven executables the workflow invokes. Putting it on PATH is what makes the conda:
-# directives meaningful: an earlier version of this script activated nothing, so all 26
-# directives were inert and the run silently depended on whatever the login shell had.
-#
-# To let Snakemake build the environment itself instead, drop the PATH line and add
-# --use-conda. Do not do both: two environments means the pre-flight rule checks one and
-# the searches run in the other, which is how a missing tool reaches hour 45 unnoticed.
+# envs/plasmidann, built from workflow/envs/plasmidann.yaml, runs Snakemake and holds the
+# tools; it is put on PATH, so the conda: directives match the running environment. Do not
+# add --use-conda as well: pre-flight would then check one environment while the searches
+# run in another.
 #
 # RESUMING
 #
@@ -40,7 +36,7 @@
 #
 # --dependency=singleton, with the same job name in structure_gpu.sbatch: both invocations
 # below run --nolock, so a second submission would otherwise write the same outputs at the
-# same time. SLURM now starts it only when the first has ended.
+# same time. SLURM starts it only when the first has ended.
 #
 # STRUCTURE SEARCH (S8d) runs HERE, on CPU, by default (~15-35 h on 16 CPU threads for the
 # expected dark representatives), so that one submission produces the whole annotation.
@@ -77,17 +73,8 @@ fi
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
-# WHICH PYTHON RUNS THE SCRIPTS
-#
-# Snakemake executes a `script:` directive with the interpreter that is running Snakemake,
-# NOT with whatever is first on PATH. Invoking a Snakemake from one environment while
-# putting a different environment on PATH therefore splits the run in two: the shell tools
-# (diamond, hmmsearch, pharokka) resolve through PATH, and every Python script runs
-# somewhere else. That split is silent until a script imports something only one of the
-# two environments has - it surfaced as ModuleNotFoundError: scipy in context_features,
-# after 34 of 35 rules had already succeeded.
-#
-# So the environment that holds the tools also runs Snakemake, and PATH agrees with it.
+# Snakemake runs a `script:` directive with the interpreter running Snakemake, not with the
+# first python on PATH, so the environment that holds the tools also runs Snakemake.
 SNAKEMAKE="$ROOT/envs/plasmidann/bin/snakemake"
 export PATH="$ROOT/envs/plasmidann/bin:$PATH"
 # Tool caches off the home directory, whose file quota is 94% used.
@@ -101,11 +88,8 @@ fi
 # Pre-flight runs first in its own invocation so a missing tool or database fails in
 # seconds, before the whole node is spent on gene calling.
 #
-# The target is placed AFTER --nolock deliberately. Both --resources and --configfile
-# accept one or more values, so a target written after either is consumed as one of them:
-# after --resources it fails with "dictionary update sequence element #1 has length 1",
-# and after --configfile it is opened as a second config file. --nolock is a boolean, so
-# a positional argument following it is parsed as a target.
+# The target follows --nolock, a boolean flag: after --resources or --configfile, which
+# take one or more values, it would be read as one of those values.
 "$SNAKEMAKE" -s workflow/Snakefile \
   --resources mem_mb=$MEM_MB -j 1 --nolock \
   results/05_annotation_cascade/preflight.tsv

@@ -1,7 +1,7 @@
 # =====================================================================================
 # S5-S8 and the report: the evidence recorded for every dark family. Nothing here ranks or
 # selects proteins; the 1,000 for experimental follow-up are chosen by hand from these
-# tables (spec sections 13.3 and 76).
+# tables.
 #
 # S5  quality gate        positive control (run-halting), decoys (reported)
 # S6  dark set, families  MMseqs2 deep-homology clustering, family network, lineages
@@ -9,16 +9,12 @@
 # S8  context, structure  DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons,
 #                         context terms, Foldseek
 # S9+ synteny, rarity, report
-#
-# Specification: PLASMID_ANALYSIS.md
 # =====================================================================================
 
 rule clonal_registry:
-    """S0b: which plasmids count as independent observations.
-
-    Every later count of independent occurrences is over MOB clusters, not raw plasmids.
-    Without this, a family on forty plasmids may be one clone sequenced forty times.
-    """
+    """S0b: per plasmid, its MOB-suite cluster, topology, observed host and predicted host
+    range. Independent occurrences are counted over Stage 6 lineages (plasmid_lineage),
+    not over these clusters."""
     input:
         master=config["input"]["master_table"],
         ids=f"{OUT}/01_analysis_set/analysis_set.txt",
@@ -91,9 +87,8 @@ rule dark_set:
 rule plasmid_lineage:
     """Stage 6: cluster plasmids by sequence similarity into independent lineages.
 
-    Separate from MOB class by design (spec section 33): MOB typing describes the relaxase
-    a plasmid carries and says nothing about whether two records are the same molecule
-    sequenced twice.
+    Separate from MOB class: MOB typing describes the relaxase a plasmid carries and says
+    nothing about whether two records are the same molecule sequenced twice.
     """
     input:
         fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
@@ -116,12 +111,12 @@ rule plasmid_lineage:
 
 
 rule protein_families:
-    """Stage 5: the family table for EVERY unique protein (spec section 31).
+    """Stage 5: the family table for every unique protein, not only the dark set.
 
     The clusters are made before the cascade (S2f); this adds the annotation, the
-    distribution and the small/large scope. Not only the dark set. Section 31.2 requires dark_member_count,
-    annotated_member_count and percentage_dark_in_family, and section 32 derives a
-    dark-only family as 100% dark - all four need the annotated members present.
+    distribution and the small/large scope. dark_member_count, annotated_member_count,
+    percentage_dark_in_family and the dark-only family (100% dark) need the annotated
+    members present.
 
     Two outputs: the complete table across every configured resolution, and the derived
     dark-family subset at the primary resolution that the dark stages read.
@@ -195,7 +190,7 @@ rule rarity:
 
     The curve answers whether the collection has saturated - whether more plasmids would
     keep revealing new dark families - which is what says if the dark count is a lower
-    bound (spec section 55).
+    bound.
     """
     input:
         recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
@@ -227,7 +222,7 @@ rule synteny:
 
     Distinct from Stage 8, which asks what one ORF sits next to once. Conserved gene order
     survives because the arrangement matters, so it is a much stronger claim than
-    adjacency. Six measurements, kept separate (spec section 42), counted over Stage 6
+    adjacency. Six measurements, kept separate, counted over Stage 6
     lineages, at every level of synteny.levels (close and intermediate).
     """
     input:
@@ -308,8 +303,8 @@ rule dark_cooccurrence:
 rule recurrence:
     """Stage 7: distribution and recurrence, counted over independent units.
 
-    Seven counts per family, never collapsed. Spec section 34.2: "database record counts
-    must never be treated as independent biological observations."
+    Seven counts per family, never collapsed, because database record counts are not
+    independent biological observations.
     """
     input:
         families=f"{OUT}/10_clustering/protein_families.tsv",
@@ -427,7 +422,7 @@ rule defence_search:
         models_dir=config["references"]["macsyfinder_models"],
         # When false and the models are absent, the stage records NOT_RUN rather than
         # halting: a missing optional database must not be fatal to a deliverable that
-        # does not depend on it (spec section 7.2).
+        # does not depend on it.
         required=targets["defence"]["required"],
     threads: 16
     resources:
@@ -449,7 +444,7 @@ rule defence_gembase:
     A component hit on a unique protein applies to every ORF sharing that sequence, so one
     search covers all copies. Plasmids carrying no component are pruned - they cannot meet
     any model's quorum. Measured on the test run this kept 41 of 100 plasmids but 83% of
-    their ORFs, so phase 2 reads ~1.2x less, not the 4-5x once estimated.
+    their ORFs, so phase 2 reads ~1.2x less.
     """
     input:
         components=f"{OUT}/12_context_and_structure/defence_components.tsv",
@@ -525,7 +520,7 @@ rule conjugation_systems:
         version=targets["conjugation"]["version"],
     threads: workflow.cores
     resources:
-        # Extrapolated from the test set (leaf 1.3), not a production measurement: ~7 GB
+        # Extrapolated from the test set, not a production measurement: ~7 GB
         # and ~25 min on 16 workers at 9.3 M ORFs (~0.77 ms CPU per ORF).
         mem_mb=16000,
         runtime=240,
@@ -594,9 +589,8 @@ rule is_elements:
 rule structure_search:
     """S8d: structural homology for the dark set, via Foldseek + ProstT5.
 
-    Scope is representatives by default. Spec section 49 sets that as the discovery-scale
-    strategy and section 79 makes it a success criterion; ProstT5 is a transformer and the
-    query count is the cost of this stage.
+    Scope is family representatives by default: ProstT5 is a transformer, and the query
+    count is the cost of this stage.
     """
     input:
         faa=f"{OUT}/10_clustering/dark_proteins.faa",
@@ -605,8 +599,8 @@ rule structure_search:
         f"{OUT}/12_context_and_structure/structure_hits.tsv",
     params:
         structure=targets["structure"],
-        target_db=config.get("foldseek_db", "data/refs/foldseek/pdb"),
-        prostt5=config.get("prostt5_model", "data/refs/foldseek/prostt5"),
+        target_db=config["foldseek_db"],
+        prostt5=config["prostt5_model"],
     # preflight already failed the run if structure.required and the databases are absent,
     # so reaching this rule means either the databases exist or structure is optional.
     threads: 16
@@ -682,9 +676,7 @@ rule annotation_report:
         recheck=f"{OUT}/11_distribution_and_evolution/consensus_recheck.tsv",
         context=f"{OUT}/12_context_and_structure/family_context.tsv",
         structure=f"{OUT}/12_context_and_structure/structure_hits.tsv",
-        # Stages 7, 9 and 14 produced these and nothing read them. A stage whose output
-        # never reaches the deliverable is a stage whose cost is paid and whose evidence
-        # is not available to the reader the deliverable exists for.
+        # Stages 7, 9 and 14: distribution counts, synteny and rarity labels.
         recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
         synteny=f"{OUT}/13_synteny/synteny.tsv",
         rarity=f"{OUT}/14_rarity/family_rarity.tsv",
