@@ -1,7 +1,7 @@
 """S2f: cluster every unique protein into families, before any annotation.
 
-A family is a sequence cluster and nothing else (spec section 31), so it needs only the
-sequences and can be made first. Made first, it serves two stages:
+A family is a sequence cluster and nothing else, so it needs only the sequences and can be
+made first. Made first, it serves two stages:
 
   * cascade_selection (S2s) reads the primary resolution to decide which proteins the
     cascade searches: the families that hold a small-plasmid protein;

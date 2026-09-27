@@ -194,8 +194,8 @@ def _has_span(hit):
 def narrow_by_explained(all_ids, explained, threshold):
     """Ids still worth searching: those explained less than `threshold`.
 
-    The caller passes narrow_at (how explained a protein must be before it is no longer
-    searched), not min_explained (how explained it must be to be reported as such).
+    The caller passes narrow_at (how explained a protein must be for the search on it to
+    stop), not min_explained (how explained it must be to be reported as such).
     Because narrow_at >= min_explained (check_thresholds), every protein explained below
     narrow_at was searched by every tier, and min_explained can be varied up to narrow_at
     without a re-run. Narrowing on explained fraction rather than on "any hit" keeps a
@@ -276,8 +276,8 @@ def n_dark_databases(hits):
 
 # How strongly the databases support this being a real protein, kept separate from the
 # fact that its function is unknown. EVERY rung means "function unknown"; they differ only
-# in the risk that there is no protein there at all. The column is descriptive and is not
-# used to filter: a CURATED_FAMILY protein is arguably less novel, since Pfam already
+# in the risk that there is no protein there at all. The column is descriptive, never a
+# filter: a CURATED_FAMILY protein is arguably less novel, since Pfam already
 # recognised the family. How widely a protein occurs is measured by the pipeline itself,
 # from the plasmids its family occurs on, not from database title prefixes.
 _EVIDENCE_RUNGS = [
