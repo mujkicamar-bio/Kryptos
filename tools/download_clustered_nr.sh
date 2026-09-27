@@ -51,7 +51,10 @@ download() {
 
 build() {
   n_vol=$(wc -l < "$OUT/volumes.txt")
-  n_done=$(ls "$DB"/.clustered_nr.*.done 2>/dev/null | wc -l)
+  # A glob, not ls: under pipefail an ls that matches nothing would end the script here.
+  shopt -s nullglob
+  done_files=("$DB"/.clustered_nr.*.done)
+  n_done=${#done_files[@]}
   if [[ "$n_done" -ne "$n_vol" ]]; then
     echo "only $n_done of $n_vol volumes downloaded; run 'download' first" >&2
     exit 1

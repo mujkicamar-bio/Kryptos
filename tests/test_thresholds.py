@@ -58,7 +58,7 @@ def test_small_drift_is_tolerated():
 
 
 def test_material_drift_is_refused_and_names_the_correct_value():
-    """S1 origin repair changes the ORF set, and therefore the unique-protein count. A
-    stale hmmer_z would silently rescale every E-value in the run."""
+    """A changed ORF set changes the unique-protein count; a stale hmmer_z would rescale
+    every E-value in the run."""
     with pytest.raises(ValueError, match="3400000"):
         check_hmmer_z(declared=3_497_616, actual=3_400_000)

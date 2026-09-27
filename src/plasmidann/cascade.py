@@ -128,6 +128,8 @@ def classify(hits, explained, min_coverage, tier_order):
     # A hit without coordinates comes from the pharokka tier, which reports no alignment
     # span. It is taken as a family assignment of the whole protein and makes the protein
     # FUNCTIONAL on its own; span_measured then records that completeness was not measured.
+    # This includes the CARD and VFDB hits pharokka reports, which are MMseqs2 hits at
+    # --min-seq-id 0.8 -c 0.4 (pharokka 1.10 proteins.py), used as pharokka reports them.
     family_level = [h for h in informative if not _has_span(h)]
     domain_only = bool(informative) and all(DOMAIN_NAMED.search(h["label"])
                                             for h in informative)

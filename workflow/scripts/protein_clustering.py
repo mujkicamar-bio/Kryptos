@@ -1,11 +1,11 @@
-"""S2f: cluster every unique protein into families, before any annotation.
+"""Rule protein_clustering: cluster every unique protein into families, before any annotation.
 
 A family is a sequence cluster and nothing else, so it needs only the sequences and can be
 made first. Made first, it serves two stages:
 
-  * cascade_selection (S2s) reads the primary resolution to decide which proteins the
+  * cascade_selection reads the primary resolution to decide which proteins the
     cascade searches: the families that hold a small-plasmid protein;
-  * protein_families (Stage 5) reads all three resolutions after the cascade and adds
+  * protein_families reads all three resolutions after the cascade and adds
     what the annotation says about each family.
 
 Every unique protein is clustered - small and large plasmids, annotated and not - so no
@@ -32,6 +32,10 @@ if not cfg["resolutions"]:
 for resolution, thresholds in sorted(cfg["resolutions"].items()):
     tmp = scratch.scratch_dir(out_dir, f"mmseqs_tmp_{resolution}")
     prefix = out_dir / f"families_{resolution}"
+    # --cluster-reassign moves members that fail the thresholds against their final
+    # representative (cascaded clustering can leave such members) to a cluster they
+    # satisfy (MMseqs2 user guide, "Cluster reassignment"; Steinegger & Söding 2017,
+    # Nat. Biotechnol. 35:1026).
     subprocess.run(
         f"mmseqs easy-cluster {snakemake.input.faa} {prefix} {tmp} "
         f"--min-seq-id {thresholds['min_seq_id']} -c {thresholds['coverage']} "

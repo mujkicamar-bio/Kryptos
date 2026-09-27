@@ -21,7 +21,7 @@ from plasmidann.tools import required_tools
 every_tool = requires(*(t["name"] for t in required_tools(structure_required=False,
                                                           orthology_required=False)))
 
-# The S2b artefact flags as artefact_screen writes them. Empty unless rows are given.
+# The artefact flags as artefact_screen writes them. Empty unless rows are given.
 ARTEFACT_COLS = ["seq_id", "artefact_flag", "antifam_family", "antifam_ievalue",
                  "low_complexity_fraction", "artefact_reason"]
 
@@ -70,6 +70,31 @@ def test_preflight_refuses_an_incomplete_diamond_index(fixture_dir):
         params={**params, "tiers": [{**tier, "expected_sequences": 3}]}))
 
 
+def test_preflight_lists_a_missing_diamond_instead_of_crashing(fixture_dir, monkeypatch):
+    """Without diamond on PATH the index of a tier with expected_sequences cannot be
+    checked; pre-flight still reports its collected problems."""
+    import shutil
+    db = fixture_dir / "ref.dmnd"
+    db.write_text("x")
+    antifam = fixture_dir / "AntiFam.hmm"
+    antifam.write_text("HMMER3/f\n")
+    (fixture_dir / "AntiFam.hmm.h3i").write_text("")
+    real_which = shutil.which
+    monkeypatch.setattr(shutil, "which",
+                        lambda name, *a, **k: None if name == "diamond" else real_which(name))
+    monkeypatch.setenv("PATH", str(fixture_dir / "empty"))
+
+    with pytest.raises(SystemExit, match="executable 'diamond' not found"):
+        run_script("preflight.py", FakeSnakemake(
+            output=[str(fixture_dir / "preflight.tsv")],
+            params={"tiers": [{"id": "T5", "method": "diamond", "source": "nr",
+                               "db": str(db), "args": "", "max_evalue": 1e-5,
+                               "expected_sequences": 4}],
+                    "artefact": {"antifam_db": str(antifam)},
+                    "structure": {"required": False},
+                    "foldseek_db": "", "prostt5": "", **_s4d_params(fixture_dir)}))
+
+
 def test_preflight_fails_when_a_downstream_tool_is_missing(fixture_dir, monkeypatch):
     """A missing tool of a later stage fails pre-flight, naming the tool and its stage.
 
@@ -100,7 +125,8 @@ def test_preflight_fails_when_a_downstream_tool_is_missing(fixture_dir, monkeypa
 
 
 def _preflight_s4d(fixture_dir, **s4d):
-    """Run pre-flight with every cascade check satisfied and the given S4d/S8f params."""
+    """Run pre-flight with every cascade check satisfied and the given label-database,
+    AMRFinderPlus and CONJScan params."""
     db = fixture_dir / "fake.hmm"
     db.write_text("HMMER3/f\n")
     (fixture_dir / "fake.hmm.h3i").write_text("")
@@ -848,3 +874,17 @@ def test_the_pharokka_tier_turns_the_merged_table_into_span_less_hits(fixture_di
     assert spans == [{"seq_id": "0cab68e6", "qlen": "250", "intervals": "",
                       "explained_fraction": "0.0"}]
     assert carried == {"0cab68e6"}
+
+
+def test_the_clustered_nr_build_names_missing_volumes(tmp_path):
+    """build before download stops with its own message, not a silent exit of ls."""
+    import pathlib
+    import subprocess
+    script = pathlib.Path(__file__).resolve().parents[1] / "tools" / "download_clustered_nr.sh"
+    out = tmp_path / "data" / "refs" / "clustered_nr"
+    out.mkdir(parents=True)
+    (out / "volumes.txt").write_text("clustered_nr.00.tar.gz\n")
+    r = subprocess.run(["bash", str(script), "build"], cwd=tmp_path, capture_output=True,
+                       text=True)
+    assert r.returncode == 1
+    assert "only 0 of 1 volumes downloaded" in r.stderr

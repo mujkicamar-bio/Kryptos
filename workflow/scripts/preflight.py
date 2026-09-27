@@ -1,8 +1,8 @@
-"""S3 pre-flight: confirm every tool and database the whole workflow needs is present.
+"""Rule preflight: confirm every tool and database the whole workflow needs is present.
 
 Checks every executable in plasmidann.tools, each cascade tier's database (and that it is
-pressed or complete), AntiFam, the optional structure and orthology data, the S4d label
-databases, AMRFinderPlus, and CONJScan with a MacSyFinder that can read its models. Every
+pressed or complete), AntiFam, the optional structure and orthology data, the plasmid
+label databases, AMRFinderPlus, and CONJScan with a MacSyFinder that can read its models. Every
 tier depends on this rule, so a failure stops the run before any search.
 """
 import os
@@ -71,10 +71,12 @@ for tier in tiers:
         continue
     if not os.path.exists(db):
         problems.append(f"{tier['id']}: database not found: {db}")
-    elif tier["method"] == "diamond" and tier.get("expected_sequences"):
+    elif tier["method"] == "diamond" and tier.get("expected_sequences") \
+            and resolved.get("diamond"):
         # Existence is not completeness: a makedb killed part-way leaves a non-empty
         # .dmnd, which would first fail - or silently search a fraction of the database -
-        # when the tier starts, a day or more into the run.
+        # when the tier starts, a day or more into the run. Without diamond the index
+        # cannot be read, and the missing executable is already a listed problem.
         info = subprocess.run(["diamond", "dbinfo", "-d", db], capture_output=True,
                               text=True).stdout
         n = next((int(l.split()[-1]) for l in info.splitlines()
@@ -114,7 +116,7 @@ if structure_required:
                 "to run without structural evidence.")
 
 # ------------------------------------------------------------------------------------
-# S4d plasmid label databases, and AMRFinderPlus in its own environment. The same contract
+# Plasmid label databases (rule label_databases), and AMRFinderPlus in its own environment. The same contract
 # as the stage (label_databases.py): an absent database directory fails only when the
 # databases are required, and otherwise becomes NOT_RUN; a directory that is present but
 # incomplete always fails, because the stage would stop on it hours into the run.
@@ -155,7 +157,7 @@ if amr["required"]:
     problems.extend(amr_missing)
 
 # ------------------------------------------------------------------------------------
-# S8f CONJScan, run by the MacSyFinder named in conjugation.exe. The models' grammar
+# CONJScan (rule conjugation_systems), run by the MacSyFinder named in conjugation.exe. The models' grammar
 # decides which MacSyFinder can read them, and the wrong one stops with a parse error
 # (plasmidann.tools.MIN_MACSYFINDER). Checked whenever both are installed, required or
 # not: the stage runs then, and would fail after the cascade rather than here.
@@ -213,7 +215,7 @@ with open(snakemake.output[0], "w") as out:
         path = os.path.join(db, "phrogs_profile_db") if os.path.isdir(db) else db
         out.write(f"{db}\t{os.path.getsize(path) if os.path.exists(path) else 0}\n")
     out.write(f"\nstructure_required\t{structure_required}\n")
-    # What the S4d and S8f stages will find, so a NOT_RUN in their outputs can be traced.
+    # What label_databases and conjugation_systems will find, so a NOT_RUN in their outputs can be traced.
     out.write(f"labels_dir\t{labels_dir}\n")
     out.write(f"amrfinder\t{'; '.join(amr_missing) or amr['executable']}\n")
     out.write(f"conjscan\t{conj_version or 'not installed'}\n")
