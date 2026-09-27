@@ -134,10 +134,11 @@ synteny:
   # across one lineage is one observation, so 2 is the arithmetic minimum.
   min_lineages: 2
 cooccurrence:
-  # S8g: dark family pairs that share a plasmid, counted per Stage 6 lineage. A pair
-  # together in one lineage is one observation, and two singleton families on one plasmid
-  # would get p = 1/N from it, so 2 is the minimum tested - the same minimum as
-  # synteny.min_lineages. No published source sets it.
+  # S8g: pairs of unique dark protein sequences that share a plasmid, counted per Stage 6
+  # lineage. A pair together in one lineage is one observation, and two sequences seen once
+  # each on one plasmid would get p = 1/N from it, so 2 is the minimum reported - the same
+  # minimum as synteny.min_lineages. No published source sets it. Only sequences in at
+  # least this many lineages are enumerated, which bounds the pair count.
   min_lineages_together: 2
   # Benjamini-Hochberg false discovery rate (Benjamini & Hochberg 1995, J R Stat Soc B
   # 57:289) at which the report counts a partner; 0.05 is the conventional level, and the

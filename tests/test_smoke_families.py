@@ -248,18 +248,19 @@ def test_family_network_links_a_dark_cluster_to_an_annotated_relative(fixture_di
     assert summary["dark_family_singletons_with_edge"] == "1"
 
 
-def test_dark_cooccurrence_writes_the_tested_pairs(fixture_dir):
-    """S8g on the tables the rule reads. d1 and d2 share a plasmid in lineages A and B
-    (A's two redeposited copies count once); d3 is on B's plasmid too but in one lineage
-    only, so no pair with it is tested; d4 shares lineage C with d1 on another plasmid,
-    which is not together."""
+def test_dark_cooccurrence_writes_the_pairs_of_dark_sequences(fixture_dir):
+    """S8g on the tables the rule reads. s1 and s2 share a plasmid in lineages A and B
+    (A's two redeposited copies count once). The unit is the unique dark sequence, not the
+    family: s1b, of s1's family, is in lineage C, which does not add to s1's lineages.
+    s3 is on B's plasmid but in one lineage only, so no pair with it is enumerated; s4 is
+    in two lineages but on no plasmid with another dark sequence; `known` is not dark."""
     fams = fixture_dir / "dark_families.tsv"
     write_tsv(fams, ["family_id", "members"],
               [["intermediate:d1", "s1,s1b"], ["intermediate:d2", "s2"],
                ["intermediate:d3", "s3"], ["intermediate:d4", "s4"]])
     mapping = fixture_dir / "protein_map.tsv"
-    mapping.write_text("s1\tA1|1,A2|1\ns1b\tB1|3,C1|1\ns2\tA1|2,A2|2,B1|1\n"
-                       "s3\tB1|2\ns4\tC2|1,D1|1\nknown\tA1|3\n")
+    mapping.write_text("s1\tA1|1,A2|1,B1|4\ns1b\tC1|1\ns2\tA1|2,A2|2,B1|1\n"
+                       "s3\tB1|2\ns4\tC2|1,D1|1\nknown\tA1|3,B1|3\n")
     lineage = fixture_dir / "plasmid_lineage.tsv"
     write_tsv(lineage, ["plasmid_id", "plasmid_lineage_cluster"],
               [["A1", "A"], ["A2", "A"], ["B1", "B"], ["C1", "C"], ["C2", "C"],
@@ -272,16 +273,16 @@ def test_dark_cooccurrence_writes_the_tested_pairs(fixture_dir):
         params={"cooccurrence": {"min_lineages_together": 2, "fdr": 0.05}}))
 
     rows = read_tsv(out)
-    assert list(rows[0]) == ["family_a", "family_b", "n_lineages_a", "n_lineages_b",
+    assert list(rows[0]) == ["seq_a", "seq_b", "n_lineages_a", "n_lineages_b",
                              "n_lineages_together", "n_lineages_total", "fraction_of_a",
                              "fraction_of_b", "expected_together", "p_value", "q_value"]
     (row,) = rows
-    assert (row["family_a"], row["family_b"], row["n_lineages_a"], row["n_lineages_b"],
+    assert (row["seq_a"], row["seq_b"], row["n_lineages_a"], row["n_lineages_b"],
             row["n_lineages_together"], row["n_lineages_total"]) == (
-        "intermediate:d1", "intermediate:d2", "3", "2", "2", "6")
-    # P(X >= 2) with N=6, K=3, n=2: C(3,2)/C(6,2) = 3/15.
-    assert float(row["p_value"]) == pytest.approx(0.2)
-    assert (row["fraction_of_a"], row["fraction_of_b"]) == ("0.6667", "1.0")
+        "s1", "s2", "2", "2", "2", "6")
+    # P(X >= 2) with N=6, K=2, n=2: 1/C(6,2).
+    assert float(row["p_value"]) == pytest.approx(1 / 15)
+    assert (row["fraction_of_a"], row["fraction_of_b"]) == ("1.0", "1.0")
 
 
 def _run_rarity(fixture_dir, small_plasmids, lineages=None, recurrence_rows=None):

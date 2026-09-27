@@ -111,13 +111,14 @@ def _run_report(fixture_dir, *tables):
                 "2.1.0"]])
     conj_class = fixture_dir / "conjugation_plasmid_class.tsv"
     write_tsv(conj_class, ["plasmid_id", "class"], [["p1", "pMOB"]])
-    # S8g: F2 travels with F9 (q 0.01) and less clearly with F8; F1 was in no tested pair.
+    # S8g: F2's member S3 travels with S9 (q 0.01) and less clearly with S8; F1's member
+    # S2 was in no reported pair.
     cooc = fixture_dir / "dark_cooccurrence.tsv"
-    write_tsv(cooc, ["family_a", "family_b", "n_lineages_a", "n_lineages_b",
+    write_tsv(cooc, ["seq_a", "seq_b", "n_lineages_a", "n_lineages_b",
                      "n_lineages_together", "n_lineages_total", "fraction_of_a",
                      "fraction_of_b", "expected_together", "p_value", "q_value"],
-              [["F2", "F9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01],
-               ["F2", "F8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3]])
+              [["S3", "S9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01],
+               ["S3", "S8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3]])
     out_ann = fixture_dir / "annotation_complete.csv"
     out_fam = fixture_dir / "dark_families_complete.csv"
     run_script("annotation_report.py", FakeSnakemake(
@@ -209,7 +210,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
         "small_modal_left", "small_modal_right", "small_modal_synteny",
         "small_synteny_status",
-        # S8g: dark families it travels with.
+        # S8g: dark sequences its members travel with.
         "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
         "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
         "cooccurrence_fdr", "cooccurrence_min_lineages",
@@ -284,7 +285,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
             f2["top_cooccurring_partner"], f2["top_cooccurring_partner_q"],
             f2["top_cooccurring_partner_fraction"], f2["cooccurrence_fdr"],
             f2["cooccurrence_min_lineages"]) == (
-        "SUCCESS", "1", "F9", "0.01", "0.6667", "0.05", "2")
+        "SUCCESS", "1", "S9", "0.01", "0.6667", "0.05", "2")
     f1 = fam_rows["F1"]
     assert (f1["cooccurrence_status"], f1["n_cooccurring_partners"],
             f1["top_cooccurring_partner"]) == ("TOO_FEW_LINEAGES", "0", "")
