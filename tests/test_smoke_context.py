@@ -166,6 +166,17 @@ def test_an_orf_that_is_a_defence_component_gets_defence_context(fixture_dir):
     assert row["cons_defence"] == "1.0"
 
 
+def test_an_orf_that_overlaps_a_component_without_being_one_has_no_system_context(
+        fixture_dir):
+    """pl1|1 overlaps the defence and conjugation component pl1|2 by four bases."""
+    genes = [["pl1", "pl1|1", 100, 400, "+", "", "NONE"],
+             ["pl1", "pl1|2", 397, 700, "+", "MobA_MobL", "FUNCTIONAL"]]
+    row = _run_context(fixture_dir, genes=genes,
+                       defence_rows=[["pl1|2", "Clover", "SUCCESS"]],
+                       conj_rows=[["pl1|2", "pl1", "T4SS_typeF", "s1", "MOBF", "SUCCESS"]])[0]
+    assert row["cons_defence"] == "0.0" and row["cons_conj"] == "0.0"
+
+
 FOLDSEEK_DB = "data/refs/foldseek/pdb"
 
 
@@ -565,7 +576,7 @@ def test_an_operon_across_the_origin_of_a_circular_plasmid_counts(fixture_dir):
 
 
 def test_an_orf_inside_an_is_element_gets_is_element_context(fixture_dir):
-    """An IS element is an island, like a defence system or an integron."""
+    """An IS element is an island, like an integron."""
     rows = _run_context(
         fixture_dir,
         is_rows=[["pl1", "pl1|IS1", "IS3", "IS3_1", 50, 450, "+", 1, "1e-50", ""]])

@@ -4,8 +4,8 @@ WHAT IT MEASURES
 
 For every dark family, the fraction of the plasmids carrying it on which a member ORF
 
-    cons_defence                 overlaps a component gene of a DefenseFinder system
-    cons_conj                    overlaps a component gene of a CONJScan system
+    cons_defence                 is a component of a DefenseFinder system
+    cons_conj                    is a component of a CONJScan system
     cons_integron                overlaps an integron cassette array (IntegronFinder)
     cons_is_element              overlaps an IS element (ISEScan)
     cons_annotated_neighbour     has a FUNCTIONAL gene within the +-window neighbourhood
@@ -112,8 +112,7 @@ with open(snakemake.input.map) as fh:
                 seq_of_source[oid] = sid
 
 # ------------------------------------------------------------------------------------
-# Islands, as intervals per plasmid: integron elements, IS elements, and the component
-# genes of defence and conjugation systems.
+# Islands, as intervals per plasmid: integron elements and IS elements.
 # ------------------------------------------------------------------------------------
 islands = collections.defaultdict(list)
 with open(snakemake.input.integrons, newline="") as fh:
@@ -126,16 +125,9 @@ with open(snakemake.input.is_elements, newline="") as fh:
         islands[r["plasmid_id"]].append(
             {"name": "is_element", "start": int(r["start"]), "end": int(r["end"])})
 
-for pid, genes in by_plasmid.items():
-    for g in genes:
-        if g["orf_id"] in defence_orfs:
-            islands[pid].append({"name": "defence", "start": g["start"], "end": g["end"]})
-        if g["orf_id"] in conj_orfs:
-            islands[pid].append({"name": "conj", "start": g["start"], "end": g["end"]})
-
 # ------------------------------------------------------------------------------------
-# Per-ORF context: the islands it sits inside, and its annotated neighbours and directon
-# partners.
+# Per-ORF context: the systems it is a component of, the islands it overlaps, and its
+# annotated neighbours and directon partners.
 # ------------------------------------------------------------------------------------
 # The neighbour window and the directons wrap across the origin of a circular plasmid
 # (context.flanks, context.directons).
@@ -163,6 +155,10 @@ for pid, genes in by_plasmid.items():
         left, right = flanks_of[oid]
         near = left + right
         ctx = {island["name"] for island in overlapping_islands(g, plasmid_islands)}
+        if oid in defence_orfs:
+            ctx.add("defence")
+        if oid in conj_orfs:
+            ctx.add("conj")
 
         if any(class_of.get(n) == "FUNCTIONAL" for n in near):
             ctx.add("annotated_neighbour")
