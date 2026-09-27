@@ -1,18 +1,9 @@
 """S7c: is the family collectively novel, or only individually unmatched?
 
-THE 6.5% THIS CATCHES
-
 A protein can miss every per-sequence threshold while its family is collectively
-recognisable. The shared signal is spread across members and no single one of them carries
-enough of it to clear a cut, so every member looks dark and the family looks like a
-discovery. Pavlopoulos et al. removed 6.5% of their clusters exactly this way, by searching
-the family CONSENSUS back against the reference databases.
-
-For this pipeline that 6.5% is the fraction of the library that would otherwise reach the
-bench described as novel when it is not. Every other test here asks about one sequence at a
-time; this is the only one that asks about the family.
-
-WHAT IT IS NOT
+recognisable: the shared signal is spread across members and none carries enough of it
+alone. Pavlopoulos et al. removed 6.5% of their clusters by searching the family CONSENSUS
+back against the reference databases.
 
 It is not a filter. A family whose consensus hits Pfam keeps its row, its members and its
 place in the table - it gains a label, `collectively_novel = 0`, and the name of what its

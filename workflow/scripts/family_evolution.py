@@ -9,26 +9,13 @@ This stage reports something POSITIVE:
   dN/dS < 0.5        selection is suppressing replacement changes, so there IS a protein
   RNAcode P < 0.05   the region carries coding signal independent of the gene caller
 
-WHY RNAcode SCORES BOTH STRANDS HERE
+RNAcode reports the sense and antisense coding signal separately, and both are kept
+(`rnacode_p`, `rnacode_p_antisense`; `coding_signal` applies evolution.rnacode_max_p to
+the sense P): a shadow ORF, the reverse complement of a real gene, passes every
+absence-based test, and its antisense signal is expected to be the stronger.
 
-RNAcode evaluates all six reading frames and reports the sense and antisense signal
-separately. For this project that is the point, not a detail. A shadow ORF is the reverse
-complement of a real gene, so the coding signal on its ANTISENSE strand should be the
-stronger of the two - and a shadow ORF is exactly the artefact class that survives every
-absence-based test in this pipeline. Recording only the sense P would discard the one
-number that separates them.
-
-The two are reported, never combined into a verdict: `rnacode_p`, `rnacode_p_antisense`,
-and `coding_signal` as the declared threshold applied to the sense P.
-
-dN/dS is also the only filter that catches the artefact class nothing else does. A shadow
-ORF on the reverse-complement strand of a real gene is conserved, multi-species, and passes
-every absence-based test - but the selection acting on that locus is acting on the gene on
-the OTHER strand.
-
-The consensus re-check matters because a protein can miss every per-sequence threshold
-while its family is collectively recognisable; this removed 6.5% of clusters in
-Pavlopoulos et al.
+The stage also writes one consensus per family from the protein alignment, which S7c
+searches back against Pfam.
 
 TWO MEMBER SETS PER FAMILY
 

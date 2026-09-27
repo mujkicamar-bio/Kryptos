@@ -14,8 +14,8 @@ The counting unit is the plasmid LINEAGE (Stage 6), not the occurrence: forty co
 redeposited plasmid are one observation, not forty.
 """
 import pytest
-
 from conftest import FakeSnakemake, read_tsv, run_script, write_tsv
+
 from plasmidann import synteny
 
 
