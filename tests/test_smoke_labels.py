@@ -94,11 +94,10 @@ def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
         output={"gff3": str(gff), "genbank": str(gbk)}))
 
     lines = [l for l in gff.read_text().splitlines() if not l.startswith("#")]
-    assert lines[0].startswith("##sequence-region") or True
     cds = [l.split("\t") for l in lines]
     assert all(int(c[3]) <= int(c[4]) for c in cds), "GFF3 requires start <= end"
     # The origin-spanning gene is two rows sharing one ID.
-    wrapped = [c for c in cds if "p1%7C2" in c[8]]
+    wrapped = [c for c in cds if "ID=p1|2" in c[8]]
     assert len(wrapped) == 2, f"expected a discontinuous feature, got {len(wrapped)} rows"
     assert sorted((int(c[3]), int(c[4])) for c in wrapped) == [(1, 120), (480, 500)]
 
@@ -108,6 +107,35 @@ def test_feature_files_place_an_origin_spanning_gene_correctly(fixture_dir):
     assert "circular" in text.split("\n")[0], "LOCUS line does not record the topology"
     assert text.rstrip().endswith("//"), "GenBank record is not terminated"
     assert "atgcatgc" in text.lower().replace(" ", ""), "no sequence written"
+
+
+def test_feature_files_write_genbank_that_biopython_parses(fixture_dir):
+    """A real 30-character plasmid id, a circular topology and a product holding a double
+    quote: the LOCUS line must keep the name, length and topology apart, and the quote must
+    be doubled inside the qualifier."""
+    from Bio import SeqIO
+
+    pid = "IMGPR_plasmid_645058772_000001"
+    ann = fixture_dir / "long.tsv"
+    write_tsv(ann, ["orf_id", "plasmid_id", "start", "end", "strand", "partial",
+                    "spans_origin", "annot_label", "functional_class", "annot_tier",
+                    "artefact_flag"],
+              [[f"{pid}|1", pid, 1, 30, "+", 0, 0, 'protein "X"', "FUNCTIONAL", "T1", 0]])
+    master = fixture_dir / "long_master.tsv"
+    write_tsv(master, ["plasmid_id", "topology"], [[pid, "circular"]])
+    fasta = fixture_dir / "long.fna"
+    write_fasta(fasta, [(pid, "ATGC" * 3000)])
+    gbk = fixture_dir / "long.gbk"
+    run_script("feature_files.py", FakeSnakemake(
+        input={"annotation": str(ann), "fasta": str(fasta), "master": str(master)},
+        output={"gff3": str(fixture_dir / "long.gff3"), "genbank": str(gbk)}))
+
+    (record,) = SeqIO.parse(str(gbk), "genbank")
+    assert (record.name, len(record.seq)) == (pid, 12000)
+    assert record.annotations["topology"] == "circular"
+    (cds,) = [f for f in record.features if f.type == "CDS"]
+    assert cds.qualifiers["product"] == ['protein "X"']
+    assert cds.qualifiers["locus_tag"] == [f"{pid}|1"]
 
 
 def test_feature_files_cover_the_analysis_set_and_nothing_else(fixture_dir):
@@ -173,7 +201,7 @@ def test_a_dark_orf_is_written_without_a_fabricated_product(fixture_dir):
     row = [l for l in gff.read_text().splitlines() if not l.startswith("#")][0]
     attrs = row.split("\t")[8]
     assert "product=" not in attrs, f"a product was fabricated for a dark ORF: {attrs}"
-    assert "ID=p1%7C1" in attrs
+    assert "ID=p1|1" in attrs
 
 
 def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
