@@ -200,28 +200,16 @@ def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
         f"the dark proteins were sent to eggNOG, or the named ones were not: {rows}")
 
 
-def _label_inputs(fixture_dir, label_rows=(), ko_lines=(), defence_rows=(),
-                  conj_rows=(), protein_map=""):
-    """The plasmid-label inputs of protein_labels, empty unless rows are given: the label
-    databases' table, the KEGG KO list, the defence and CONJScan calls and the map."""
+def _label_inputs(fixture_dir, label_rows=()):
+    """The label databases' table for protein_labels, empty unless rows are given."""
     labels_plasmid = fixture_dir / "protein_labels_plasmid.tsv"
     write_tsv(labels_plasmid, labeldb.COLUMNS, list(label_rows))
-    ko_list = fixture_dir / "list_ko.txt"
-    ko_list.write_text("".join(f"{line}\n" for line in ko_lines))
-    defence = fixture_dir / "defence_systems.tsv"
-    write_tsv(defence, ["orf_id", "plasmid_id", "system", "component"], list(defence_rows))
-    conj = fixture_dir / "conjugation_systems.tsv"
-    write_tsv(conj, ["orf_id", "plasmid_id", "system", "component"], list(conj_rows))
-    pmap = fixture_dir / "protein_map.tsv"
-    pmap.write_text(protein_map)
-    return {"labels_plasmid": str(labels_plasmid), "ko_list": str(ko_list),
-            "defence": str(defence), "conjugation": str(conj), "map": str(pmap)}
+    return {"labels_plasmid": str(labels_plasmid)}
 
 
 def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
-    """The substrate for the functional grouping. A wide table cannot hold it: the
-    vocabulary is open, Pfam-A 38.2 alone has 30,134 families, and the grouping is derived
-    from the labels observed rather than declared in advance."""
+    """One long table, because the vocabulary is open: Pfam-A 38.2 alone has 30,134
+    families."""
     import gzip
 
     hits = fixture_dir / "hits.tsv"
@@ -254,7 +242,7 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
                "selection": _selection(fixture_dir, [["m1", 1, "member", "s1"],
                                                       ["s1", 1, "representative", "s1"]]),
                **_label_inputs(fixture_dir)},
-        output={"tsv": str(out), "disagreements": str(fixture_dir / "disagree.tsv")},
+        output={"tsv": str(out)},
         params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
                 "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
 
@@ -283,8 +271,7 @@ def test_protein_labels_gathers_every_source_into_one_long_table(fixture_dir):
 
 
 def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
-    """A label without the database release it came from cannot be reproduced, and the
-    grouping built on it cannot be described in a methods section."""
+    """A label without the database release it came from cannot be reproduced."""
     hits = fixture_dir / "hits.tsv"
     write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
                      "evalue", "informative", "is_best", "start", "end", "tier", "source",
@@ -310,7 +297,7 @@ def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
     run_script("protein_labels.py", FakeSnakemake(
         input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat),
                "selection": _selection(fixture_dir), **_label_inputs(fixture_dir)},
-        output={"tsv": str(out), "disagreements": str(fixture_dir / "disagree.tsv")},
+        output={"tsv": str(out)},
         params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
                 "nr_version": "2025-03-03", "eggnog_version": "5.0.2",
                 "pharokka_db_version": "1.8.0"}))
@@ -323,18 +310,19 @@ def test_protein_labels_records_the_database_version_on_every_row(fixture_dir):
 
     # pharokka ships the phage families, CARD and VFDB as ONE versioned bundle and does
     # not expose the CARD or VFDB snapshot dates separately, so all three cite the bundle.
+    # Its CARD and VFDB rows are named apart from the direct CARD search (source 'card').
     by_source = {r["source"]: r for r in rows}
-    for source in ("pharokka", "card", "vfdb"):
+    for source in ("pharokka", "pharokka_card", "pharokka_vfdb"):
         assert by_source[source]["database_version"] == "1.8.0", by_source[source]
     assert by_source["pharokka"]["database"] == "pharokka databases (PHROG v4)"
-    assert by_source["card"]["database"] == "pharokka databases (CARD)"
-    assert by_source["vfdb"]["database"] == "pharokka databases (VFDB)"
+    assert by_source["pharokka_card"]["database"] == "pharokka databases (CARD)"
+    assert by_source["pharokka_vfdb"]["database"] == "pharokka databases (VFDB)"
 
 
 def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
     """The same Pfam family hit by T1 and T2 is one statement about the protein, not two.
     Unmerged, a widely searched label would outvote a rare one by copy number when the
-    categories are counted."""
+    labels are counted."""
     hits = fixture_dir / "hits.tsv"
     write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
                      "evalue", "informative", "is_best", "start", "end", "tier", "source",
@@ -354,7 +342,7 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
     run_script("protein_labels.py", FakeSnakemake(
         input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat),
                "selection": _selection(fixture_dir), **_label_inputs(fixture_dir)},
-        output={"tsv": str(out), "disagreements": str(fixture_dir / "disagree.tsv")},
+        output={"tsv": str(out)},
         params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
                 "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
 
@@ -365,11 +353,9 @@ def test_protein_labels_merges_a_label_seen_by_two_tiers(fixture_dir):
         "T2", "1e-40", "0.5")
 
 
-def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreements(
-        fixture_dir):
+def test_protein_labels_merges_the_plasmid_label_databases(fixture_dir):
     """Every plasmid label database row enters protein_labels.tsv as its own kind,
-    sub_label included (AMRFinderPlus's element type decides amr against metal), and the
-    cross-source conflicts are written beside it without changing a label."""
+    sub_label included (AMRFinderPlus's element type decides amr against metal)."""
     hits = fixture_dir / "hits.tsv"
     write_tsv(hits, ["query", "label", "target_accession", "coverage", "target_coverage",
                      "evalue", "informative", "is_best", "start", "end", "tier", "source",
@@ -377,7 +363,6 @@ def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreemen
               [["s1", "RepA_N", "PF06970.19", 0.9, 0.95, "1e-40", "True", 1, 1, 100,
                 "T1", "pfam", "", "--cut_ga", ""]])
     orth = fixture_dir / "orthology.tsv"
-    # Tier 0 (PlasmidScope) names s2 by a KO whose KEGG symbol is merA.
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description", "eggnog_ogs", "pfams", "gos", "ec", "kegg_ko",
                      "orthology_source"],
@@ -385,30 +370,21 @@ def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreemen
     pfam_dat = fixture_dir / "pfam.dat"
     pfam_dat.write_text("")
     label_rows = [
-        # s1: CARD and AMRFinderPlus name different genes - card_vs_amrfinder.
         ["s1", "card", "card_amr_family", "TEM beta-lactamase", "TEM-1", "Perfect",
          "500", "100.0", "100.0", "100.0", "560", "ARO:3000873", "CARD 4.0.2"],
         ["s1", "amrfinder", "amrfinder_gene", "sul1", "AMR/AMR", "EXACTP", "", "100.0",
          "", "100.0", "", "WP_000259031.1", "2026-08-07.1"],
-        # s2: BacMet names merB where Tier 0 names merA - tier0_vs_bacmet.
         ["s2", "bacmet", "bacmet_compound", "Mercury", "merB", "1", "", "95.0", "98.0",
          "97.0", "400", "BAC0231", "BacMet 2.0"],
-        # s3: TADB on a DefenseFinder component - tadb_vs_defencefinder.
         ["s3", "tadb", "tadb_ta", "type II toxin", "", "1", "", "90.0", "95.0", "95.0",
          "300", "TA01", "TADB 3.0"],
     ]
-    inputs = _label_inputs(
-        fixture_dir, label_rows=label_rows,
-        ko_lines=["K00520\tmerA; mercuric reductase [EC:1.16.1.1]"],
-        defence_rows=[["p1|3", "p1", "defense-finder-models/DefenseFinder/AbiE/AbiE",
-                       "AbiEii"]],
-        protein_map="s1\tp1|1\ns2\tp1|2\ns3\tp1|3\n")
+    inputs = _label_inputs(fixture_dir, label_rows=label_rows)
     out = fixture_dir / "protein_labels.tsv"
-    disagree = fixture_dir / "label_disagreements.tsv"
     run_script("protein_labels.py", FakeSnakemake(
         input={"hits": [str(hits)], "orthology": str(orth), "pfam_dat": str(pfam_dat),
                "selection": _selection(fixture_dir), **inputs},
-        output={"tsv": str(out), "disagreements": str(disagree)},
+        output={"tsv": str(out)},
         params={"pfam_version": "38.2", "swissprot_version": "2025-03-03",
                 "nr_version": "2025-03-03", "eggnog_version": "5.0.2"}))
 
@@ -431,14 +407,7 @@ def test_protein_labels_merges_the_plasmid_label_databases_and_lists_disagreemen
     others = [r for r in rows if r["kind"] not in plasmid_kinds]
     assert {r["source"] for r in others} == {"pfam", "eggnog"}
     assert all(r["sub_label"] == "" for r in others)
-
-    with open(disagree) as fh:
-        assert fh.readline().rstrip("\n").split("\t") == [
-            "seq_id", "source_a", "label_a", "source_b", "label_b", "conflict_type"]
-    conflicts = {(r["seq_id"], r["conflict_type"]) for r in read_tsv(disagree)}
-    assert conflicts == {("s1", "card_vs_amrfinder"), ("s2", "tier0_vs_bacmet"),
-                         ("s3", "tadb_vs_defencefinder")}
-    # A disagreement removes no label.
+    # Both CARD and AMRFinderPlus labels of s1 are kept side by side.
     assert len(merged) == len(label_rows)
 
 
