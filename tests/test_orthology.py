@@ -41,8 +41,8 @@ def test_comment_lines_and_the_trailing_summary_are_skipped():
 
 
 def test_multiple_cog_categories_are_kept_whole():
-    """A protein can carry several single-letter COG categories, written adjacently as
-    'EGP'. Splitting them into characters is wrong; so is discarding all but the first."""
+    """Several single-letter COG categories are written adjacently, as 'EGP'. The table
+    keeps them as one string; labels_from_orthology splits them."""
     text = _rows("P4\tx\t1e-5\t100\tCOG1\tBacteria\tEGP\tTransporter\t-\t-\t-\t-\t-\n")
     assert parse_annotations(text)["P4"]["cog_category"] == "EGP"
 

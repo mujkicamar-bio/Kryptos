@@ -1,10 +1,11 @@
 """eggNOG-mapper over the proteins the cascade named.
 
-Only proteins classed FUNCTIONAL or DOMAIN_ONLY are annotated: the terms describe the
-neighbours of dark ORFs for the context features (plasmidann.orthology). Proteins
-PlasmidScope annotated take PlasmidScope's own eggNOG-mapper result; the rest are sent to
-eggNOG-mapper. Every named protein gets a row; one eggNOG-mapper could not place gets an
-empty row.
+Only proteins classed FUNCTIONAL or DOMAIN_ONLY are annotated. Proteins PlasmidScope
+annotated take PlasmidScope's own eggNOG-mapper result; the rest are sent to eggNOG-mapper.
+Every named protein gets a row: orthology_source is plasmidscope, emapper, '' when
+eggNOG-mapper searched it and could not place it, or not_run when the search was skipped.
+The table gives the orthology columns of the annotation report and the eggNOG labels of
+protein_labels.tsv.
 """
 import csv
 import pathlib
@@ -49,34 +50,36 @@ with open(query, "w") as out:
             out.write(line)
 
 # When the stage is required, a missing database fails pre-flight. When it is not, the
-# search is skipped, every term is recorded as absent, and the columns still exist for the
-# context features.
+# search is skipped and its proteins are written as not_run.
 required = bool(cfg.get("required"))
 data_dir = pathlib.Path(cfg["data_dir"])
 records = {}
+searched = False
 if n_query and not data_dir.is_dir():
     if required:
         raise SystemExit(
             f"orthology.required is true but the eggNOG data directory is missing: "
             f"{data_dir}. Run `download_eggnog_data.py --data_dir {data_dir}`, or set "
-            "orthology.required to false in config/targets.yaml to run without KEGG terms.")
+            "orthology.required to false in config/targets.yaml to run without eggNOG terms.")
     print(f"orthology: eggNOG data directory absent ({data_dir}) and not required - "
-          "every term recorded as absent, NOT as searched and not found")
+          "its proteins are recorded as not_run")
 elif n_query:
     # DIAMOND mode rather than HMMER mode: this is a bulk ortholog transfer over millions of
     # sequences, and the published defaults are the citable settings (Cantalapiedra et al.
-    # 2021, Mol Biol Evol 38:5825). check=True because an empty annotation file here would
-    # silently remove the KEGG axis from every context feature downstream.
+    # 2021, Mol Biol Evol 38:5825). --temp_dir to node-local disk, as in tier_search:
+    # eggNOG-mapper otherwise writes its temporary files into the working directory.
     subprocess.run(
         f"emapper.py -i {query} -o named --output_dir {outdir} -m diamond "
-        f"--cpu {snakemake.threads} --data_dir {cfg['data_dir']} --override",
+        f"--cpu {snakemake.threads} --data_dir {cfg['data_dir']} --override "
+        f"--temp_dir {snakemake.resources.tmpdir}",
         shell=True, check=True, stdout=subprocess.DEVNULL)
     annotations = outdir / "named.emapper.annotations"
     if not annotations.exists():
         raise SystemExit(
-            f"emapper.py exited 0 but wrote no annotations to {annotations}. The KEGG axis "
-            "of every context feature would be silently empty.")
+            f"emapper.py exited 0 but wrote no annotations to {annotations}; every "
+            "searched protein would read as not placed.")
     records = parse_annotations(annotations.read_text())
+    searched = True
 
 cols = ["seq_id", "cog_category", "kegg_pathways", "preferred_name", "eggnog_description",
         "eggnog_ogs", "pfams", "gos", "ec", "kegg_ko", "orthology_source"]
@@ -105,7 +108,7 @@ with open(snakemake.output[0], "w", newline="") as out:
                     "gos": ",".join(r.get("gos", [])),
                     "ec": ",".join(r.get("ec", [])),
                     "kegg_ko": ",".join(r.get("kegg_ko", [])),
-                    "orthology_source": "emapper" if r else ""})
+                    "orthology_source": "emapper" if r else ("" if searched else "not_run")})
 
 n_kegg = sum(1 for r in records.values() if r["kegg_pathways"])
 n_symbol = sum(1 for r in records.values() if r["preferred_name"])

@@ -195,9 +195,55 @@ def test_orthology_queries_only_the_proteins_the_cascade_named(fixture_dir):
                               "required": False}},
         threads=1))
 
-    rows = {r["seq_id"] for r in read_tsv(out)}
-    assert rows == {"named1", "named2"}, (
+    rows = {r["seq_id"]: r["orthology_source"] for r in read_tsv(out)}
+    assert set(rows) == {"named1", "named2"}, (
         f"the dark proteins were sent to eggNOG, or the named ones were not: {rows}")
+    # Not searched is recorded as such, apart from searched and not placed ('').
+    assert set(rows.values()) == {"not_run"}
+
+
+def test_orthology_runs_emapper_with_a_local_temp_dir_and_marks_unplaced_proteins(
+        fixture_dir, monkeypatch):
+    """eggNOG-mapper writes its temporary files to --temp_dir, which defaults to the
+    working directory; the rule's tmpdir is passed instead. A protein it searched and could
+    not place gets an empty orthology_source."""
+    import os
+    import stat
+
+    prot = fixture_dir / "protein_annotation.tsv"
+    write_tsv(prot, ["seq_id", "functional_class"],
+              [["named1", "FUNCTIONAL"], ["named2", "FUNCTIONAL"]])
+    faa = fixture_dir / "unique.faa"
+    write_fasta(faa, [(n, "MKVLATT") for n in ("named1", "named2")])
+    bindir = fixture_dir / "bin"
+    bindir.mkdir()
+    exe = bindir / "emapper.py"
+    exe.write_text(
+        "#!/bin/sh\n"
+        f"echo \"$@\" > {fixture_dir}/emapper_args\n"
+        "while [ $# -gt 0 ]; do [ \"$1\" = --output_dir ] && out=$2; shift; done\n"
+        "printf '#query\\tCOG_category\\tPreferred_name\\nnamed1\\tL\\trepA\\n' "
+        "> \"$out/named.emapper.annotations\"\n")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    data_dir = fixture_dir / "eggnog"
+    data_dir.mkdir()
+    out = fixture_dir / "orthology.tsv"
+    snake = FakeSnakemake(
+        input={"prot": str(prot), "faa": str(faa), "ps": _ps_table(fixture_dir)},
+        output=[str(out)],
+        params={"orthology": {"data_dir": str(data_dir), "required": True}},
+        threads=1)
+    snake.resources.tmpdir = str(fixture_dir / "node_local")
+
+    run_script("orthology.py", snake)
+
+    args = (fixture_dir / "emapper_args").read_text().split()
+    assert args[args.index("--temp_dir") + 1] == snake.resources.tmpdir
+    rows = {r["seq_id"]: r for r in read_tsv(out)}
+    assert rows["named1"]["orthology_source"] == "emapper"
+    assert rows["named1"]["preferred_name"] == "repA"
+    assert rows["named2"]["orthology_source"] == ""
 
 
 def _label_inputs(fixture_dir, label_rows=()):
