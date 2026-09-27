@@ -489,10 +489,9 @@ def test_orthology_takes_plasmidscope_terms_without_running_emapper(fixture_dir)
 ANNOTATION_COLS = [
     "seq_id", "annot_source", "annot_representative", "annot_tier", "annot_label",
     "functional_class", "homology_depth", "annot_qcov", "annot_tcov", "annot_evalue",
-    "n_informative_hits", "explained_fraction", "annot_completeness", "meets_min_explained",
+    "n_informative_hits", "explained_fraction", "annot_completeness",
     "dark_covered_fraction", "dark_completeness", "dark_evidence", "n_dark_databases",
-    "uninformative_labels", "uninformative_tiers", "thr_min_coverage", "thr_min_explained",
-    "thr_narrow_at"]
+    "uninformative_labels", "uninformative_tiers", "thr_min_coverage", "thr_narrow_at"]
 
 
 def _annotate(fixture_dir, protein_map, annotation_cols=ANNOTATION_COLS):

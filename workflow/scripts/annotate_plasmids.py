@@ -42,14 +42,14 @@ cols = [
     "annot_tier", "annot_label", "functional_class", "homology_depth",
     "annot_qcov", "annot_tcov", "annot_evalue", "n_informative_hits",
     # how much of it is accounted for
-    "explained_fraction", "annot_completeness", "meets_min_explained",
+    "explained_fraction", "annot_completeness",
     # what the dark evidence says
     "dark_covered_fraction", "dark_completeness", "dark_evidence", "n_dark_databases",
     "uninformative_labels", "uninformative_tiers",
     # is it a protein at all
     "artefact_flag", "antifam_family", "artefact_reason",
     # provenance
-    "thr_min_coverage", "thr_min_explained", "thr_narrow_at",
+    "thr_min_coverage", "thr_narrow_at",
 ]
 
 n = n_missing = 0
