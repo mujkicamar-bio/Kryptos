@@ -218,5 +218,5 @@ artefact_screen:
   # so the value is measured: over the 482,697 proteins of the Swiss-Prot DIAMOND database
   # used by tier T3 (tantan 51, -p, 2026-09-28), the masked fraction has median 0, 90th
   # percentile 0.138 and 99th percentile 0.516; 5,223 proteins (1.08%) exceed 0.5. The
-  # cut-off therefore flags about 1% of curated, experimentally supported proteins.
+  # cut-off therefore flags about 1% of manually reviewed proteins.
   max_low_complexity_fraction: 0.5
