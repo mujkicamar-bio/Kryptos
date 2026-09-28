@@ -284,14 +284,6 @@ resolves the rule graph of the test configuration, which needs Snakemake but no 
 
 ---
 
-## Documentation
-
-| file | covers |
-|---|---|
-| [`docs/PIPELINE_CODE.md`](docs/PIPELINE_CODE.md) | code layout, file contracts, invariants |
-| [`docs/annotation_statistics.md`](docs/annotation_statistics.md) | `-Z`, `--cut_ga`, the two Pfam tiers, `--domE` |
-| [`docs/PARAMETER_PROVENANCE.md`](docs/PARAMETER_PROVENANCE.md) | every parameter: cited, measured, or a recorded weakness |
-
 ## Sources
 
 - Rodríguez del Río Á. *et al.* Functional and evolutionary significance of unknown genes from uncultivated taxa. *Nature* **626**, 377–384 (2024)

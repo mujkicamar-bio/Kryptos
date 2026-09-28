@@ -4,9 +4,6 @@
 # Every threshold the cascade uses is declared here, none in Python. Each is checked
 # against config/schemas/cascade.schema.yaml and plasmidann.cascade.check_thresholds(),
 # and written into the output rows it governs.
-#
-# The rationale for the specific values, and for -Z and --cut_ga, is in
-# docs/annotation_statistics.md.
 # =====================================================================================
 
 # --- Narrowing -------------------------------------------------------------------------
@@ -124,9 +121,7 @@ tiers:
       the remaining 3.5%. Loosening it would open a real sub-GA band at the cost of false
       positives across 3.5M queries, and a false positive here permanently removes a
       genuine dark protein from the pool. That trade was considered and declined: precision
-      at the deepest tiers is worth more to this project than sub-GA recall. The
-      measurement is kept in docs/annotation_statistics.md section 2 so the choice is on
-      the record.
+      at the deepest tiers is worth more to this project than sub-GA recall.
 
   - id: T3
     method: pharokka

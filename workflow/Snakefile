@@ -21,9 +21,6 @@
 #                                      directons, context terms, dark family
 #                                      co-occurrence, Foldseek
 #
-# Search statistics:    docs/annotation_statistics.md
-# Code walkthrough:     docs/PIPELINE_CODE.md
-#
 # Run:  envs/plasmidann/bin/snakemake -s workflow/Snakefile -c <cores>
 # Plan: add -n   (a core count is required: tier threads are workflow.cores)
 # =====================================================================================
