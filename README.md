@@ -67,7 +67,6 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | rarity | `14_rarity` | family rarity labels and the saturation curve |
 | annotation_report | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family (the family table includes each family's co-occurring partners) |
 
-`snakemake -n --forceall -c 2` plans **47 jobs** with the production configuration (measured 2026-09-25).
 
 ### The cascade
 
@@ -109,7 +108,8 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python -m pytest -q -m "not slow"
 ```
 
-The linter reports the workflow is in good condition, and 577 tests pass (2 slow tool integration tests are deselected; 579 in all, measured 2026-09-27). This verifies
+The linter reports the workflow is in good condition, and the test suite passes (the slow
+tool integration tests are deselected). This verifies
 the checkout is complete and internally consistent, which is as far as anyone can get
 without the reference data.
 
@@ -125,7 +125,7 @@ what step 2 has to provide.
 
 ### 2. The environment that can actually run the pipeline
 
-The twenty external executables — DIAMOND, HMMER, MMseqs2, Foldseek, MAFFT and the rest —
+The external executables — DIAMOND, HMMER, MMseqs2, Foldseek, MAFFT and the rest —
 are not Python packages, so a working run needs the conda environment rather than the pip
 install above:
 
@@ -207,9 +207,9 @@ A core count is **required**: the cascade tiers take their thread count from
 `workflow.cores`, so `-c`/`-j` is not optional.
 
 `preflight` runs first and confirms every executable and every configured database is
-present, in about a second, before any compute is spent. The submission scripts derive the
-repository root from their own location, so they run from wherever you checked the
-repository out.
+present, in seconds to a few minutes (a MacSyFinder version check has taken up to 3 min),
+before any compute is spent. The submission scripts take the repository root from the
+directory they are submitted from, so submit them from the repository root.
 
 ### One submission runs everything
 
@@ -306,6 +306,29 @@ resolves the rule graph of the test configuration, which needs Snakemake but no 
 - Cury J. *et al.* Identifying conjugative plasmids and integrative conjugative elements with CONJscan. *Methods Mol. Biol.* **2075**, 265–283 (2020)
 - Coluzzi C., Garcillán-Barcia M.P., de la Cruz F. & Rocha E.P.C. Evolution of plasmid mobility: origin and fate of conjugative and nonconjugative plasmids. *Mol. Biol. Evol.* **39**, msac115 (2022)
 - Benjamini Y. & Hochberg Y. Controlling the false discovery rate: a practical and powerful approach to multiple testing. *J. R. Stat. Soc. B* **57**, 289–300 (1995)
+- Li Y. *et al.* PlasmidScope: a comprehensive plasmid database with rich annotations and online analytical tools. *Nucleic Acids Res.* **53**, D179 (2025) - the primary data source
+- Schoch C.L. *et al.* NCBI Taxonomy: a comprehensive update on curation, resources and tools. *Database* **2020**, baaa062 (2020) - taxdump of 2026-04-05, eukaryotic hosts
+- Robertson J. & Nash J.H.E. MOB-suite: software tools for clustering, reconstruction and typing of plasmids from draft assemblies. *Microb. Genom.* **4**, e000206 (2018)
+- Hyatt D. *et al.* Prodigal: prokaryotic gene recognition and translation initiation site identification. *BMC Bioinformatics* **11**, 119 (2010)
+- Larralde M. Pyrodigal: Python bindings and interface to Prodigal, an efficient method for gene prediction in prokaryotes. *J. Open Source Softw.* **7**, 4296 (2022) - pyrodigal 3.7.1
+- Nayfach S. *et al.* CheckV assesses the quality and completeness of metagenome-assembled viral genomes. *Nat. Biotechnol.* **39**, 578–585 (2021) - the terminal-repeat criterion
+- Smillie C. *et al.* Mobility of plasmids. *Microbiol. Mol. Biol. Rev.* **74**, 434–452 (2010) - the size cut-off
+- Frith M.C. A new repeat-masking method enables specific detection of homologous sequences. *Nucleic Acids Res.* **39**, e23 (2011) - tantan 51
+- Steinegger M. & Söding J. MMseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. *Nat. Biotechnol.* **35**, 1026–1028 (2017) - MMseqs2 18.8cc5c
+- Bouras G. *et al.* Pharokka: a fast scalable bacteriophage annotation tool. *Bioinformatics* **39**, btac776 (2023) - pharokka 1.10.1
+- Cantalapiedra C.P. *et al.* eggNOG-mapper v2: functional annotation, orthology assignments, and domain prediction at the metagenomic scale. *Mol. Biol. Evol.* **38**, 5825–5829 (2021) - eggNOG-mapper 2.1.12
+- Suzek B.E. *et al.* UniRef clusters: a comprehensive and scalable alternative for improving sequence similarity searches. *Bioinformatics* **31**, 926–932 (2015)
+- Durairaj J. *et al.* Uncovering new families and folds in the natural protein universe. *Nature* **622**, 646–653 (2023) - the family network
+- Ondov B.D. *et al.* Mash: fast genome and metagenome distance estimation using MinHash. *Genome Biol.* **17**, 132 (2016) - Mash 2.3
+- Katoh K. & Standley D.M. MAFFT multiple sequence alignment software version 7: improvements in performance and usability. *Mol. Biol. Evol.* **30**, 772–780 (2013) - MAFFT 7.526
+- Yang Z. & Nielsen R. Estimating synonymous and nonsynonymous substitution rates under realistic evolutionary models. *Mol. Biol. Evol.* **17**, 32–43 (2000) - yn00, PAML 4.10.7
+- Washietl S. *et al.* RNAcode: robust discrimination of coding and noncoding regions in comparative sequence data. *RNA* **17**, 578–594 (2011) - RNAcode 0.3.1
+- Néron B. *et al.* MacSyFinder v2: improved modelling and search engine to identify molecular systems in genomes. *Peer Community J.* **3**, e28 (2023) - MacSyFinder 2.1.4 and 2.1.6
+- Néron B. *et al.* IntegronFinder 2.0: identification and analysis of integrons across bacteria, with a focus on antibiotic resistance in Klebsiella. *Microorganisms* **10**, 700 (2022) - IntegronFinder 2.0.6
+- Xie Z. & Tang H. ISEScan: automated identification of insertion sequence elements in prokaryotic genomes. *Bioinformatics* **33**, 3340–3347 (2017) - ISEScan 1.7.3
+- Camargo A.P. *et al.* Identification of mobile genetic elements with geNomad. *Nat. Biotechnol.* **42**, 1303–1312 (2024) - geNomad 1.12.0, database 1.9
+- van Kempen M. *et al.* Fast and accurate protein structure search with Foldseek. *Nat. Biotechnol.* **42**, 243–246 (2024) - Foldseek 10.941cd33
+- Heinzinger M. *et al.* Bilingual language model for protein sequence and structure. *NAR Genom. Bioinform.* **6**, lqae150 (2024) - ProstT5
 
 ## Licence
 

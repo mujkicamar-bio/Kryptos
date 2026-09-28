@@ -23,19 +23,21 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 # Exactly the third-party modules that src/ and workflow/ import, derived from the source
-# rather than assumed. The twenty external EXECUTABLES the workflow invokes - diamond,
+# rather than assumed. The external EXECUTABLES the workflow invokes - diamond,
 # hmmsearch, mmseqs, foldseek and the rest - are not Python packages and are pinned in
 # workflow/envs/plasmidann.yaml, which remains the single place they are declared.
 dependencies = [
     "snakemake>=9",  # the workflow engine; `snakemake -s workflow/Snakefile` is the entry point
     "pyrodigal",     # darkorf.genecall
     "pyyaml",        # config and cascade loading
+    "networkx",      # plasmidann.network
 ]
 
 [project.optional-dependencies]
 # jsonschema is a TEST dependency: the config schemas are validated by Snakemake at run
 # time, and tests/test_config.py checks them directly without starting a workflow.
-dev = ["pytest", "jsonschema", "ruff"]
+# biopython parses the GenBank output in tests/test_smoke_labels.py.
+dev = ["pytest", "jsonschema", "biopython", "ruff"]
 
 [project.urls]
 Repository = "https://github.com/mujkicamar-bio/Rebus"
