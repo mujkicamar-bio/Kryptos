@@ -66,7 +66,7 @@ work = scratch.scratch_dir(pathlib.Path(snakemake.output.tsv).parent, "search_cl
 selected_faa = work / "selected.faa"
 all_ids = []
 with open(selected_faa, "w") as out:
-    for sid, seq in iter_fasta([snakemake.input.faa]):
+    for sid, seq in iter_fasta(snakemake.input.faa):
         all_ids.append(sid)
         if sid in selected:
             out.write(f">{sid}\n{seq}\n")

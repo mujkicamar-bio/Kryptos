@@ -122,7 +122,7 @@ def test_a_truncated_origin_spanning_gene_is_not_reported_intact():
     partial, never reported as intact."""
     length = 20_000
     genes = [
-        {"start": 3, "end": 1_199, "strand": 1, "partial": 1},
+        {"start": 3, "end": 5_600, "strand": 1, "partial": 1},
         {"start": 19_001, "end": 25_000, "strand": 1, "partial": 1},
     ]
     resolved = circular.resolve_origin_genes(genes, length, 25_000)

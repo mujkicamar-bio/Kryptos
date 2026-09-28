@@ -49,6 +49,7 @@ properties:
 
   search_clustering:
     type: object
+    additionalProperties: false
     required: [min_seq_id, coverage, cov_mode, cluster_mode]
     properties:
       min_seq_id: {type: number, exclusiveMinimum: 0, maximum: 1}

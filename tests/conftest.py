@@ -84,7 +84,6 @@ class FakeSnakemake:
         self.params = _as_namedlist(params)
         self.log = NamedList(*(log or []))
         self.threads = threads
-        self.wildcards = SimpleNamespace()
         # Snakemake always defines resources.tmpdir, even for a rule that declares no
         # resources of its own.
         self.resources = SimpleNamespace(tmpdir=tempfile.gettempdir())

@@ -74,7 +74,7 @@ with open(snakemake.output.fasta, "w") as out, \
         open(snakemake.output.lengths, "w") as lengths:
     rep.write("plasmid_id\trecord_bp\trepeat_bp\tmolecule_bp\n")
     lengths.write("plasmid_id\tlength_bp\n")
-    for pid, seq in iter_fasta([snakemake.input.fasta]):
+    for pid, seq in iter_fasta(snakemake.input.fasta):
         n_seen += 1
         if pid not in in_scope:
             continue

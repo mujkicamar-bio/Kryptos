@@ -22,6 +22,7 @@ import _ctx  # noqa: F401
 
 from plasmidann import scratch
 from plasmidann.cascade import passes_significance
+from plasmidann.fasta import iter_fasta
 
 cfg = snakemake.params.artefact
 faa = snakemake.input.faa
@@ -67,20 +68,9 @@ masked = f"{tmp}/masked.faa"
 with open(masked, "w") as out:
     subprocess.run(f"tantan -p {faa}", shell=True, check=True, stdout=out)
 
-current, lower, total = None, 0, 0
-def _flush():
-    if current is not None and total:
-        masked_fraction[current] = round(lower / total, 4)
-
-for line in open(masked):
-    if line[0] == ">":
-        _flush()
-        current, lower, total = line[1:].split()[0], 0, 0
-    else:
-        s = line.strip()
-        total += len(s)
-        lower += sum(1 for c in s if c.islower())
-_flush()
+for sid, s in iter_fasta(masked):
+    if s:
+        masked_fraction[sid] = round(sum(c.islower() for c in s) / len(s), 4)
 
 # ------------------------------------------------------------------------------------
 # Output: one row per protein, flag plus the evidence for it

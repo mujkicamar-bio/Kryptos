@@ -268,3 +268,42 @@ def test_the_slurm_log_goes_to_the_submit_directory(script):
     directory does not exist, as results/logs does not on a fresh checkout."""
     (path,) = re.findall(r"^#SBATCH -o (\S+)", (WORKFLOW / script).read_text(), re.M)
     assert "/" not in path, f"{script} writes its Slurm log into {path}"
+
+
+# Named keys a script does not read by attribute, each for a stated reason.
+NOT_READ_BY_NAME = {
+    # Ordering only: the rule must wait for pre-flight and the -Z check.
+    ("artefact_screen", "input"): {"preflight", "hmmer_z"},
+    ("tier_search", "input"): {"preflight"},
+    ("label_databases", "input"): {"preflight"},
+    ("conjugation_systems", "input"): {"preflight"},
+    # Written by MMseqs2 under a prefix the script passes, not by name.
+    ("protein_clustering", "output"): {"reps"},
+    # Read through a table of parameter names (protein_labels.py SOURCES).
+    ("protein_labels", "params"): {"pfam_version", "swissprot_version", "nr_version",
+                                   "eggnog_version", "pharokka_db_version"},
+    # Set only by the parser test, which pre-populates the output tree.
+    ("defence_systems", "params"): {"skip_run"},
+}
+
+
+def test_each_rule_declares_the_named_keys_its_script_reads():
+    """A key the script reads but the rule does not declare is a KeyError on the cluster;
+    the smoke tests build their own snakemake object and cannot see it. A key declared
+    but never read is dead wiring."""
+    problems = []
+    for m in re.finditer(r"^rule (\w+):\n(.*?)(?=^\S|\Z)", smk_text(), re.S | re.M):
+        rule, body = m.groups()
+        script = re.search(r'script:\s*\n\s*"([^"]+)"', body)
+        if not script:
+            continue
+        src = (WORKFLOW / "scripts" / pathlib.Path(script.group(1)).name).read_text()
+        for sec in ("input", "output", "params"):
+            block = re.search(rf"^    {sec}:\n(.*?)(?=^    \w|\Z)", body, re.S | re.M)
+            declared = set(re.findall(r"^        (\w+)=", block.group(1), re.M)) if block else set()
+            used = set(re.findall(rf"snakemake\.{sec}\.(\w+)", src)) - {"get"}
+            used |= set(re.findall(rf"snakemake\.{sec}(?:\.get\(|\[)\"(\w+)\"", src))
+            differ = (used ^ declared) - NOT_READ_BY_NAME.get((rule, sec), set())
+            if differ:
+                problems.append(f"{rule}.{sec}: {sorted(differ)}")
+    assert not problems, problems

@@ -1,10 +1,12 @@
+"""Protein identity and dereplication: identical sequences share one seq_id."""
 import hashlib
 
-# 128-bit truncated SHA-256: collision probability below 1e-26 for 3.5 M sequences.
+# 128-bit truncated SHA-256: collision probability about 2e-26 for 3.5 M sequences.
 ID_HEX_CHARS = 32
 
 
-def _seq_id(seq):
+def sequence_id(seq):
+    """The pipeline's identity of a protein sequence: its truncated SHA-256."""
     return hashlib.sha256(seq.encode()).hexdigest()[:ID_HEX_CHARS]
 
 
@@ -17,7 +19,7 @@ def dereplicate(orfs):
     mapping = {}
     uniques = {}
     for o in orfs:
-        sid = _seq_id(o["seq"])
+        sid = sequence_id(o["seq"])
         mapping.setdefault(sid, []).append(o["orf_id"])
         uniques.setdefault(sid, {"seq_id": sid, "seq": o["seq"]})
     return list(uniques.values()), mapping

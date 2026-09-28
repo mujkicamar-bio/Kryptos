@@ -81,6 +81,4 @@ with open(snakemake.input.index, newline="") as fh, \
 assert n_missing == 0, f"{n_missing} ORFs had no protein mapping - index and map disagree"
 assert n > 0, "no ORFs written - check that ORF calling and dereplication produced output"
 
-with open(snakemake.log[0], "w") as log:
-    log.write(f"annotated {n} ORFs across {len(annot)} unique proteins\n")
 print(f"annotated {n} ORFs across {len(annot)} unique proteins")

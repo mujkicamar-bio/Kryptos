@@ -25,7 +25,7 @@ def configure(min_gene_nt):
 def call_genes(plasmid_id, sequence, topology):
     """Call one record; circular topologies get origin repair.
 
-    Returns (plasmid_id, genes, redundant_dropped).
+    Returns (plasmid_id, genes, dropped): dropped counts the calls origin repair removed.
     """
     length = len(sequence)
     if not length:

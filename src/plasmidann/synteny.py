@@ -16,6 +16,8 @@ fewer than min_lineages voting lineages gives no value.
 import collections
 from fractions import Fraction
 
+from darkorf import status
+
 # Fewer lineages than this gives no value. Two is the arithmetic minimum for a comparison,
 # not a tuned threshold: one lineage is conserved with itself by construction. The pipeline
 # passes `synteny.min_lineages` from config.
@@ -102,11 +104,11 @@ def conservation(occurrences, min_lineages=MIN_LINEAGES):
         "modal_synteny": "",
     }
     if not usable:
-        result["status"] = "NO_CONTEXT"
+        result["status"] = status.NO_CONTEXT
         return result
     if n_lineages < min_lineages:
         # One lineage is conserved with itself, however many copies it has.
-        result["status"] = "TOO_FEW_LINEAGES"
+        result["status"] = status.TOO_FEW_LINEAGES
         return result
 
     result["lineage_left_conservation"], result["modal_left"] = _lineage_modal(
@@ -134,5 +136,5 @@ def conservation(occurrences, min_lineages=MIN_LINEAGES):
     result["lineage_operon_like_conservation"] = round(
         sum(sum(v) / len(v) for v in operon_of.values()) / len(operon_of), 4)
 
-    result["status"] = "SUCCESS"
+    result["status"] = status.SUCCESS
     return result

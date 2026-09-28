@@ -17,7 +17,9 @@ dependencies:
   # else splits the workflow: the shell tools below resolve through PATH while every
   # Python script runs somewhere with a different set of libraries.
   - snakemake=9.26.1
-  - jsonschema             # config schema validation, used by Snakemake and by the tests
+  - jsonschema=4.26.0      # config schema validation, used by Snakemake and by the tests
+  - pytest=9.1.1           # the test suite
+  - biopython=1.88         # the test suite parses the GenBank output with it
   # --- gene calling (orf_call) ----------------------------------------------------------
   - pyrodigal=3.7.1        # meta-mode ORF calling
   # --- artefact screen, annotation cascade ---------------------------------------------

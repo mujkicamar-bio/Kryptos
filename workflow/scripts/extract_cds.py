@@ -51,7 +51,7 @@ with open(snakemake.input.index, newline="") as fh:
 
 n_written = n_origin = 0
 with open(snakemake.output[0], "w") as out:
-    for pid, seq in iter_fasta([snakemake.input.fasta]):
+    for pid, seq in iter_fasta(snakemake.input.fasta):
         for sid, r in needed.get(pid, ()):
             start, end = int(r["start"]), int(r["end"])
             if r.get("spans_origin") == "1":

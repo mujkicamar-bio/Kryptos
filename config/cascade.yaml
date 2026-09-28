@@ -44,12 +44,13 @@ partial_at: 0.5
 # plasmidscope_import), and those the selection does not search (rule cascade_selection):
 # E-values then do not move with PlasmidScope's coverage or the selection, and the
 # larger -Z is the conservative choice for the dark set.
-#   9,317,050 ORFs -> 3,497,616 unique proteins
-#   (results/03_dereplication/unique_proteins.faa)
+#   143,396 plasmids -> 9,249,985 ORFs -> 3,401,393 unique proteins
+#   (unique_proteins.faa, rules analysis_set to dereplicate on the production
+#   configuration, 2026-09-28, Slurm job 7009699)
 # Recompute and update this if orf_call and dereplicate run on a different analysis set;
 # rule check_hmmer_z stops the run after dereplication if the count differs by more than 2%,
 # and names the value.
-hmmer_z: 3497616
+hmmer_z: 3401393
 
 # DIAMOND reports at most this many targets per query. 25 is DIAMOND's own default. With
 # 5, on the nr benchmark (results_bench, 3,714 queries with hits) 1,627 queries (44%)
@@ -80,7 +81,8 @@ search_clustering:
 # --- Tiers ---------------------------------------------------------------------------
 # Tier order IS authority order: annot_label comes from the shallowest tier that named
 # the protein (cascade.classify), and homology_depth is the tier's position in this list.
-# mmseqs2 is reserved for protein_clustering; the cascade uses native tools only.
+# MMseqs2 clusters the proteins (protein_clustering, cascade_selection) and runs inside
+# pharokka; the tiers search with HMMER, pharokka and DIAMOND.
 #
 # max_evalue is the significance floor applied at PARSE time, before a hit may contribute
 # a span, a label or a row. null means "this tier has no E-value criterion".

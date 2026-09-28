@@ -12,14 +12,14 @@ from plasmidann import fasta
 
 def test_iter_fasta_reads_plain_and_gzipped_alike(tmp_path):
     """The working set is delivered gzipped and the smoke set is written plain. If the
-    reader handled only one, the other would yield no sequence - silently."""
+    reader handled only one, the other would fail."""
     plain = tmp_path / "a.fna"
     plain.write_text(">p1 some description\nACGT\nACGT\n>p2\nTTTT\n")
     zipped = tmp_path / "b.fna.gz"
     with gzip.open(zipped, "wt") as fh:
         fh.write(">p3\nGGGG\n")
 
-    records = list(fasta.iter_fasta([plain, zipped]))
+    records = list(fasta.iter_fasta(plain)) + list(fasta.iter_fasta(zipped))
     assert records == [("p1", "ACGTACGT"), ("p2", "TTTT"), ("p3", "GGGG")]
 
 
@@ -33,14 +33,14 @@ def test_iter_fasta_takes_the_identifier_only_from_the_header(tmp_path):
     path = tmp_path / "c.fna"
     path.write_text(">NZ_CP012345.1 Escherichia coli plasmid pX, complete sequence\nACGT\n")
 
-    assert list(fasta.iter_fasta([path])) == [("NZ_CP012345.1", "ACGT")]
+    assert list(fasta.iter_fasta(path)) == [("NZ_CP012345.1", "ACGT")]
 
 
 def test_iter_fasta_yields_nothing_for_an_empty_file(tmp_path):
     path = tmp_path / "d.fna"
     path.write_text("")
 
-    assert list(fasta.iter_fasta([path])) == []
+    assert list(fasta.iter_fasta(path)) == []
 
 
 def test_split_fasta_keeps_every_record_once_and_balances_length(tmp_path):
@@ -52,9 +52,9 @@ def test_split_fasta_keeps_every_record_once_and_balances_length(tmp_path):
 
     chunks = fasta.split_fasta(src, 3, tmp_path / "chunks")
 
-    records = [r for c in chunks for r in fasta.iter_fasta([c])]
+    records = [r for c in chunks for r in fasta.iter_fasta(c)]
     assert sorted(name for name, _ in records) == sorted(f"p{i}" for i in range(8))
-    totals = [sum(len(s) for _, s in fasta.iter_fasta([c])) for c in chunks]
+    totals = [sum(len(s) for _, s in fasta.iter_fasta(c)) for c in chunks]
     assert max(totals) <= 900
     # Fewer records than chunks: only the chunks that received one are returned.
     assert len(fasta.split_fasta(src, 20, tmp_path / "many")) == 8
@@ -65,4 +65,4 @@ def test_an_empty_header_names_the_file_and_line(tmp_path):
     path.write_text(">p1\nACGT\n>\nACGT\n")
 
     with pytest.raises(ValueError, match="e.fna line 3"):
-        list(fasta.iter_fasta([path]))
+        list(fasta.iter_fasta(path))

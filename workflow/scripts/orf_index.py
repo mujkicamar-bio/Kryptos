@@ -1,3 +1,4 @@
+"""Rule orf_index: number every ORF of orfs.tsv once, writing orf_index.tsv."""
 import csv
 
 import _ctx  # noqa: F401
@@ -5,11 +6,10 @@ import _ctx  # noqa: F401
 from plasmidann.orfindex import assign_orf_ids
 
 orfs = []
-for f in snakemake.input:
-    with open(f, newline="") as fh:
-        for r in csv.DictReader(fh, delimiter="\t"):
-            r["start"], r["end"] = int(r["start"]), int(r["end"])
-            orfs.append(r)
+with open(snakemake.input[0], newline="") as fh:
+    for r in csv.DictReader(fh, delimiter="\t"):
+        r["start"], r["end"] = int(r["start"]), int(r["end"])
+        orfs.append(r)
 
 indexed = assign_orf_ids(orfs)
 # spans_origin is carried through from orf_call: a gene reconstructed across the cut point

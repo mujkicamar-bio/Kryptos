@@ -3,31 +3,29 @@ import gzip
 import pathlib
 
 
-def iter_fasta(paths):
-    """Yield (plasmid_id, sequence) for every record across `paths`, in file order.
+def iter_fasta(path):
+    """Yield (plasmid_id, sequence) for every record of `path`, in file order.
 
-    Plain or gzipped, decided per file, because the working set is delivered compressed
-    and a smoke set is written plain. Handling only one would make the other yield no
-    sequence at all - a silent skip.
+    Plain or gzipped, decided by the .gz suffix: the working set is delivered compressed
+    and a smoke set is written plain.
 
     The identifier is the header up to the first whitespace. Everything after it is
     description, and plasmid_id is the join key for every table in the run.
     """
-    for path in paths:
-        opener = gzip.open if str(path).endswith(".gz") else open
-        name, chunks = None, []
-        with opener(path, "rt") as fh:
-            for n, line in enumerate(fh, 1):
-                if line.startswith(">"):
-                    if name is not None:
-                        yield name, "".join(chunks)
-                    if not line[1:].split():
-                        raise ValueError(f"{path} line {n}: empty FASTA header")
-                    name, chunks = line[1:].split()[0], []
-                else:
-                    chunks.append(line.strip())
-        if name is not None:
-            yield name, "".join(chunks)
+    opener = gzip.open if str(path).endswith(".gz") else open
+    name, chunks = None, []
+    with opener(path, "rt") as fh:
+        for n, line in enumerate(fh, 1):
+            if line.startswith(">"):
+                if name is not None:
+                    yield name, "".join(chunks)
+                if not line[1:].split():
+                    raise ValueError(f"{path} line {n}: empty FASTA header")
+                name, chunks = line[1:].split()[0], []
+            else:
+                chunks.append(line.strip())
+    if name is not None:
+        yield name, "".join(chunks)
 
 
 def split_fasta(path, n, outdir):
@@ -45,7 +43,7 @@ def split_fasta(path, n, outdir):
     handles = [open(p, "w") for p in paths]
     bases = [0] * n
     try:
-        for name, seq in iter_fasta([path]):
+        for name, seq in iter_fasta(path):
             i = bases.index(min(bases))
             handles[i].write(f">{name}\n{seq}\n")
             bases[i] += len(seq)

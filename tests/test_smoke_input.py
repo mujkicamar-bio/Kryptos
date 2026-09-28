@@ -157,7 +157,7 @@ def test_a_circular_records_terminal_repeat_is_written_once(fixture_dir):
         params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20,
                 "taxdump": TAXDUMP}))
 
-    written = dict(iter_fasta([out["fasta"]]))
+    written = dict(iter_fasta(out["fasta"]))
     assert written["dtr"] == repeat + core
     assert written["lin"] == record
     rows = list(csv.DictReader(open(out["repeats"]), delimiter="\t"))
@@ -184,15 +184,8 @@ NOT_AN_ARTEFACT = ("MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEKAVQVKVK
 @pytest.mark.skipif(not pathlib.Path(ANTIFAM).exists(), reason="AntiFam not downloaded")
 @requires("hmmsearch", "tantan")
 def test_the_artefact_screen_uses_antifams_curated_thresholds(fixture_dir):
-    """274 of AntiFam's 278 profiles carry a curated gathering threshold LOOSER than
-    E=1e-5 at Z=3,497,616 - the median curated cut corresponds to E=7.3e-4, about 73x
-    looser. A blanket E-value floor therefore overrides the curator on 98.6% of the
-    artefact database, in the one screen whose job is to stop shadow ORFs entering the
-    dark set with a perfect score.
-
-    This is the same argument that already sets --cut_ga on T1, applied to the database
-    where the consequence is worse: a missed artefact is not a missed annotation, it is a
-    non-protein sent to the bench."""
+    """A sequence above Spurious_ORF_67's gathering threshold is flagged, although its
+    i-Evalue would not clear 1e-5; a real protein is not flagged."""
     faa = fixture_dir / "unique_proteins.faa"
     write_fasta(faa, [("shadow_like", SHADOW_LIKE), ("real", NOT_AN_ARTEFACT)])
     out = fixture_dir / "artefact_flags.tsv"
@@ -208,8 +201,7 @@ def test_the_artefact_screen_uses_antifams_curated_thresholds(fixture_dir):
 
     rows = {r["seq_id"]: r for r in read_tsv(out)}
     assert rows["shadow_like"]["artefact_flag"] == "1", (
-        "a sequence above AntiFam's own gathering threshold was not flagged - the screen "
-        "is still applying a blanket E-value floor over the curation")
+        "not flagged above AntiFam's gathering threshold")
     assert rows["shadow_like"]["antifam_family"] == "Spurious_ORF_67"
     assert rows["real"]["artefact_flag"] == "0", "a real protein must not be flagged"
 
@@ -265,10 +257,10 @@ def test_orf_call_reconstructs_a_gene_across_the_origin(fixture_dir):
 def test_plasmidscope_import_keeps_only_our_proteins(fixture_dir):
     """The whole ALL table is read; only proteins identical to one of ours are written,
     keyed by our seq_id, so every later stage can join on it."""
-    from plasmidann.dereplicate import _seq_id
+    from plasmidann.dereplicate import sequence_id
     ours, theirs = "MKVLATTLLG", "MQQQQQQQQQ"
     faa = fixture_dir / "unique.faa"
-    write_fasta(faa, [(_seq_id(ours), ours)])
+    write_fasta(faa, [(sequence_id(ours), ours)])
     header = ["Plasmid_ID", "Protein_ID", "Orf Prediction Source", "Product",
               "COG_category", "COG_id", "KEGG_ko", "KEGG_Pathway", "PFAMs", "GOs",
               "EC_number", "Sequence"]
@@ -284,7 +276,7 @@ def test_plasmidscope_import_keeps_only_our_proteins(fixture_dir):
         input={"faa": str(faa), "ps": str(ps)}, output=[str(out)]))
 
     rows = read_tsv(out)
-    assert [r["seq_id"] for r in rows] == [_seq_id(ours)]
+    assert [r["seq_id"] for r in rows] == [sequence_id(ours)]
     assert rows[0]["ps_class"] == "ANNOTATED" and rows[0]["pfams"] == "RHH_1"
 
 
@@ -300,3 +292,29 @@ def test_make_test_set_refuses_a_master_without_hab_top(fixture_dir):
                         "--fasta", "unused.fna.gz", "--out", str(fixture_dir / "out.fna")],
                        capture_output=True, text=True)
     assert r.returncode != 0 and "hab_top" in r.stderr
+
+
+def test_orf_index_then_dereplicate_keep_every_orf_once(fixture_dir):
+    """Three ORFs, two with the same protein: orf_index numbers them per plasmid in
+    coordinate order, and dereplicate writes each protein once and each orf_id once in
+    protein_map.tsv (seq_id, comma-joined orf_ids, no header)."""
+    orfs = fixture_dir / "orfs.tsv"
+    write_tsv(orfs, ["plasmid_id", "start", "end", "strand", "partial", "partial_begin",
+                     "partial_end", "spans_origin", "translation_table", "seq"],
+              [["p1", 500, 800, 1, 0, 0, 0, 0, 11, "MKV"],
+               ["p1", 10, 300, 1, 0, 0, 0, 0, 11, "MKV"],
+               ["p2", 10, 300, -1, 0, 0, 0, 0, 11, "MLL"]])
+    index = fixture_dir / "orf_index.tsv"
+    run_script("orf_index.py", FakeSnakemake(input=[str(orfs)], output=[str(index)]))
+    assert [(r["orf_id"], r["start"]) for r in read_tsv(index)] == [
+        ("p1|1", "10"), ("p1|2", "500"), ("p2|1", "10")]
+
+    faa, pmap = fixture_dir / "unique.faa", fixture_dir / "protein_map.tsv"
+    run_script("dereplicate.py", FakeSnakemake(input={"index": str(index)},
+                                               output={"faa": str(faa), "map": str(pmap)}))
+    proteins = dict(iter_fasta(faa))
+    assert sorted(proteins.values()) == ["MKV", "MLL"]
+    groups = {sid: ids.split(",") for sid, ids in
+              (line.rstrip("\n").split("\t") for line in open(pmap))}
+    assert set(groups) == set(proteins)
+    assert sorted(i for ids in groups.values() for i in ids) == ["p1|1", "p1|2", "p2|1"]

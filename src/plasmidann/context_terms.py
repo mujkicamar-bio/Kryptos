@@ -42,6 +42,8 @@ TOO_FEW_LINEAGES and no conservation.
 """
 import re
 
+from darkorf.status import SUCCESS, TOO_FEW_LINEAGES
+
 # The kind of a label (plasmidann.labeldb) and the term type it gives. amrfinder_gene is
 # absent on purpose: its type depends on the element type, see label_term.
 TERM_PREFIX = {
@@ -55,8 +57,6 @@ TERM_PREFIX = {
 }
 AMRFINDER_KIND = "amrfinder_gene"
 
-TOO_FEW_LINEAGES = "TOO_FEW_LINEAGES"
-SUCCESS = "SUCCESS"
 # Conservation across one lineage is a single observation, not a conservation.
 MIN_LINEAGES = 2
 

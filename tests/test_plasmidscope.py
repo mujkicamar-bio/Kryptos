@@ -1,5 +1,5 @@
 """PlasmidScope label transfer: the class, the join key, and the choice between occurrences."""
-from plasmidann.dereplicate import _seq_id
+from plasmidann.dereplicate import sequence_id
 from plasmidann.plasmidscope import annot_label, protein_seq_id, ps_class, reduce_rows
 
 
@@ -35,16 +35,16 @@ def test_unknown_function_evidence_is_not_an_annotation():
 def test_the_join_key_is_our_seq_id_with_or_without_the_stop():
     """Our ORFs are stored without '*'. A PlasmidScope sequence that keeps it must still
     hash to the same seq_id, or no protein would ever match."""
-    assert protein_seq_id(_row(seq="MKVLA*")) == _seq_id("MKVLA")
-    assert protein_seq_id(_row(seq="MKVLA")) == _seq_id("MKVLA")
+    assert protein_seq_id(_row(seq="MKVLA*")) == sequence_id("MKVLA")
+    assert protein_seq_id(_row(seq="MKVLA")) == sequence_id("MKVLA")
 
 
 def test_an_identical_sequence_takes_its_most_informative_occurrence():
     """The same protein on a Prokka-called and on a PGAP-deposited plasmid can receive
     different eggNOG results. The annotated occurrence wins, whichever comes first."""
     rows = [_row(), _row(pfams="RHH_1", source="Protein Homology"), _row(cog_id="COG1")]
-    out = reduce_rows(rows, wanted={_seq_id("MKVLA")})
-    rec = out[_seq_id("MKVLA")]
+    out = reduce_rows(rows, wanted={sequence_id("MKVLA")})
+    rec = out[sequence_id("MKVLA")]
     assert rec["ps_class"] == "ANNOTATED"
     assert rec["pfams"] == "RHH_1"
     assert rec["orf_source"] == "Protein Homology"
@@ -52,9 +52,9 @@ def test_an_identical_sequence_takes_its_most_informative_occurrence():
 
 
 def test_proteins_we_do_not_have_are_dropped_and_placeholders_cleared():
-    out = reduce_rows([_row(seq="MKVLA*"), _row(seq="MOTHER*")], wanted={_seq_id("MKVLA")})
-    assert list(out) == [_seq_id("MKVLA")]
-    assert out[_seq_id("MKVLA")]["kegg_ko"] == "", "the '-' placeholder became a term"
+    out = reduce_rows([_row(seq="MKVLA*"), _row(seq="MOTHER*")], wanted={sequence_id("MKVLA")})
+    assert list(out) == [sequence_id("MKVLA")]
+    assert out[sequence_id("MKVLA")]["kegg_ko"] == "", "the '-' placeholder became a term"
 
 
 def test_the_label_is_the_first_named_pfam_then_ko_then_ec():

@@ -29,8 +29,8 @@ from plasmidann.evolution_worker import COLS, configure, measure
 from plasmidann.fasta import iter_fasta
 
 cfg = snakemake.params.evolution
-proteins = dict(iter_fasta([snakemake.input.faa]))
-cds = dict(iter_fasta([snakemake.input.cds]))
+proteins = dict(iter_fasta(snakemake.input.faa))
+cds = dict(iter_fasta(snakemake.input.cds))
 
 families = []
 with open(snakemake.input.families, newline="") as fh:

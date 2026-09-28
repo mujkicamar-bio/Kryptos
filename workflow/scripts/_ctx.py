@@ -7,9 +7,10 @@ IMPORT PATH
     `from plasmidann...` fails without this.
 
 LOG CAPTURE
-    Snakemake does not redirect a `script:` rule's output to its log: file, so stdout and
-    stderr are copied (teed) to the rule's log file; the Slurm log keeps a live trace. A
-    script that declares no log is unaffected.
+    Snakemake does not redirect a `script:` rule's output to its log: file, so Python
+    output (sys.stdout and sys.stderr) is copied (teed) to the rule's log file; the Slurm
+    log keeps a live trace. Tools started as subprocesses write to the job's terminal (the
+    Slurm log) only. A script that declares no log is unaffected.
 """
 import atexit
 import pathlib

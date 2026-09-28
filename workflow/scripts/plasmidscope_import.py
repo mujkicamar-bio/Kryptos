@@ -6,7 +6,8 @@ the join is identical sequence. The whole `ALL` table is read, not only the anal
 plasmids: an identical sequence has the same eggNOG result wherever it occurs.
 
 Output: one row per unique protein of ours that has an identical PlasmidScope protein.
-Proteins with no row here are not in PlasmidScope and go through the whole cascade.
+Proteins with no row here are not in PlasmidScope; rule cascade_selection decides whether
+they are searched.
 """
 import csv
 import gzip
@@ -19,7 +20,7 @@ from plasmidann.plasmidscope import CLASSES, FIELDS, reduce_rows
 
 csv.field_size_limit(sys.maxsize)       # the Sequence column exceeds csv's default limit
 
-ours = {sid for sid, _ in iter_fasta([snakemake.input.faa])}
+ours = {sid for sid, _ in iter_fasta(snakemake.input.faa)}
 
 path = snakemake.input.ps
 opener = gzip.open if path.endswith(".gz") else open

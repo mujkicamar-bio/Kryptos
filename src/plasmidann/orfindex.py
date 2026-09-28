@@ -1,3 +1,6 @@
+"""ORF identifiers: {plasmid_id}|{n}, assigned once over every ORF of a plasmid."""
+
+
 def assign_orf_ids(orfs):
     """Number every ORF per plasmid in coordinate order as {plasmid_id}|{n}, n from 1.
 
