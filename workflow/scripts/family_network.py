@@ -43,7 +43,7 @@ with open(snakemake.input.clusters) as fh:
 
 reps_path = work / "node_reps.fasta"
 with open(reps_path, "w") as out:
-    for sid, seq in iter_fasta([snakemake.input.reps]):
+    for sid, seq in iter_fasta(snakemake.input.reps):
         if sid in members:
             out.write(f">{sid}\n{seq}\n")
 

@@ -22,7 +22,7 @@ shares a stop codon with a PlasmidScope ORF but starts elsewhere is a different 
 and eggNOG's result for one does not transfer to the other.
 """
 from plasmidann.cascade import is_informative
-from plasmidann.dereplicate import _seq_id
+from plasmidann.dereplicate import sequence_id
 
 # eggNOG-mapper's placeholder for "no value", which PlasmidScope keeps.
 NO_VALUE = "-"
@@ -67,7 +67,7 @@ def ps_class(row):
 
 def protein_seq_id(row):
     """The seq_id our pipeline gives the same protein. Both sides drop the stop '*'."""
-    return _seq_id(row["Sequence"].rstrip("*"))
+    return sequence_id(row["Sequence"].rstrip("*"))
 
 
 def reduce_rows(rows, wanted):

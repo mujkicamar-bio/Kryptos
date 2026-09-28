@@ -20,7 +20,7 @@ with open(snakemake.input.master, newline="") as fh:
 
 n_records = n_genes = n_partial = n_origin = n_dropped_dup = n_table4 = 0
 
-records = ((rec, topology.get(rec[0], "")) for rec in iter_fasta([snakemake.input.fasta]))
+records = ((rec, topology.get(rec[0], "")) for rec in iter_fasta(snakemake.input.fasta))
 with open(snakemake.output.tsv, "w", newline="") as tsv, \
         multiprocessing.Pool(snakemake.threads, initializer=genecall.configure,
                              initargs=(min_gene_nt,)) as pool:

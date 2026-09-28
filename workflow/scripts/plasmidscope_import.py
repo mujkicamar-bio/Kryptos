@@ -19,7 +19,7 @@ from plasmidann.plasmidscope import CLASSES, FIELDS, reduce_rows
 
 csv.field_size_limit(sys.maxsize)       # the Sequence column exceeds csv's default limit
 
-ours = {sid for sid, _ in iter_fasta([snakemake.input.faa])}
+ours = {sid for sid, _ in iter_fasta(snakemake.input.faa)}
 
 path = snakemake.input.ps
 opener = gzip.open if path.endswith(".gz") else open

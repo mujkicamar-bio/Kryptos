@@ -33,7 +33,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from plasmidann.dereplicate import _seq_id  # noqa: E402  (the identity our proteins carry)
+from plasmidann.dereplicate import sequence_id  # noqa: E402  (the identity our proteins carry)
 from plasmidann.plasmidscope import CLASSES, RANK, ps_class  # noqa: E402
 
 ps_table, analysis_set, prefix = sys.argv[1:4]
@@ -62,7 +62,7 @@ with gzip.open(ps_table, "rt", newline="") as fh, \
         n_kept += 1
         plasmids_seen.add(r["Plasmid_ID"])
         seq = r["Sequence"].rstrip("*")     # our ORFs are stored without the stop, too
-        sid = _seq_id(seq)
+        sid = sequence_id(seq)
         cls = ps_class(r)
         named = int(not r["Product"].startswith("hypothetical protein"))
         orf_classes[cls] += 1

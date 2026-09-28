@@ -157,7 +157,7 @@ def test_a_circular_records_terminal_repeat_is_written_once(fixture_dir):
         params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20,
                 "taxdump": TAXDUMP}))
 
-    written = dict(iter_fasta([out["fasta"]]))
+    written = dict(iter_fasta(out["fasta"]))
     assert written["dtr"] == repeat + core
     assert written["lin"] == record
     rows = list(csv.DictReader(open(out["repeats"]), delimiter="\t"))
@@ -265,10 +265,10 @@ def test_orf_call_reconstructs_a_gene_across_the_origin(fixture_dir):
 def test_plasmidscope_import_keeps_only_our_proteins(fixture_dir):
     """The whole ALL table is read; only proteins identical to one of ours are written,
     keyed by our seq_id, so every later stage can join on it."""
-    from plasmidann.dereplicate import _seq_id
+    from plasmidann.dereplicate import sequence_id
     ours, theirs = "MKVLATTLLG", "MQQQQQQQQQ"
     faa = fixture_dir / "unique.faa"
-    write_fasta(faa, [(_seq_id(ours), ours)])
+    write_fasta(faa, [(sequence_id(ours), ours)])
     header = ["Plasmid_ID", "Protein_ID", "Orf Prediction Source", "Product",
               "COG_category", "COG_id", "KEGG_ko", "KEGG_Pathway", "PFAMs", "GOs",
               "EC_number", "Sequence"]
@@ -284,7 +284,7 @@ def test_plasmidscope_import_keeps_only_our_proteins(fixture_dir):
         input={"faa": str(faa), "ps": str(ps)}, output=[str(out)]))
 
     rows = read_tsv(out)
-    assert [r["seq_id"] for r in rows] == [_seq_id(ours)]
+    assert [r["seq_id"] for r in rows] == [sequence_id(ours)]
     assert rows[0]["ps_class"] == "ANNOTATED" and rows[0]["pfams"] == "RHH_1"
 
 

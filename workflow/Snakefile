@@ -199,7 +199,7 @@ rule orf_index:
 
 
 rule dereplicate:
-    """Exact-identity collapse. Lossless: asserted in the script, not assumed."""
+    """Exact-identity collapse; every orf_id appears in exactly one group."""
     input:
         index=f"{OUT}/02_orf_calling/orf_index.tsv",
     output:

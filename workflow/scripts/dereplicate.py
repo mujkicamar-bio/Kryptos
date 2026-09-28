@@ -1,3 +1,5 @@
+"""Rule dereplicate: collapse identical proteins, orf_index.tsv -> unique_proteins.faa and
+protein_map.tsv (seq_id, comma-joined orf_ids; no header)."""
 import csv
 
 import _ctx  # noqa: F401

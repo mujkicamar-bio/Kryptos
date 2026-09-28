@@ -119,7 +119,7 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
             gbk.write(f"{i * 60 + 1:>9} {blocks}\n")
         gbk.write("//\n")
 
-    for name, sequence in iter_fasta([snakemake.input.fasta]):
+    for name, sequence in iter_fasta(snakemake.input.fasta):
         write_record(name, sequence)
 
 print(f"feature files: {n_records} records, {n_features} GFF3 features")

@@ -32,7 +32,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from darkorf import genecall  # noqa: E402
-from plasmidann.dereplicate import _seq_id  # noqa: E402
+from plasmidann.dereplicate import sequence_id  # noqa: E402
 from plasmidann.fasta import iter_fasta  # noqa: E402
 
 ps_orfs, fasta, analysis_set, cascade, n_sample, seed = sys.argv[1:7]
@@ -61,7 +61,7 @@ with open(analysis_set, newline="") as fh:
 eligible = sorted(p for p in topology if p in ps_by_plasmid)
 sample = set(random.Random(int(seed)).sample(eligible, int(n_sample)))
 
-records = [((pid, seq), topology[pid]) for pid, seq in iter_fasta([fasta]) if pid in sample]
+records = [((pid, seq), topology[pid]) for pid, seq in iter_fasta(fasta) if pid in sample]
 with multiprocessing.Pool(initializer=genecall.configure,
                           initargs=((MIN_AA + 1) * 3,)) as pool:
     called = pool.map(genecall.call_record, records, chunksize=16)
@@ -79,7 +79,7 @@ for pid, genes, _ in called:
     their_stops = {(r["strand"], stop_of(r["start"], r["end"], r["strand"])) for r in theirs}
     our_seqs = set()
     for g in genes:
-        sid = _seq_id(g["seq"])
+        sid = sequence_id(g["seq"])
         our_seqs.add(sid)
         strand = "+" if g["strand"] == 1 else "-"
         if sid in their_seqs:

@@ -48,7 +48,7 @@ n = n_phage = 0
 with open(snakemake.output.tsv, "w", newline="") as out:
     w = csv.writer(out, delimiter="\t")
     w.writerow(["plasmid_id", "genomad_virus", "n_virus_hallmarks", "phage_plasmid"])
-    for pid, _ in iter_fasta([fasta]):
+    for pid, _ in iter_fasta(fasta):
         phage = int(bool(virus[pid]) or hallmarks[pid] >= 1)
         w.writerow([pid, ",".join(virus[pid]), hallmarks[pid], phage])
         n += 1
