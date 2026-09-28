@@ -16,7 +16,8 @@
 # 08_protein_labels           plasmid label databases: TADB, BacMet, oriTDB, CARD,
 #                             mobileOG-db, dbAPIS, Anti-CRISPRdb (DIAMOND), AMRFinderPlus
 # 09_target_eligibility       unnamed, searched, not artefact-flagged
-# 10_clustering               dark set and families, MMseqs2 deep-homology clustering
+# 10_clustering               every protein clustered (MMseqs2) before the cascade; dark
+#                             set and dark families
 # 11_distribution_and_evolution  CDS recovery, codon alignments, dN/dS, RNAcode
 # 12_context_and_structure    DefenseFinder, CONJScan, IntegronFinder, ISEScan, geNomad,
 #                             directons, context terms, dark sequence co-occurrence,

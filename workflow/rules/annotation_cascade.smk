@@ -61,6 +61,8 @@ rule check_hmmer_z:
     resources:
         mem_mb=2000,
         runtime=30,
+    benchmark:
+        f"{OUT}/benchmarks/check_hmmer_z.tsv"
     log:
         f"{OUT}/logs/03_dereplication/check_hmmer_z.log",
     script:
@@ -240,8 +242,7 @@ rule label_databases:
     params:
         labels=config["labels"],
         amrfinder=config["amrfinder"],
-    # DIAMOND and AMRFinderPlus both thread; a third of the allocation lets the stage run
-    # beside the cascade rather than queue behind it.
+    # DIAMOND and AMRFinderPlus both thread.
     threads: 32
     resources:
         # 0.61 GB peak on the test set (64 s wall, 260 CPU-s at 8 threads). DIAMOND's

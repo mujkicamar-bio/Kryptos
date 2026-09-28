@@ -4,8 +4,8 @@
 # tables.
 #
 # 09_target_eligibility           unnamed, searched, not artefact-flagged
-# 10_clustering                   dark set, MMseqs2 deep-homology clustering, family
-#                                 network, lineages
+# 10_clustering                   dark set, dark families from the protein clusters,
+#                                 family network, lineages
 # 11_distribution_and_evolution   recurrence, CDS recovery, codon alignments, dN/dS, RNAcode
 # 12_context_and_structure        DefenseFinder, CONJScan, IntegronFinder, ISEScan,
 #                                 directons, context terms, Foldseek
@@ -303,8 +303,8 @@ rule dark_cooccurrence:
 rule recurrence:
     """Distribution and recurrence, counted over independent units.
 
-    Seven counts per family, never collapsed, because database record counts are not
-    independent biological observations.
+    The distribution counts per family, each kept separate, because database record
+    counts are not independent biological observations.
     """
     input:
         families=f"{OUT}/10_clustering/protein_families.tsv",

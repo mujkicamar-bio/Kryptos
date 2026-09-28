@@ -1,7 +1,7 @@
 # The 100-plasmid smoke set
 
 A small, seeded, stratified plasmid set for checking that the pipeline runs end to end and
-produces the shapes the specification describes. It is not a benchmark and it measures no
+produces every output table with its declared columns. It is not a benchmark and it measures no
 biology: 100 plasmids cannot estimate a dark fraction, a background rate or a recall.
 
 ## Building it

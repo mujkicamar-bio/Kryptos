@@ -60,7 +60,7 @@ Output lands in fifteen numbered directories under `outdir`, one per stage.
 | protein_labels | `08_protein_labels` | every label from every source, as each tool gives it, in one table |
 | label_databases | `08_protein_labels` | plasmid label databases: TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb and AMRFinderPlus |
 | target_eligibility | `09_target_eligibility` | target eligibility: unnamed, searched, not artefact-flagged |
-| dark_set, protein_clustering, protein_families, family_network, plasmid_lineage | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
+| dark_set, protein_clustering, protein_families, family_network, plasmid_lineage | `10_clustering` | every unique protein clustered by MMseqs2 at three resolutions, before the cascade; the dark set, and the dark families taken from those clusters; family network and plasmid lineages |
 | recurrence, extract_cds, family_evolution, consensus_recheck | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
 | defence_search, defence_gembase, defence_systems, conjugation_systems, integrons, phage_plasmids, is_elements, structure_search, context_features, dark_cooccurrence | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, geNomad, directons, context terms, dark sequence co-occurrence (`dark_cooccurrence.tsv`: pairs of unique dark protein sequences sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
 | synteny | `13_synteny` | gene-order conservation counted over lineages, at the gene (close) and family (intermediate) level |

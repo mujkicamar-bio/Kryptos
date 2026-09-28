@@ -80,7 +80,8 @@ search_clustering:
 # --- Tiers ---------------------------------------------------------------------------
 # Tier order IS authority order: annot_label comes from the shallowest tier that named
 # the protein (cascade.classify), and homology_depth is the tier's position in this list.
-# mmseqs2 is reserved for protein_clustering; the cascade uses native tools only.
+# MMseqs2 clusters the proteins (protein_clustering, cascade_selection) and runs inside
+# pharokka; the tiers search with HMMER, pharokka and DIAMOND.
 #
 # max_evalue is the significance floor applied at PARSE time, before a hit may contribute
 # a span, a label or a row. null means "this tier has no E-value criterion".

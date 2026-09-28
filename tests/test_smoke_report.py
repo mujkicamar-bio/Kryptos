@@ -207,7 +207,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "cons_defence", "cons_integron", "cons_is_element",
         "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
         "cons_conj",
-        # recurrence.tsv: seven counts, never collapsed into one.
+        # recurrence.tsv: the distribution counts, never collapsed into one.
         "plasmid_occurrence_count", "unique_plasmid_count",
         "independent_plasmid_cluster_count", "independent_cluster_status",
         "host_count", "genus_count", "n_plasmids_with_host",

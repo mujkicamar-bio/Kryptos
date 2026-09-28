@@ -64,6 +64,7 @@ set -euo pipefail
 MEM_MB=550000
 CORES=${SLURM_CPUS_PER_TASK:-96}
 OMIT=()
+# Assumes the production outdir, results (config/config.yaml).
 if [ -n "${STRUCTURE_ON_GPU:-}" ] && [ ! -e results/12_context_and_structure/structure_hits.tsv ]; then
     OMIT=(--omit-from structure_search)
 fi
@@ -89,11 +90,12 @@ fi
 # Pre-flight runs first in its own invocation so a missing tool or database fails in
 # seconds, before the whole node is spent on gene calling.
 #
-# The target follows --nolock, a boolean flag: after --resources or --configfile, which
-# take one or more values, it would be read as one of those values.
+# The target is the rule, so it does not depend on outdir. It follows --nolock, a boolean
+# flag: after --resources or --configfile, which take one or more values, it would be read
+# as one of those values.
 "$SNAKEMAKE" -s workflow/Snakefile \
   --resources mem_mb=$MEM_MB -j 1 --nolock \
-  results/05_annotation_cascade/preflight.tsv
+  preflight
 
 "$SNAKEMAKE" -s workflow/Snakefile \
   -j "$CORES" \
