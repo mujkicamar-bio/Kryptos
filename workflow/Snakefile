@@ -41,6 +41,8 @@ validate(cascade, "../config/schemas/cascade.schema.yaml")
 
 targets = yaml.safe_load(open(config.get("targets_config", "config/targets.yaml")))
 validate(targets, "../config/schemas/targets.schema.yaml")
+# workflow/structure_gpu.sbatch runs structure_search on a GPU with --config structure_gpu=True.
+targets["structure"]["gpu"] = config.get("structure_gpu", targets["structure"]["gpu"])
 
 # The schema checks each threshold's shape and range. It cannot check the relationships
 # BETWEEN thresholds - that narrow_at must not be stricter than min_coverage, for

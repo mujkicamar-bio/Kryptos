@@ -6,6 +6,7 @@ additionalProperties: false
 properties:
   network:
     type: object
+    additionalProperties: false
     required: [node_resolution, min_cov, max_evalue, max_out_edges, dark_brightness]
     properties:
       node_resolution: {type: string}
@@ -15,6 +16,7 @@ properties:
       dark_brightness: {type: number, minimum: 0, maximum: 1}
   clustering:
     type: object
+    additionalProperties: false
     required:
     - resolutions
     - primary
@@ -26,6 +28,7 @@ properties:
         minProperties: 1
         additionalProperties:
           type: object
+          additionalProperties: false
           required:
           - min_seq_id
           - coverage
@@ -46,6 +49,7 @@ properties:
         type: integer
   evolution:
     type: object
+    additionalProperties: false
     properties:
       min_codons:
         type: integer
@@ -70,6 +74,7 @@ properties:
     - rnacode_max_p
   defence:
     type: object
+    additionalProperties: false
     required:
     - required
     properties:
@@ -107,6 +112,7 @@ properties:
       fdr: {type: number, exclusiveMinimum: 0, maximum: 1}
   context:
     type: object
+    additionalProperties: false
     properties:
       max_operon_gap:
         type: integer
@@ -119,6 +125,7 @@ properties:
     - neighbourhood_window
   orthology:
     type: object
+    additionalProperties: false
     properties:
       data_dir:
         type: string
@@ -129,6 +136,7 @@ properties:
     - required
   structure:
     type: object
+    additionalProperties: false
     properties:
       max_evalue:
         type: number
@@ -144,8 +152,11 @@ properties:
     required:
     - max_evalue
     - required
+    - gpu
+    - scope
   lineage:
     type: object
+    additionalProperties: false
     required:
     - max_distance
     - max_pvalue
@@ -168,6 +179,7 @@ properties:
         minimum: 1
   rarity:
     type: object
+    additionalProperties: false
     required:
     - rare_max_lineages
     - widespread_percentile

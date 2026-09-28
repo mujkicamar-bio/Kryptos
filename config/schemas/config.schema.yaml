@@ -68,6 +68,8 @@ properties:
   seed: {type: integer}
   foldseek_db: {type: string}
   prostt5_model: {type: string}
-  # Alternative cascade and targets files for the test and benchmark runs (Snakefile).
+  # Alternative cascade and targets files for the test and benchmark runs, and the GPU
+  # switch of workflow/structure_gpu.sbatch (Snakefile).
   cascade_config: {type: string}
   targets_config: {type: string}
+  structure_gpu: {type: boolean}

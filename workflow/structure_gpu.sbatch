@@ -21,7 +21,7 @@
 #   sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
 #
 # All three share the job name dark_plasmidome and --dependency=singleton, so SLURM runs
-# them one after another. --rerun-triggers mtime: targets.gpu.yaml changes the params of
+# them one after another. --rerun-triggers mtime: structure_gpu=True changes the params of
 # rules upstream of structure_search, which would otherwise re-run them. The GPU is set in
 # config rather than detected, and a job without one fails rather than running on CPU.
 set -euo pipefail
@@ -41,7 +41,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv || {
 
 snakemake \
     --configfile "${CONFIGFILE:-config/config.yaml}" \
-    --config targets_config=config/targets.gpu.yaml \
+    --config structure_gpu=True \
     -j 16 --rerun-incomplete \
     --rerun-triggers mtime \
     --until structure_search

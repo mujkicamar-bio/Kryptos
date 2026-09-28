@@ -4,6 +4,7 @@ import pathlib
 import re
 
 import jsonschema
+import pytest
 import yaml
 from snakemake.utils import update_config
 
@@ -47,20 +48,26 @@ def test_the_smoke_and_bench_cascades_use_the_production_thresholds():
                     "max_target_seqs", "search_clustering",
                     "artefact_screen"):
             assert cascade[key] == production[key], f"{path}: {key}"
+        # Tiers T1-T4 are searched identically; only their notes may differ.
+        def tiers(c):
+            return [{k: v for k, v in t.items() if k != "note"} for t in c["tiers"][:4]]
+        assert tiers(cascade) == tiers(production), f"{path}: tiers T1-T4"
 
 
-def test_the_targets_files_validate_against_the_schema():
-    schema = load(CONFIG / "schemas" / "targets.schema.yaml")
-    for path in (CONFIG / "targets.yaml", CONFIG / "targets.gpu.yaml"):
-        jsonschema.validate(load(path), schema)
+def test_the_targets_file_validates_against_the_schema():
+    jsonschema.validate(load(CONFIG / "targets.yaml"),
+                        load(CONFIG / "schemas" / "targets.schema.yaml"))
 
 
-def test_the_gpu_targets_differ_from_targets_only_in_structure_gpu():
-    targets = load(CONFIG / "targets.yaml")
-    gpu = load(CONFIG / "targets.gpu.yaml")
-    assert targets["structure"].pop("gpu") is False
-    assert gpu["structure"].pop("gpu") is True
-    assert gpu == targets, "targets.gpu.yaml drifted from targets.yaml"
+def test_a_misspelt_targets_or_cascade_key_is_refused():
+    """An optional key read with a default would otherwise be ignored when misspelt."""
+    for name, section, key in (("targets", "structure", "scop"),
+                               ("targets", "rarity", "rare_max_lineage"),
+                               ("cascade", "search_clustering", "min_seqid")):
+        config = load(CONFIG / f"{name}.yaml")
+        config[section][key] = 1
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(config, load(CONFIG / "schemas" / f"{name}.schema.yaml"))
 
 
 def test_the_report_levels_are_synteny_levels():
