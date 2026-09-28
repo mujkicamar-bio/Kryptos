@@ -18,7 +18,7 @@ with open(snakemake.input.master, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
         topology[row["plasmid_id"]] = row.get("topology", "")
 
-n_records = n_genes = n_partial = n_origin = n_dropped_dup = n_table4 = 0
+n_records = n_genes = n_partial = n_origin = n_dropped = n_table4 = 0
 
 records = ((rec, topology.get(rec[0], "")) for rec in iter_fasta(snakemake.input.fasta))
 with open(snakemake.output.tsv, "w", newline="") as tsv, \
@@ -30,7 +30,7 @@ with open(snakemake.output.tsv, "w", newline="") as tsv, \
     # imap keeps input order, so the output is deterministic whatever the pool size.
     for plasmid_id, genes, dropped in pool.imap(genecall.call_record, records, chunksize=64):
         n_records += 1
-        n_dropped_dup += dropped
+        n_dropped += dropped
         for g in genes:
             n_genes += 1
             n_partial += g["partial"]
@@ -47,6 +47,6 @@ assert n_genes > 0, (
     "check the input is not empty and that pyrodigal is the expected version")
 
 print(f"records={n_records} genes={n_genes} partial={n_partial} "
-      f"spans_origin={n_origin} redundant_dropped={n_dropped_dup} "
+      f"spans_origin={n_origin} origin_dropped={n_dropped} "
       # Genes called with table 4 (TGA read as Trp), counted so they are seen.
       f"translation_table_4={n_table4}")

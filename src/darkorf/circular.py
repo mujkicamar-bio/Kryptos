@@ -9,9 +9,10 @@ record, writing a gene that crosses position L with start > end. Topologies othe
 CIRCULAR_TOPOLOGIES, including unknown ones, are treated as linear.
 """
 
-# Longer than the coding sequence of almost every plasmid gene. A gene crossing the cut
-# and longer than this is kept as a partial (see resolve_origin_genes). The cap bounds the
-# extra calling cost on large plasmids.
+# Longer than the coding sequence of almost every plasmid gene: 27,169 of the 9,249,985
+# genes called on the analysis set (0.29%) are longer (orfs.tsv, 2026-09-28). A gene
+# crossing the cut and longer than this is kept as a partial (see resolve_origin_genes).
+# The cap bounds the extra calling cost on large plasmids.
 MAX_OVERLAP_BP = 5000
 
 # Topologies that denote a closed molecule. 'direct terminal repeat' is a circular molecule

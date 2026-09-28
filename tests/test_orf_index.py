@@ -1,3 +1,5 @@
+import pytest
+
 from plasmidann.orfindex import assign_orf_ids
 
 
@@ -25,8 +27,5 @@ def test_reindexing_an_already_indexed_set_is_refused():
     indexed = assign_orf_ids(orfs)
     subset = [o for o in indexed if o["start"] >= 500]
 
-    try:
+    with pytest.raises(ValueError):
         assign_orf_ids(subset)
-    except ValueError:
-        return
-    raise AssertionError("re-indexing an indexed subset should raise ValueError")
