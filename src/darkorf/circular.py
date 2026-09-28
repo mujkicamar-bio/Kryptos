@@ -61,6 +61,12 @@ def overlap_for(length):
     return min(MAX_OVERLAP_BP, length)
 
 
+# The calls still depend somewhat on where the circle was cut: pyrodigal's meta mode picks
+# one of its models per call, and the appended copy can change which model wins, and with
+# it start sites or the translation table. Measured on the first 3,000 circular plasmids
+# < 20 kb of the analysis set, each called at rotations 0, L/3 and 2L/3 after the terminal
+# repeat is trimmed: 595 plasmids (19.8%) give a different protein set at some rotation,
+# and 1,779 of 16,232 distinct proteins (11.0%) depend on the rotation.
 def resolve_origin_genes(genes, original_length, extended_length):
     """Map genes called on the extended sequence back onto the record.
 
