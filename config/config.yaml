@@ -35,6 +35,9 @@ input:
   # PLSDB alone (plasmidann.hosts, rule clonal_registry).
   host_provenance: data/plasmidscope_primary/provenance/complete_provenance.tsv
   working_set: data/plasmidscope_primary/provenance/working_set.tsv
+  # The NCBI taxdump (names.dmp, nodes.dmp; release of 2026-04-05) that decides which host
+  # names are eukaryotic; rule analysis_set excludes those plasmids.
+  ncbi_taxdump: /sw/data/ncbi_taxonomy/latest
 
 outdir: results
 

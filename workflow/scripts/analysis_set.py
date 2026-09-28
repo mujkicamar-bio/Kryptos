@@ -18,23 +18,52 @@ so the FASTA holds the molecule once. Left in, the gene caller would join the en
 both copies and translate a frameshifted protein across the junction, and every other
 sequence-reading stage would see the repeated region twice. Every trimmed record is listed
 in terminal_repeats.tsv with the bases removed.
+
+A plasmid whose host is a eukaryote (the yeast 2-micron plasmid, plant and algal plasmids)
+is excluded, since the study is of bacterial plasmids. The host is resolved as rule
+clonal_registry resolves it (plasmidann.hosts; the GenBank organism is not used for a
+metagenomic record), and is eukaryotic when the NCBI taxonomy (input.ncbi_taxdump) places
+every taxid of its name in Eukaryota (plasmidann.hosts.eukaryotic). The number removed,
+per host, is printed.
 """
+import collections
 import csv
 
 import _ctx  # noqa: F401
 
 from darkorf.circular import is_circular, terminal_repeat_length
+from plasmidann import hosts
 from plasmidann.fasta import iter_fasta
 
 exclude = set(snakemake.params.exclude)
 max_size = snakemake.params.max_size_bp
 min_repeat = snakemake.params.min_terminal_repeat_bp
 in_scope = {}                                   # plasmid_id -> (circular, small)
+plsdb_species = {}
 with open(snakemake.input.master, newline="") as fh:
     for row in csv.DictReader(fh, delimiter="\t"):
         if row["hab_top"] not in exclude:
             in_scope[row["plasmid_id"]] = (is_circular(row.get("topology")),
                                            int(row["size_bp"]) < max_size)
+            plsdb_species[row["plasmid_id"]] = row.get("plsdb_species", "")
+
+with open(snakemake.input.ps_hosts, newline="") as fh:
+    ps_host = {r["plasmid_id"]: r.get("host", "") for r in csv.DictReader(fh, delimiter="\t")}
+with open(snakemake.input.working_set, newline="") as fh:
+    organism = {r["plasmid_id"]: r.get("organism", "")
+                for r in csv.DictReader(fh, delimiter="\t") if r["lifestyle"] != "metagenomic"}
+host = {}
+for pid in in_scope:
+    species, genus, _ = hosts.resolve([
+        ("plsdb", plsdb_species[pid]), ("plasmidscope", ps_host.get(pid, "")),
+        ("organism", organism.get(pid, ""))])
+    host[pid] = species or genus
+eukaryotic = hosts.eukaryotic(set(host.values()) - {""}, snakemake.params.taxdump)
+removed = collections.Counter(host[pid] for pid in in_scope if host[pid] in eukaryotic)
+for pid in [pid for pid in in_scope if host[pid] in eukaryotic]:
+    del in_scope[pid]
+print(f"analysis set: {sum(removed.values())} plasmids with a eukaryotic host excluded: "
+      + (", ".join(f"{name} {n}" for name, n in removed.most_common()) or "none"))
 
 n_seen = n_small = n_trimmed = 0
 written = set()

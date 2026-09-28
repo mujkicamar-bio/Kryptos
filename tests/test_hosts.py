@@ -72,3 +72,14 @@ def test_the_first_source_that_names_an_organism_wins():
     assert hosts.resolve([("plsdb", "Shigella_flexneri"),
                           ("organism", "Escherichia coli")])[2] == "plsdb"
     assert hosts.resolve([("plsdb", "")]) == ("", "", "")
+
+
+def test_a_name_is_eukaryotic_only_when_every_taxid_it_names_is_in_eukaryota():
+    """Against a small taxdump of the NCBI layout. "Bacillus" names a bacterial and an
+    insect genus; "Bosea" plainly names a plant genus, and as "Bosea Das et al. 1996" a
+    bacterial one; a name absent from the taxonomy is not eukaryotic."""
+    import pathlib
+    taxdump = pathlib.Path(__file__).parent / "data" / "taxdump"
+    names = {"Saccharomyces cerevisiae", "Homo sapiens", "Escherichia coli", "Bacillus",
+             "Bosea", "Nonexistens"}
+    assert hosts.eukaryotic(names, taxdump) == {"Saccharomyces cerevisiae", "Homo sapiens"}

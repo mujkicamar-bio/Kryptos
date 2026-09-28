@@ -117,6 +117,8 @@ rule analysis_set:
     input:
         master=config["input"]["master_table"],
         fasta=config["input"]["fasta"],
+        ps_hosts=config["input"]["host_provenance"],
+        working_set=config["input"]["working_set"],
     output:
         ids=f"{OUT}/01_analysis_set/analysis_set.txt",
         fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
@@ -131,6 +133,7 @@ rule analysis_set:
         exclude=config["input"]["exclude_hab_top"],
         max_size_bp=config["input"]["max_plasmid_size_bp"],
         min_terminal_repeat_bp=config["orf"]["min_terminal_repeat_bp"],
+        taxdump=config["input"]["ncbi_taxdump"],
     resources:
         mem_mb=4000,
         runtime=60,

@@ -76,3 +76,40 @@ def resolve(candidates):
         if genus:
             return species, genus, source
     return "", "", ""
+
+
+EUKARYOTA = 2759
+
+
+def eukaryotic(names, taxdump):
+    """The subset of `names` that the NCBI taxonomy places in Eukaryota (taxid 2759).
+
+    `taxdump` is a directory holding the NCBI taxdump's names.dmp and nodes.dmp. A name is
+    eukaryotic only when every taxid it names lies under Eukaryota, so a genus name shared
+    by a bacterium and an animal ("Bacillus") is not. A name names a taxid when it is one
+    of the taxid's names, of any class, or the first one or two words of an authority or
+    synonym entry: the taxonomy lists the bacterial genus Bosea only as "Bosea Das et al.
+    1996", a synonym of Allobosea, and its plain name "Bosea" only for the plant genus.
+    """
+    taxids = {}
+    with open(f"{taxdump}/names.dmp") as fh:
+        for line in fh:
+            taxid, name, _, name_class = line.split("\t|\t")[:4]
+            keys = {name}
+            if name_class.startswith(("authority", "synonym")):
+                words = name.split()
+                keys |= {words[0], " ".join(words[:2])}
+            for key in keys & names:
+                taxids.setdefault(key, set()).add(int(taxid))
+    parent = {}
+    with open(f"{taxdump}/nodes.dmp") as fh:
+        for line in fh:
+            taxid, up = line.split("\t|\t", 2)[:2]
+            parent[int(taxid)] = int(up)
+
+    def under_eukaryota(t):
+        while t != EUKARYOTA and parent.get(t, t) != t:
+            t = parent[t]
+        return t == EUKARYOTA
+
+    return {n for n, ts in taxids.items() if all(map(under_eukaryota, ts))}
