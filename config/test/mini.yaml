@@ -6,3 +6,5 @@
 input:
   fasta: data/test_plasmids_mini.fna
 outdir: results_test_mini
+# Unique proteins of these 12 plasmids, as measured by rule check_hmmer_z.
+hmmer_z: 723

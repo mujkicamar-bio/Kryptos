@@ -71,5 +71,6 @@ properties:
   # Alternative cascade and targets files for the test and benchmark runs, and the GPU
   # switch of workflow/structure_gpu.sbatch (Snakefile).
   cascade_config: {type: string}
+  hmmer_z: {type: integer, minimum: 1}
   targets_config: {type: string}
   structure_gpu: {type: boolean}

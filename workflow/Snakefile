@@ -39,6 +39,9 @@ validate(config, "../config/schemas/config.schema.yaml")
 # the analysis set: a stale -Z rescales every E-value in the run.
 cascade = yaml.safe_load(open(config.get("cascade_config", "config/cascade.yaml")))
 validate(cascade, "../config/schemas/cascade.schema.yaml")
+# A run on a subset of a test set (config/test/mini.yaml) sets its own hmmer_z here.
+if "hmmer_z" in config:
+    cascade["hmmer_z"] = config["hmmer_z"]
 
 targets = yaml.safe_load(open(config.get("targets_config", "config/targets.yaml")))
 validate(targets, "../config/schemas/targets.schema.yaml")
