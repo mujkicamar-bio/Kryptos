@@ -29,6 +29,9 @@ rule preflight:
         amrfinder=config["amrfinder"],
         conjugation=targets["conjugation"],
         conjscan_models=config["references"]["conjscan_models"],
+        defence=targets["defence"],
+        macsyfinder_models=config["references"]["macsyfinder_models"],
+        genomad=config["genomad"],
     conda:
         "../envs/plasmidann.yaml"
     resources:

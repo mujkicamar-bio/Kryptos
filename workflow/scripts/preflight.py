@@ -2,7 +2,8 @@
 
 Checks every executable in plasmidann.tools, each cascade tier's database (and that it is
 pressed or complete), AntiFam, the optional structure and orthology data, the plasmid
-label databases, AMRFinderPlus, and CONJScan with a MacSyFinder that can read its models. Every
+label databases, AMRFinderPlus, the DefenseFinder models, geNomad and its database, and
+CONJScan with a MacSyFinder that can read its models. Every
 tier depends on this rule, so a failure stops the run before any search.
 """
 import os
@@ -105,6 +106,23 @@ if orthology_required and not os.path.isdir(orthology.get("data_dir", "")):
         f"{orthology.get('data_dir')}. Run `download_eggnog_data.py --data_dir "
         f"{orthology.get('data_dir')}` (~50 GB), or set orthology.required to false in "
         "config/targets.yaml to run without KEGG and COG terms.")
+
+if snakemake.params.defence["required"]:
+    models = pathlib.Path(snakemake.params.macsyfinder_models)
+    if not (models.is_dir() and any(models.iterdir())):
+        problems.append(
+            f"defence.required is true but the DefenseFinder models are missing: {models}. "
+            "Run `defense-finder update --models-dir <dir>` and point "
+            "references.macsyfinder_models at it.")
+
+# geNomad runs on every plasmid (rule phage_plasmids).
+genomad = snakemake.params.genomad
+if not os.access(genomad["executable"], os.X_OK):
+    problems.append(f"geNomad executable not found or not executable: "
+                    f"{genomad['executable']!r} - run tools/install_tool_envs.py")
+if not os.path.isdir(genomad["database"]):
+    problems.append(f"geNomad database not found: {genomad['database']} - run "
+                    "tools/install_tool_envs.py")
 
 if structure_required:
     for label, path in (("foldseek target database", snakemake.params.foldseek_db),
