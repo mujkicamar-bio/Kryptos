@@ -1,4 +1,4 @@
-"""S0: the analysis set - which plasmids are in scope - as an id list and as sequence.
+"""Rule analysis_set: which plasmids are in scope, as an id list and as sequence.
 
 The scope is decided ONCE, here: a plasmid is in the analysis set when the master table's
 locked exclusion keeps it and the configured FASTA holds its sequence. Every stage that
@@ -8,7 +8,7 @@ holding only a sample of the master table.
 
 The study is about SMALL plasmids (size_bp below input.max_plasmid_size_bp), but every
 plasmid is in the analysis set: large-plasmid proteins are clustered with the small ones,
-and those in families holding a small-plasmid protein are annotated too (S2s,
+and those in families holding a small-plasmid protein are annotated too (rule
 cascade_selection). The small ones are listed separately; that list is what "on a small
 plasmid" means everywhere downstream.
 

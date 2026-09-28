@@ -1,7 +1,7 @@
 """Calling the genes of one plasmid, as a unit of work for a process pool.
 
-Pyrodigal is single-threaded and meta mode calls every plasmid alone, so S1 deals the
-records over a pool. The worker lives here rather than in the script because a pool
+Pyrodigal is single-threaded and meta mode calls every plasmid alone, so rule orf_call deals
+the records over a pool. The worker lives here rather than in the script because a pool
 pickles its function by import path, and a function defined inside a Snakemake script has
 none.
 """

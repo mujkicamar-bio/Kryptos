@@ -1,19 +1,20 @@
 # =====================================================================================
-# S5 onwards: the evidence recorded for every dark family. Nothing is ranked or selected;
-# the 1,000 proteins for follow-up are chosen by hand from the report.
+# From target_eligibility onwards: the evidence recorded for every dark family. Nothing is
+# ranked or selected; the 1,000 proteins for follow-up are chosen by hand from the report.
 #
 # The cascade's thresholds live in config/cascade.yaml. These are the downstream ones:
 # declared here, checked against config/schemas/targets.schema.yaml, and written into the
 # output rows they govern.
 # =====================================================================================
 
-# --- Stage 14: rarity, conservation and rarefaction -----------------------------------
+# --- Rule rarity: rarity, conservation and rarefaction ---------------------------------
 #
 # Rarity and conservation are separate descriptors. The labels are not a ranking - RARE is
 # not better than WIDESPREAD - and the thresholds travel on every labelled row.
 #
-# Every breadth threshold is counted in independent Stage 6 lineages, never in plasmid
-# records: a family on four hundred redepositions of one plasmid is one observation.
+# Every breadth threshold is counted in independent lineages (plasmid_lineage.tsv), never
+# in plasmid records: a family on four hundred redepositions of one plasmid is one
+# observation.
 rarity:
   # At or below this many independent lineages a family is RARE. 3 is the smallest count
   # that can distinguish a repeated observation from a single one; it is a descriptive
@@ -33,7 +34,7 @@ rarity:
   # curve and the shape is the entire output, so it must not be an artefact of one shuffle.
   rarefaction_replicates: 20
 
-# --- Stage 6: plasmid lineage / independence ------------------------------------------
+# --- Rule plasmid_lineage: plasmid lineage / independence ------------------------------
 #
 # MOB classification and plasmid sequence similarity are separate concepts. This measures
 # the second: how many independent plasmid lineages a protein occurs on, which is the
@@ -54,7 +55,7 @@ lineage:
   kmer: 21
   sketch_size: 1000
 
-# --- Stage 5: protein families --------------------------------------------------------
+# --- Rule protein_clustering: protein families -----------------------------------------
 #
 # Clustering runs over every unique protein, not only the dark ones: dark_member_count,
 # annotated_member_count and percentage_dark_in_family, and the dark-only family
@@ -90,7 +91,7 @@ clustering:
   # MMseqs2 default and is not overridden. Applied at every resolution.
   cov_mode: 1
   cluster_mode: 2
-# Stage 5b family network, built as Durairaj et al. built theirs over UniRef50 (Nature 2023,
+# Rule family_network, built as Durairaj et al. built theirs over UniRef50 (Nature 2023,
 # 622:646, Methods): nodes are the `intermediate` 50%-identity clusters; an edge is an
 # MMseqs2 hit covering at least 50% of EITHER protein at E < 1e-4, at most four outbound
 # edges per node; a node is dark when its best-annotated member reaches no more than 5%
@@ -125,7 +126,7 @@ context:
   max_operon_gap: 100
   neighbourhood_window: 3
 synteny:
-  # Stage 9 is measured at both levels: close (90% identity, a gene is near-identical
+  # Synteny is measured at both levels: close (90% identity, a gene is near-identical
   # sequence) and intermediate (the protein family, clustering.primary, which must be
   # listed). The family table reads the primary rows, the ORF table the close rows.
   levels: [close, intermediate]
@@ -133,11 +134,12 @@ synteny:
   # across one lineage is one observation, so 2 is the arithmetic minimum.
   min_lineages: 2
 cooccurrence:
-  # S8g: pairs of unique dark protein sequences that share a plasmid, counted per Stage 6
-  # lineage. A pair together in one lineage is one observation, and two sequences seen once
-  # each on one plasmid would get p = 1/N from it, so 2 is the minimum reported - the same
-  # minimum as synteny.min_lineages. No published source sets it. Only sequences in at
-  # least this many lineages are enumerated, which bounds the pair count.
+  # Rule dark_cooccurrence: pairs of unique dark protein sequences that share a plasmid,
+  # counted per lineage (plasmid_lineage.tsv). A pair together in one lineage is one
+  # observation, and two sequences seen once each on one plasmid would get p = 1/N from it,
+  # so 2 is the minimum reported - the same minimum as synteny.min_lineages. No published
+  # source sets it. Only sequences in at least this many lineages are enumerated, which
+  # bounds the pair count.
   min_lineages_together: 2
   # Benjamini-Hochberg false discovery rate (Benjamini & Hochberg 1995, J R Stat Soc B
   # 57:289) at which the report counts a partner; 0.05 is the conventional level, and the

@@ -18,30 +18,30 @@ dependencies:
   # Python script runs somewhere with a different set of libraries.
   - snakemake=9.26.1
   - jsonschema             # config schema validation, used by Snakemake and by the tests
-  # --- S1 gene calling ---------------------------------------------------------------
+  # --- gene calling (orf_call) ----------------------------------------------------------
   - pyrodigal=3.7.1        # meta-mode ORF calling
-  # --- S2b artefact screen, S3 cascade -------------------------------------------------
+  # --- artefact screen, annotation cascade ---------------------------------------------
   - hmmer=3.4              # T1, T2, the AntiFam screen, and DefenseFinder's profiles
   - diamond=2.2.6          # T4 (Swiss-Prot), T5 (nr)
   - tantan=51              # low-complexity masking
-  # --- S6 clustering, S7 evolution -----------------------------------------------------
+  # --- clustering, evolution ------------------------------------------------------------
   - mmseqs2=18.8cc5c       # deep-homology clustering into families
   - mafft=7.526            # protein alignment, projected onto codons for dN/dS
-  - paml=4.10.7            # S7b yn00 pairwise dN/dS (Yang and Nielsen 2000)
-  - rnacode=0.3.1          # S7b coding potential, independent of the gene caller
-  - eggnog-mapper=2.1.12   # S4b COG and KEGG terms for the annotated fraction
-  # --- S8 context and structure --------------------------------------------------------
+  - paml=4.10.7            # family_evolution: yn00 pairwise dN/dS (Yang and Nielsen 2000)
+  - rnacode=0.3.1          # family_evolution: coding potential
+  - eggnog-mapper=2.1.12   # orthology: COG and KEGG terms for the annotated fraction
+  # --- context and structure -----------------------------------------------------------
   - foldseek=10.941cd33    # structural homology from sequence, via ProstT5
   - prodigal=2.6.3         # IntegronFinder calls genes with it
   - infernal=1.1.5         # cmsearch, used by IntegronFinder for attC sites
-  - isescan=1.7.3          # S8e insertion sequence elements (brings FragGeneScan)
-  - mash=2.3               # Stage 6 plasmid lineages (Ondov et al. 2016)
+  - isescan=1.7.3          # is_elements: insertion sequence elements (brings FragGeneScan)
+  - mash=2.3               # plasmid_lineage (Ondov et al. 2016)
   # --- the Python libraries the src/ modules import ------------------------------------
   - pyyaml=6.0.3           # config parsing
-  - networkx=3.6.1         # plasmidann.network, Stage 5b communities
+  - networkx=3.6.1         # plasmidann.network, family_network communities
   - matplotlib-base=3.11.0 # tools/ figures: family summaries, neighbourhood diagrams
   - pip
   - pip:
-    - mdmparis-defense-finder==3.0.0   # S8a phase 1, and macsyfinder with it
-    - macsyfinder==2.1.4               # S8a phase 2, driven directly for --replicon-topology
-    - integron_finder==2.0.6           # S8b cassette arrays
+    - mdmparis-defense-finder==3.0.0   # defence_search, and macsyfinder with it
+    - macsyfinder==2.1.4               # defence_systems, for --replicon-topology
+    - integron_finder==2.0.6           # integrons: cassette arrays

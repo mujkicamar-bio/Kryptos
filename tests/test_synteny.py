@@ -416,16 +416,16 @@ def test_the_script_fails_when_a_plasmid_has_no_lineage(fixture_dir):
 
 
 def test_the_small_variant_uses_small_plasmid_occurrences_only(fixture_dir):
-    """S1 and S2 (small) agree on the right; L1 (large) does not."""
+    """Sp1 and Sp2 (small) agree on the right; L1 (large) does not."""
     genes, pmap = [], {}
-    for plasmid, left, right in [("S1", "x1", "y1"), ("S2", "x2", "y2"), ("L1", "x3", "z1")]:
+    for plasmid, left, right in [("Sp1", "x1", "y1"), ("Sp2", "x2", "y2"), ("L1", "x3", "z1")]:
         for k, (sid, start) in enumerate([(left, 1), ("d", 400), (right, 800)], 1):
             orf = f"{plasmid}|{k}"
             genes.append((orf, start, start + 300, 1))
             pmap.setdefault(sid, []).append(orf)
     same = {"x1": "x1", "x2": "x1", "x3": "x1", "y1": "y1", "y2": "y1", "z1": "z1", "d": "d"}
     out = _run(fixture_dir, genes, pmap, {"close": same, "intermediate": same},
-               {"S1": "A", "S2": "B", "L1": "C"}, small=["S1", "S2"], dark=["d"],
+               {"Sp1": "A", "Sp2": "B", "L1": "C"}, small=["Sp1", "Sp2"], dark=["d"],
                dark_families=["intermediate:d"])
 
     row = {r["family_id"]: r for r in read_tsv(out)}["intermediate:d"]

@@ -133,7 +133,7 @@ def test_analysis_set_lists_only_plasmids_with_a_sequence(fixture_dir):
 
 
 def test_a_circular_records_terminal_repeat_is_written_once(fixture_dir):
-    """A 'direct terminal repeat' record starts with a copy of its own last bases. S0
+    """A 'direct terminal repeat' record starts with a copy of its own last bases. Rule analysis_set
     writes the molecule with the last copy removed; a linear record with the same ends is
     a genuinely linear molecule and is written as it is."""
     import random

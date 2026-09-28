@@ -46,7 +46,7 @@ def write_table(rows):
 # a missing reference here means structure is optional: the stage records NOT_RUN.
 absent = [p for p in (target_db, snakemake.params.prostt5) if not pathlib.Path(p).exists()]
 if absent and not cfg["required"]:
-    print(f"S8d: {', '.join(absent)} absent and structure.required is false; "
+    print(f"structure_search: {', '.join(absent)} absent and structure.required is false; "
           "recording NOT_RUN.")
     write_table([{"status": status.NOT_RUN}])
     sys.exit(0)
@@ -82,12 +82,12 @@ if scope == "representatives":
     # A representative named in the families table but absent from the dark FASTA means the
     # two disagree about what the dark set is, and every structural count would inherit it.
     if n_written != len(wanted):
-        sys.exit(f"S8d: {len(wanted)} family representatives declared but {n_written} found "
+        sys.exit(f"structure_search: {len(wanted)} family representatives declared but {n_written} found "
                  f"in {snakemake.input.faa} - the families table and the dark set disagree.")
-    print(f"S8d: scope=representatives, searching {n_written} of "
+    print(f"structure_search: scope=representatives, searching {n_written} of "
           f"{sum(1 for l in open(snakemake.input.faa) if l[0] == '>')} dark proteins")
 else:
-    print("S8d: scope=all, searching every dark protein")
+    print("structure_search: scope=all, searching every dark protein")
 
 # GPU use is configured (structure.gpu), not detected, so that the settings recorded for a
 # run say how it ran; ProstT5 inference is the cost of this stage, and foldseek takes --gpu

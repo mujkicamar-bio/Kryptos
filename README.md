@@ -48,24 +48,24 @@ of both existence and function, obtained with no homology at all.
 
 Output lands in fifteen numbered directories under `outdir`, one per stage.
 
-| stage | directory | what it does |
+| rules | directory | what it does |
 |---|---|---|
-| S0 | `01_analysis_set` | plasmids in scope, as ids and sequence; clonal registry over MOB clusters |
-| S1 | `02_orf_calling` | Pyrodigal gene calling, with circular-origin repair |
-| S2 | `03_dereplication` | exact-identity dereplication, asserted lossless |
-| S2b | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards; an AntiFam-flagged protein skips every annotation tier and is reported as `NOT_SEARCHED`; a low-complexity-flagged one skips the DIAMOND tiers |
-| S3 | `05_annotation_cascade` | the annotation cascade, T1…T5, self-narrowing |
-| S4 | `06_annotation_tables` | the annotated plasmidome, plus GFF3 and GenBank |
-| S4b | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
-| S4c | `08_protein_labels` | every label from every source, as each tool gives it, in one table |
-| S4d | `08_protein_labels` | plasmid label databases: TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb and AMRFinderPlus |
-| S5 | `09_target_eligibility` | target eligibility: unnamed, searched, not artefact-flagged |
-| S6 | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
-| S7 | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
-| S8 | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons, context terms, dark sequence co-occurrence (`dark_cooccurrence.tsv`: pairs of unique dark protein sequences sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
-| S9a | `13_synteny` | gene-order conservation counted over lineages, at the gene (close) and family (intermediate) level |
-| S9b | `14_rarity` | family rarity labels and the saturation curve |
-| final | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family (the family table includes each family's co-occurring partners) |
+| analysis_set, clonal_registry | `01_analysis_set` | plasmids in scope (plasmids with a eukaryotic host excluded), as ids and sequence; clonal registry over MOB clusters |
+| orf_call, orf_index | `02_orf_calling` | Pyrodigal gene calling, with circular-origin repair |
+| dereplicate, plasmidscope_import, cascade_selection, check_hmmer_z | `03_dereplication` | exact-identity dereplication, asserted lossless |
+| artefact_screen | `04_orf_qc` | AntiFam and low-complexity artefact screen — flags, never discards; an AntiFam-flagged protein skips every annotation tier and is reported as `NOT_SEARCHED`; a low-complexity-flagged one skips the DIAMOND tiers |
+| preflight, tier_search, cascade_resolve | `05_annotation_cascade` | the annotation cascade, T1…T5, self-narrowing |
+| annotate_plasmids, feature_files | `06_annotation_tables` | the annotated plasmidome, plus GFF3 and GenBank |
+| orthology | `07_orthology` | eggNOG-mapper over the named fraction: COG and KEGG terms |
+| protein_labels | `08_protein_labels` | every label from every source, as each tool gives it, in one table |
+| label_databases | `08_protein_labels` | plasmid label databases: TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS, Anti-CRISPRdb and AMRFinderPlus |
+| target_eligibility | `09_target_eligibility` | target eligibility: unnamed, searched, not artefact-flagged |
+| dark_set, protein_clustering, protein_families, family_network, plasmid_lineage | `10_clustering` | dark set, then MMseqs2 deep-homology clustering into families |
+| recurrence, extract_cds, family_evolution, consensus_recheck | `11_distribution_and_evolution` | CDS recovery, codon alignments, dN/dS, RNAcode, consensus re-check |
+| defence_search, defence_gembase, defence_systems, conjugation_systems, integrons, phage_plasmids, is_elements, structure_search, context_features, dark_cooccurrence | `12_context_and_structure` | DefenseFinder, CONJScan, IntegronFinder, ISEScan, geNomad, directons, context terms, dark sequence co-occurrence (`dark_cooccurrence.tsv`: pairs of unique dark protein sequences sharing a plasmid in more lineages than chance predicts), Foldseek + ProstT5 |
+| synteny | `13_synteny` | gene-order conservation counted over lineages, at the gene (close) and family (intermediate) level |
+| rarity | `14_rarity` | family rarity labels and the saturation curve |
+| annotation_report | `15_report` | the deliverable: complete annotation as CSV, per ORF and per dark family (the family table includes each family's co-occurring partners) |
 
 `snakemake -n --forceall -c 2` plans **47 jobs** with the production configuration (measured 2026-09-25).
 
@@ -217,12 +217,13 @@ repository out.
 sbatch workflow/run_pipeline.sbatch
 ```
 
-runs every stage in one job, the structure search (S8d, ProstT5 and Foldseek) included, on
+runs every stage in one job, the structure search (rule structure_search, ProstT5 and
+Foldseek) included, on
 CPU. ProstT5 is much faster on a GPU, so the split is still available on request:
 
 ```bash
-STRUCTURE_ON_GPU=1 sbatch workflow/run_pipeline.sbatch   # everything up to S8d
-sbatch workflow/structure_gpu.sbatch                     # S8d on the GPU partition
+STRUCTURE_ON_GPU=1 sbatch workflow/run_pipeline.sbatch   # everything up to structure_search
+sbatch workflow/structure_gpu.sbatch                     # structure_search on the GPU
 sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
 ```
 

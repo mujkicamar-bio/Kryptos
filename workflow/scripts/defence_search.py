@@ -49,8 +49,8 @@ if not (models_dir.is_dir() and any(models_dir.iterdir())):
                "`defense-finder update --models-dir <dir>` and point "
                "references.macsyfinder_models at it.")
     if snakemake.params.get("required", False):
-        sys.exit(f"S8a: {message}")
-    print(f"S8a: {message}\n     defence.required is false, so this stage records NOT_RUN.")
+        sys.exit(f"defence_search: {message}")
+    print(f"defence_search: {message}\n     defence.required is false, so this stage records NOT_RUN.")
     write_table([{"status": status.NOT_RUN}])
     sys.exit(0)
 
@@ -68,11 +68,11 @@ system_tables = [raw / family / "all_systems.tsv" for family in ("DefenseFinder"
 missing = [t.parent.name for t in system_tables if not t.is_file()]
 if missing:
     sys.exit(
-        f"S8a: defense-finder exited {completed.returncode} and wrote no all_systems.tsv "
+        f"defence_search: defense-finder exited {completed.returncode} and wrote no all_systems.tsv "
         f"for the {', '.join(missing)} models under {raw}: the search itself failed.")
 
 if completed.returncode != 0:
-    print(f"S8a: defense-finder exited {completed.returncode} after MacSyFinder wrote "
+    print(f"defence_search: defense-finder exited {completed.returncode} after MacSyFinder wrote "
           "every all_systems.tsv table: the search completed, and the "
           "failure is the post-treatment step that opens a best_solution.tsv "
           "--db-type unordered never writes.")

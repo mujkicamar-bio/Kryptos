@@ -24,7 +24,7 @@ _NOT_A_SPECIES = {"sp.", "sp", "spp.", "cf.", "genomosp.", "endosymbiont", "symb
 # A genus is one capitalised Latin word; "[Clostridium]" marks a misplaced genus.
 _GENUS = re.compile(r"^(\[[A-Z][a-z]+\]|[A-Z][a-z]+)$")
 # Suffixes of the family, order and phylum names (International Code of Nomenclature of
-# Prokaryotes, Rule 8: Parker et al. 2019, IJSEM 69:S1; Oren & Garrity 2021, IJSEM
+# Prokaryotes, Rule 8: Parker et al. 2019, IJSEM 69, suppl. 1; Oren & Garrity 2021, IJSEM
 # 71:005056 for the phylum).
 _HIGHER_RANK = ("aceae", "ales", "ota")
 # The noun that follows a higher taxon in "Mollicutes bacterium", "Nostocales cyanobacterium".

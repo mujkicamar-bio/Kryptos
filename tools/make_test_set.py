@@ -10,7 +10,7 @@ properties the pipeline branches on are all present:
                    must not run on the other;
   * size           small cryptic plasmids and large ones both appear, because the plus or
                    minus three neighbourhood on a six-gene plasmid is the whole molecule
-                   and that is the statistical trap S8 exists to avoid;
+                   and that is the statistical trap the context rules exist to avoid;
   * the locked exclusion is applied, so the sample cannot contain a simulated record.
 
 The selection is seeded, so the same command reproduces the same sample.

@@ -37,12 +37,13 @@
 # below run --nolock, so a second submission would otherwise write the same outputs at the
 # same time. SLURM starts it only when the first has ended.
 #
-# STRUCTURE SEARCH (S8d) runs HERE, on CPU, by default (~15-35 h on 16 CPU threads for the
-# expected dark representatives), so that one submission produces the whole annotation.
+# STRUCTURE SEARCH (rule structure_search) runs HERE, on CPU, by default (~15-35 h on 16
+# CPU threads for the expected dark representatives), so that one submission produces the
+# whole annotation.
 # ProstT5 is far faster on a GPU, so a GPU split remains available as an option:
 #
 #   STRUCTURE_ON_GPU=1 sbatch workflow/run_pipeline.sbatch   # stops before structure_search
-#   sbatch workflow/structure_gpu.sbatch                     # S8d on the GPU partition
+#   sbatch workflow/structure_gpu.sbatch                     # structure_search on the GPU
 #   sbatch workflow/run_pipeline.sbatch                      # the rest, resuming
 #
 # With STRUCTURE_ON_GPU=1 the job stops before structure_search (--omit-from) until

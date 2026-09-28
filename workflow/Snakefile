@@ -5,21 +5,23 @@
 # dark protein family. It ranks and selects nothing: candidates for experiments are chosen
 # by hand from the report tables.
 #
-# S0  analysis set                     which plasmids are in scope
-# S1  gene calling                     with circular-origin repair
-# S2  dereplication                    exact identity, lossless
-# S2b artefact screen                  AntiFam + low complexity; AntiFam skips the tiers,
-#                                      low complexity the DIAMOND tiers
-# S3  annotation cascade               T1..Tn, self-narrowing on narrow_at
-# S4  plasmid annotation, labels        the primary deliverable
-# S5  target eligibility              unnamed, searched, not artefact-flagged
-# S6  dark set and families            MMseqs2 deep-homology clustering
-# S7  evolutionary evidence            CDS recovery, codon alignments, dN/dS, RNAcode
-# S4d plasmid label databases          TADB, BacMet, oriTDB, CARD, mobileOG-db, dbAPIS,
-#                                      Anti-CRISPRdb (DIAMOND), AMRFinderPlus
-# S8  context and structure            DefenseFinder, CONJScan, IntegronFinder, ISEScan,
-#                                      directons, context terms, dark family
-#                                      co-occurrence, Foldseek
+# 01_analysis_set             which plasmids are in scope
+# 02_orf_calling              gene calling with circular-origin repair
+# 03_dereplication            exact identity, lossless
+# 04_orf_qc                   artefact screen: AntiFam + low complexity; AntiFam skips the
+#                             tiers, low complexity the DIAMOND tiers
+# 05_annotation_cascade       T1..Tn, self-narrowing on narrow_at
+# 06_annotation_tables        plasmid annotation, the primary deliverable
+# 07_orthology                COG and KEGG terms (eggNOG-mapper)
+# 08_protein_labels           plasmid label databases: TADB, BacMet, oriTDB, CARD,
+#                             mobileOG-db, dbAPIS, Anti-CRISPRdb (DIAMOND), AMRFinderPlus
+# 09_target_eligibility       unnamed, searched, not artefact-flagged
+# 10_clustering               dark set and families, MMseqs2 deep-homology clustering
+# 11_distribution_and_evolution  CDS recovery, codon alignments, dN/dS, RNAcode
+# 12_context_and_structure    DefenseFinder, CONJScan, IntegronFinder, ISEScan, geNomad,
+#                             directons, context terms, dark sequence co-occurrence,
+#                             Foldseek
+# 13_synteny, 14_rarity, 15_report
 #
 # Run:  envs/plasmidann/bin/snakemake -s workflow/Snakefile -c <cores>
 # Plan: add -n   (a core count is required: tier threads are workflow.cores)
@@ -77,19 +79,19 @@ rule all:
         f"{OUT}/15_report/annotation_complete.csv",     # every ORF, every annotation
         f"{OUT}/15_report/dark_families_complete.csv",  # every dark family, every evidence
         f"{OUT}/08_protein_labels/protein_labels.tsv",         # every tool label, per protein
-        f"{OUT}/12_context_and_structure/family_context_terms.tsv",  # S8c context terms
-        f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",  # S8f mobility
-        f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",  # S8g dark sequences together
-        f"{OUT}/10_clustering/protein_families.tsv",           # Stage 5: every protein family
-        f"{OUT}/10_clustering/network_summary.tsv",            # Stage 5b: family network
-        f"{OUT}/10_clustering/plasmid_lineage.tsv",            # Stage 6: independent lineages
-        f"{OUT}/11_distribution_and_evolution/recurrence.tsv",                 # Stage 7: distribution counts
-        f"{OUT}/13_synteny/synteny.tsv",                    # Stage 9: context conservation
-        f"{OUT}/14_rarity/family_rarity.tsv",             # Stage 14: rarity labels
-        f"{OUT}/15_report/dark_family_rarefaction.tsv", # Stage 14: saturation curve
-        f"{OUT}/06_annotation_tables/plasmid_annotation.gff3",        # S4 feature files
+        f"{OUT}/12_context_and_structure/family_context_terms.tsv",  # context terms
+        f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",  # mobility
+        f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",  # dark sequences together
+        f"{OUT}/10_clustering/protein_families.tsv",           # every protein family
+        f"{OUT}/10_clustering/network_summary.tsv",            # family network
+        f"{OUT}/10_clustering/plasmid_lineage.tsv",            # independent lineages
+        f"{OUT}/11_distribution_and_evolution/recurrence.tsv",                 # distribution counts
+        f"{OUT}/13_synteny/synteny.tsv",                    # context conservation
+        f"{OUT}/14_rarity/family_rarity.tsv",             # rarity labels
+        f"{OUT}/15_report/dark_family_rarefaction.tsv", # saturation curve
+        f"{OUT}/06_annotation_tables/plasmid_annotation.gff3",        # feature files
         f"{OUT}/06_annotation_tables/plasmid_annotation.gbk",
-        f"{OUT}/09_target_eligibility/target_eligibility.txt",   # S5 dark set counts
+        f"{OUT}/09_target_eligibility/target_eligibility.txt",   # dark set counts
 
 
 rule annotate_only:
@@ -105,7 +107,8 @@ include: "rules/evidence.smk"
 
 
 rule analysis_set:
-    """S0: plasmids that survive the locked artifact exclusion, as ids and as sequence.
+    """Plasmids that survive the locked artifact exclusion and the eukaryotic-host
+    exclusion, as ids and as sequence.
 
     The FASTA written here is what every sequence-reading stage takes. The configured
     input may hold more than the analysis set - the working set carries the simulated
@@ -121,7 +124,7 @@ rule analysis_set:
         fasta=f"{OUT}/01_analysis_set/analysis_set.fna",
         # The plasmids below the size cut-off: what "small plasmid" means downstream.
         small_ids=f"{OUT}/01_analysis_set/small_plasmids.txt",
-        # Circular records whose ends repeated, and how many bases S0 trimmed.
+        # Circular records whose ends repeated, and how many bases were trimmed.
         repeats=f"{OUT}/01_analysis_set/terminal_repeats.tsv",
         # The length of every written record, after that removal: gene coordinates refer
         # to it, and size_bp in the master table does not.
@@ -145,7 +148,7 @@ rule analysis_set:
 
 
 rule orf_call:
-    """S1: call ORFs, repairing genes broken by linearising circular plasmids.
+    """Call ORFs, repairing genes broken by linearising circular plasmids.
 
     The master table is an input because topology decides which records get origin repair.
     Protein sequence travels in the seq column of the TSV; there is no FASTA output.
@@ -174,7 +177,7 @@ rule orf_call:
 
 
 rule orf_index:
-    """S1: assign orf_id once, over the complete ORF set. Never recomputed downstream."""
+    """Assign orf_id once, over the complete ORF set. Never recomputed downstream."""
     input:
         f"{OUT}/02_orf_calling/orfs.tsv",
     output:
@@ -193,7 +196,7 @@ rule orf_index:
 
 
 rule dereplicate:
-    """S2: exact-identity collapse. Lossless: asserted in the script, not assumed."""
+    """Exact-identity collapse. Lossless: asserted in the script, not assumed."""
     input:
         index=f"{OUT}/02_orf_calling/orf_index.tsv",
     output:
@@ -213,7 +216,7 @@ rule dereplicate:
 
 
 rule plasmidscope_import:
-    """S2p: PlasmidScope's published eggNOG result for every protein of ours it contains.
+    """PlasmidScope's published eggNOG result for every protein of ours it contains.
 
     Proteins it annotates skip the cascade (cascade_selection) and enter
     protein_annotation.tsv as tier PS (cascade_resolve); their orthology terms come from
@@ -303,10 +306,10 @@ rule cascade_selection:
 
 
 rule artefact_screen:
-    """S2b: flag sequences that are probably not proteins at all.
+    """Flag sequences that are probably not proteins at all.
 
     A shadow ORF passes every cascade tier cleanly - nothing named it, because it is not a
-    protein - so it would reach the dark set with a perfect record. Rule target_eligibility (S5)
+    protein - so it would reach the dark set with a perfect record. Rule target_eligibility
     marks a flagged protein as not target-eligible, so it does not enter the dark set.
 
     An AntiFam flag also skips every annotation tier (user decision, 2026-09-25):

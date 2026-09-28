@@ -17,7 +17,7 @@ MAX_OVERLAP_BP = 5000
 # Topologies that denote a closed molecule. 'direct terminal repeat' is a circular molecule
 # an assembler reported linearly with the overlap between its two ends left in the record:
 # measured on 400 such records, every one begins with an exact copy of its own last >= 20
-# bp, and in 76% the copy is not a multiple of 3 long, so S0 removes one copy before gene
+# bp, and in 76% the copy is not a multiple of 3 long, so one copy is removed before gene
 # calling (terminal_repeat_length, rule analysis_set).
 #
 # 'inverted terminal repeat' is not listed: it marks a genuinely linear replicon with

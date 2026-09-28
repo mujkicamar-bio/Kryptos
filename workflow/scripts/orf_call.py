@@ -1,4 +1,4 @@
-"""S1: call ORFs with pyrodigal (meta mode) on every analysis-set record, with
+"""Rule orf_call: call ORFs with pyrodigal (meta mode) on every analysis-set record, with
 circular-origin repair (darkorf.circular) for closed molecules; writes orfs.tsv."""
 import csv
 import multiprocessing

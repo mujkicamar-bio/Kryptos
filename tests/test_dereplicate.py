@@ -2,7 +2,7 @@ from plasmidann.dereplicate import dereplicate
 
 
 def test_identical_sequences_collapse_and_every_orf_is_accounted_for():
-    """S2 is a compute optimisation only: no ORF may be lost or double-counted."""
+    """Dereplication is a compute optimisation only: no ORF may be lost or double-counted."""
     orfs = [
         {"orf_id": "p1|1", "seq": "MKV"},
         {"orf_id": "p1|2", "seq": "MAAA"},

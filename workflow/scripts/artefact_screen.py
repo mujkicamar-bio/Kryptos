@@ -1,4 +1,4 @@
-"""S2b: flag unique proteins that are probably not proteins.
+"""Rule artefact_screen: flag unique proteins that are probably not proteins.
 
 Two screens run on unique_proteins.faa:
   * AntiFam (Eberhardt et al. 2012, Database bas003), Pfam's database of families known

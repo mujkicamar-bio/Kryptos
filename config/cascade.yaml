@@ -46,8 +46,8 @@ partial_at: 0.5
 # larger -Z is the conservative choice for the dark set.
 #   9,317,050 ORFs -> 3,497,616 unique proteins
 #   (results/03_dereplication/unique_proteins.faa)
-# Recompute and update this if S1/S2 are re-run on a different analysis set; rule
-# check_hmmer_z stops the run after dereplication if the count differs by more than 2%,
+# Recompute and update this if orf_call and dereplicate run on a different analysis set;
+# rule check_hmmer_z stops the run after dereplication if the count differs by more than 2%,
 # and names the value.
 hmmer_z: 3497616
 
@@ -79,9 +79,8 @@ search_clustering:
 
 # --- Tiers ---------------------------------------------------------------------------
 # Tier order IS authority order: annot_label comes from the shallowest tier that named
-# the protein (cascade.classify), and homology_depth is
-# the tier's position in this list. mmseqs2 is reserved for S6; the cascade uses native
-# tools only.
+# the protein (cascade.classify), and homology_depth is the tier's position in this list.
+# mmseqs2 is reserved for protein_clustering; the cascade uses native tools only.
 #
 # max_evalue is the significance floor applied at PARSE time, before a hit may contribute
 # a span, a label or a row. null means "this tier has no E-value criterion".
@@ -181,7 +180,7 @@ tiers:
       than on full nr, so E-values here are not comparable with the full-nr benchmark
       (results_bench). The size is not pinned with --dbsize; the methods state it.
 
-# --- Artefact screen (S2b) -----------------------------------------------------------
+# --- Artefact screen (rule artefact_screen) ----------------------------------------------
 # AntiFam is Pfam's companion database of profiles built to match sequences that are NOT
 # proteins: shadow ORFs on the reverse-complement strand of real genes, translated rRNA
 # and tRNA, and repeat-derived ORFs.

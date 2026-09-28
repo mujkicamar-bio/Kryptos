@@ -1,4 +1,5 @@
-"""S2p: PlasmidScope's eggNOG result for every one of our proteins it contains.
+"""Rule plasmidscope_import: PlasmidScope's eggNOG result for every protein of ours it
+contains.
 
 See src/plasmidann/plasmidscope.py for why the class uses the eggNOG fields only and why
 the join is identical sequence. The whole `ALL` table is read, not only the analysis-set

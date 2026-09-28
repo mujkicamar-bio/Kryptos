@@ -16,12 +16,12 @@ def _report_fixture(fixture_dir):
                ["p1|2", "p1", 100, 200, "+", "", "NONE", 1],
                ["p1|3", "p1", 300, 400, "+", "", "NONE", 0]])
     pmap = fixture_dir / "map.tsv"
-    pmap.write_text("S1\tp1|1\nS2\tp1|2\nS3\tp1|3\n")
+    pmap.write_text("Sp1\tp1|1\nSp2\tp1|2\nSp3\tp1|3\n")
     fams = fixture_dir / "families.tsv"
     write_tsv(fams, ["family_id", "representative", "n_members", "n_orfs", "n_plasmids",
                      "n_mob_clusters", "family_class", "members"],
-              [["F1", "S2", 1, 1, 1, 1, "ORPHAN", "S2"],
-               ["F2", "S3", 4, 9, 9, 3, "FAMILY", "S3,S4"]])
+              [["F1", "Sp2", 1, 1, 1, 1, "ORPHAN", "Sp2"],
+               ["F2", "Sp3", 4, 9, 9, 3, "FAMILY", "Sp3,Sp4"]])
     evo = fixture_dir / "evo.tsv"
     write_tsv(evo, ["family_id", "dnds_median", "dnds_status", "under_purifying_selection",
                     "rnacode_p", "rnacode_status", "coding_signal"],
@@ -40,17 +40,17 @@ def _report_fixture(fixture_dir):
     orth = fixture_dir / "orth.tsv"
     write_tsv(orth, ["seq_id", "cog_category", "kegg_pathways", "preferred_name",
                      "eggnog_description"],
-              [["S1", "L", "ko03430", "mobA", "Relaxase"],
-               ["S4", "L", "", "", ""]])
+              [["Sp1", "L", "ko03430", "mobA", "Relaxase"],
+               ["Sp4", "L", "", "", ""]])
     recur = fixture_dir / "recurrence.tsv"
     write_tsv(recur, ["family_id", "family_resolution", "representative",
                       "plasmid_occurrence_count", "unique_plasmid_count",
                       "independent_plasmid_cluster_count", "independent_cluster_status",
                       "host_count", "genus_count", "MOB_count",
                       "habitat_count", "database_source_count"],
-              [["F1", "broad", "S2", 1, 1, 1, "SUCCESS", 1, 1, 1, 1, 1],
+              [["F1", "broad", "Sp2", 1, 1, 1, "SUCCESS", 1, 1, 1, 1, 1],
                # 40 gene copies on 9 records that are only 2 independent lineages.
-               ["F2", "broad", "S3", 40, 9, 2, "SUCCESS", 3, 2, 3, 2, 1]])
+               ["F2", "broad", "Sp3", 40, 9, 2, "SUCCESS", 3, 2, 3, 2, 1]])
     syn = fixture_dir / "synteny.tsv"
     measures = ["n_occurrences", "context_recurrence", "n_lineages",
                 "n_lineages_discordant", "lineage_left_conservation",
@@ -61,10 +61,10 @@ def _report_fixture(fixture_dir):
     f2 = [9, 9, 3, 1, 0.9, 0.7, 0.8, 0.6, 0.7, "mobA", "repA", "mobA|repA", "SUCCESS"]
     write_tsv(syn, ["family_id", "level", "intermediate_family_ids",
                     "synteny_min_lineages", *measures, *(f"small_{m}" for m in measures)],
-              # Stage 9 measures the close level too; the family table reads the
+              # Synteny is measured at the close level too; the family table reads the
               # primary rows and the ORF table the close rows.
-              [["close:S3", "close", "F2", 2, 4, 4, 2, 0, 1.0, 1.0, 1.0, 0.5, 1.0,
-                "close:S1", "", "close:S1|", "SUCCESS", *f2],
+              [["close:Sp3", "close", "F2", 2, 4, 4, 2, 0, 1.0, 1.0, 1.0, 0.5, 1.0,
+                "close:Sp1", "", "close:Sp1|", "SUCCESS", *f2],
                ["F1", "intermediate", "F1", 2, *f1, *f1],
                ["F2", "intermediate", "F2", 2, *f2, *f2]])
     rarity_tsv = fixture_dir / "family_rarity.tsv"
@@ -90,20 +90,20 @@ def _run_report(fixture_dir, *tables):
     registry = fixture_dir / "report_registry.tsv"
     write_tsv(registry, ["plasmid_id", "species", "genus", "predicted_host_range"],
               [["p1", "Escherichia coli", "Escherichia", "Enterobacterales"]])
-    # Close clusters: S3 with S2 (measured by Stage 9), S1 alone (no close row).
+    # Close clusters: s3 with s2 (measured by synteny), s1 alone (no close row).
     clusters_close = fixture_dir / "families_close_cluster.tsv"
-    clusters_close.write_text("S1\tS1\nS3\tS3\nS3\tS2\n")
-    # S1 is the relaxase: oriTDB and CARD label it, and an AMRFinderPlus VIRULENCE element
+    clusters_close.write_text("Sp1\tSp1\nSp3\tSp3\nSp3\tSp2\n")
+    # Sp1 is the relaxase: oriTDB and CARD label it, and an AMRFinderPlus VIRULENCE element
     # (no term type, so no column); CONJScan calls p1|1 the MOB of a MOB system.
     labels_plasmid = fixture_dir / "protein_labels_plasmid.tsv"
     write_tsv(labels_plasmid, PLASMID_LABEL_COLS,
-              [["S1", "oritdb", "oritdb_role", "relaxase", "MOBP", "1", "", "95", "98",
+              [["Sp1", "oritdb", "oritdb_role", "relaxase", "MOBP", "1", "", "95", "98",
                 "97", "500", "TraI_RP4", "oriTDB 2.0"],
-               ["S1", "card", "card_amr_family", "sulfonamide resistant sul, x", "sul1",
+               ["Sp1", "card", "card_amr_family", "sulfonamide resistant sul, x", "sul1",
                 "Strict", "300", "80", "100", "100", "400", "ARO:1", "CARD 4.0.2"],
-               ["S1", "amrfinder", "amrfinder_gene", "sul1", "AMR/AMR", "EXACTP", "",
+               ["Sp1", "amrfinder", "amrfinder_gene", "sul1", "AMR/AMR", "EXACTP", "",
                 "100", "", "100", "", "WP_1", "2026-08-07.1"],
-               ["S1", "amrfinder", "amrfinder_gene", "iutA", "VIRULENCE/VIRULENCE",
+               ["Sp1", "amrfinder", "amrfinder_gene", "iutA", "VIRULENCE/VIRULENCE",
                 "BLASTP", "", "99", "", "100", "", "WP_2", "2026-08-07.1"]])
     conj = fixture_dir / "conjugation_systems.tsv"
     write_tsv(conj, ["orf_id", "plasmid_id", "system", "system_id", "component",
@@ -115,26 +115,26 @@ def _run_report(fixture_dir, *tables):
     phage = fixture_dir / "phage_plasmids.tsv"
     write_tsv(phage, ["plasmid_id", "genomad_virus", "n_virus_hallmarks", "phage_plasmid"],
               [["p1", "p1|provirus_10_900", 2, 1]])
-    # F2's member S3 travels with S9 (q 0.01) and less clearly with S8; F1's member S2 was
+    # F2's member Sp3 travels with Sp9 (q 0.01) and less clearly with Sp8; F1's member Sp2 was
     # in no reported pair.
     cooc = fixture_dir / "dark_cooccurrence.tsv"
     write_tsv(cooc, ["seq_a", "seq_b", "n_lineages_a", "n_lineages_b",
                      "n_lineages_together", "n_lineages_total", "fraction_of_a",
                      "fraction_of_b", "expected_together", "p_value", "q_value"],
-              [["S3", "S9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01],
-               ["S3", "S8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3]])
-    # The measured fields of the families: S2 (F1) was not searched by the cascade; S3
-    # (F2) was searched and found nothing, and its co-member S4 is named with two
+              [["Sp3", "Sp9", 3, 2, 2, 100, 0.6667, 1.0, 0.06, 0.001, 0.01],
+               ["Sp3", "Sp8", 3, 40, 2, 100, 0.6667, 0.05, 1.2, 0.3, 0.3]])
+    # The measured fields of the families: Sp2 (F1) was not searched by the cascade; Sp3
+    # (F2) was searched and found nothing, and its co-member Sp4 is named with two
     # informative hits. Every protein went through the artefact screen.
     prot = fixture_dir / "protein_annotation.tsv"
     write_tsv(prot, ["seq_id", "functional_class", "n_informative_hits"],
-              [["S1", "FUNCTIONAL", 3], ["S2", "NOT_SEARCHED", ""], ["S3", "NONE", 0],
-               ["S4", "FUNCTIONAL", 2]])
+              [["Sp1", "FUNCTIONAL", 3], ["Sp2", "NOT_SEARCHED", ""], ["Sp3", "NONE", 0],
+               ["Sp4", "FUNCTIONAL", 2]])
     artefact = fixture_dir / "artefact_flags.tsv"
     write_tsv(artefact, ["seq_id", "artefact_flag"],
-              [["S1", 0], ["S2", 1], ["S3", 0], ["S4", 0]])
+              [["Sp1", 0], ["Sp2", 1], ["Sp3", 0], ["Sp4", 0]])
     dark_faa = fixture_dir / "dark_proteins.faa"
-    dark_faa.write_text(">S2\nMKV\n>S3\nMKVLA\nAGG\n")
+    dark_faa.write_text(">Sp2\nMKV\n>Sp3\nMKVLA\nAGG\n")
     out_ann = fixture_dir / "annotation_complete.csv"
     out_fam = fixture_dir / "dark_families_complete.csv"
     run_script("annotation_report.py", FakeSnakemake(
@@ -185,7 +185,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     # purifying_selection fired, so is_family is entailed and does not count twice.
     assert fam_rows["F2"]["reality_n"] == "2"
     assert fam_rows["F2"]["reality_lines_implied"] == "is_family"
-    # multi_lineage is read from Stage 6 lineages (2 for F2), not MOB-suite clusters.
+    # multi_lineage is read from plasmid_lineage.tsv lineages (2 for F2), not MOB-suite clusters.
     assert "multi_lineage" in fam_rows["F2"]["reality_lines"].split("+")
     # The column sets are the contract, asserted by equality, so an added, renamed or
     # removed column fails here. It also keeps any score or rank column out of the report.
@@ -207,7 +207,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "cons_defence", "cons_integron", "cons_is_element",
         "cons_annotated_neighbour", "cons_operon_with_annotated", "cons_two_gene_operon",
         "cons_conj",
-        # Stage 7: seven counts, never collapsed into one.
+        # recurrence.tsv: seven counts, never collapsed into one.
         "plasmid_occurrence_count", "unique_plasmid_count",
         "independent_plasmid_cluster_count", "independent_cluster_status",
         "host_count", "genus_count", "n_plasmids_with_host",
@@ -215,7 +215,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "predicted_host_range_count",
         "predicted_host_ranges", "MOB_count", "habitat_count",
         "database_source_count",
-        # Stage 9: six conservation measurements, kept apart because they fail apart,
+        # synteny.tsv: six conservation measurements, kept apart because they fail apart,
         # counted over lineages; the primary-level (family) rows.
         "context_recurrence", "n_occurrences", "n_lineages", "n_lineages_discordant",
         "lineage_left_conservation", "lineage_right_conservation",
@@ -228,13 +228,13 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "small_lineage_operon_like_conservation", "small_lineage_synteny_conservation",
         "small_modal_left", "small_modal_right", "small_modal_synteny",
         "small_synteny_status",
-        # S8g: dark sequences its members travel with.
+        # dark_cooccurrence.tsv: dark sequences its members travel with.
         "cooccurrence_status", "n_cooccurring_partners", "top_cooccurring_partner",
         "top_cooccurring_partner_q", "top_cooccurring_partner_fraction",
         "cooccurrence_fdr", "cooccurrence_min_lineages",
-        # Stage 14: descriptors, not a ranking.
+        # family_rarity.tsv: descriptors, not a ranking.
         "rarity_labels",
-        # Stage 15: dimensions counted, never scored.
+        # annotation_report: dimensions counted, never scored.
         "evidence_dimensions_present", "evidence_dimension_count",
         "supporting_observations_count", "supporting_observations_are_not_independent",
     ]
@@ -274,15 +274,15 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
     assert {r["plasmid_conjscan_class"] for r in orfs} == {"pMOB"}
     assert {r["plasmid_phage_plasmid"] for r in orfs} == {"1"}
     assert by_orf["p1|3"]["conj_system"] == ""
-    # S2 and S3 share the close cluster close:S3, which Stage 9 measured; S1's was not.
+    # s2 and s3 share the close cluster close:s3, which synteny measured; s1's was not.
     for orf in ("p1|2", "p1|3"):
         assert (by_orf[orf]["close_family_id"], by_orf[orf]["close_n_lineages"],
                 by_orf[orf]["close_lineage_synteny_conservation"],
                 by_orf[orf]["close_modal_synteny"], by_orf[orf]["close_synteny_status"]) \
-            == ("close:S3", "2", "1.0", "close:S1|", "SUCCESS")
+            == ("close:Sp3", "2", "1.0", "close:Sp1|", "SUCCESS")
     assert relaxase["close_family_id"] == relaxase["close_synteny_status"] == ""
 
-    # --- Stage 7: the counts stay apart ---------------------------------------------
+    # --- recurrence: the counts stay apart -------------------------------------------
     # F2 is 40 gene copies on 9 records that are 2 lineages: three separate counts.
     assert fam_rows["F2"]["plasmid_occurrence_count"] == "40"
     assert fam_rows["F2"]["unique_plasmid_count"] == "9"
@@ -290,7 +290,7 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "the independent-lineage count is what a recurrence claim needs, and it is not "
         "the record count")
 
-    # --- Stage 9: synteny, with its own status name ---------------------------------
+    # --- synteny, with its own status name -------------------------------------------
     assert fam_rows["F2"]["lineage_synteny_conservation"] == "0.7"
     assert (fam_rows["F2"]["n_lineages"], fam_rows["F2"]["synteny_min_lineages"]) == (
         "3", "2")
@@ -299,22 +299,22 @@ def test_the_report_carries_every_orf_and_every_family(fixture_dir):
         "one lineage is perfectly conserved with itself; that must read as a status, "
         "not as a conservation of 1.0")
 
-    # --- S8g: partners, from the tested pairs --------------------------------------
+    # --- dark_cooccurrence: partners, from the tested pairs ------------------------
     f2 = fam_rows["F2"]
     assert (f2["cooccurrence_status"], f2["n_cooccurring_partners"],
             f2["top_cooccurring_partner"], f2["top_cooccurring_partner_q"],
             f2["top_cooccurring_partner_fraction"], f2["cooccurrence_fdr"],
             f2["cooccurrence_min_lineages"]) == (
-        "SUCCESS", "1", "S9", "0.01", "0.6667", "0.05", "2")
+        "SUCCESS", "1", "Sp9", "0.01", "0.6667", "0.05", "2")
     f1 = fam_rows["F1"]
     assert (f1["cooccurrence_status"], f1["n_cooccurring_partners"],
             f1["top_cooccurring_partner"]) == ("TOO_FEW_LINEAGES", "0", "")
 
-    # --- Stage 14: labels are descriptors -------------------------------------------
+    # --- rarity: labels are descriptors ----------------------------------------------
     assert fam_rows["F1"]["rarity_labels"] == "RARE,LINEAGE_SPECIFIC"
 
     # --- evidence dimensions counted, never scored ------------------------------------
-    # F2 was measured on every axis; its informative hits are those of its member S4.
+    # F2 was measured on every axis; its informative hits are those of its member Sp4.
     assert (f2["evidence_dimensions_present"], f2["evidence_dimension_count"],
             f2["supporting_observations_count"], f2["representative_length_aa"]) == (
         "ORF_QC,SEQUENCE_HOMOLOGY,ORTHOLOGY,GENOMIC_CONTEXT,EVOLUTIONARY_CONSERVATION,"
