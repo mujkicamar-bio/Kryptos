@@ -17,7 +17,6 @@ from conftest import (
 
 from plasmidann.fasta import iter_fasta
 
-
 TAXDUMP = str(pathlib.Path(__file__).parent / "data" / "taxdump")
 
 
