@@ -1,0 +1,8 @@
+# Minimal end-to-end check: 12 plasmids, used on top of config/test/config.yaml.
+#   envs/plasmidann/bin/snakemake --configfile config/test/config.yaml config/test/mini.yaml ...
+# The FASTA is built by tools/make_test_set.py --n 12 (same seed and stratification as the
+# 100-plasmid set). Purpose: every rule runs and writes its outputs; nothing biological is
+# measured on 12 plasmids.
+input:
+  fasta: data/test_plasmids_mini.fna
+outdir: results_test_mini
