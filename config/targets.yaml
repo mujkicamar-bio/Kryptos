@@ -110,15 +110,14 @@ evolution:
   max_members_aligned: 50
 orthology:
   data_dir: data/refs/eggnog
-  required: false
+  required: true
 defence:
-  required: false
+  required: true
 conjugation:
   # CONJScan 2.1.0, Plasmids models, run by the MacSyFinder 2.1.6 of envs/conjscan (the
   # plasmidann env pins MacSyFinder 2.1.4 for DefenseFinder, which cannot read CONJScan's
-  # grammar 2.1). false, as for defence: absent models or executable record NOT_RUN;
-  # pre-flight still refuses an installed executable too old for the installed models.
-  required: false
+  # grammar 2.1). Pre-flight refuses an installed executable too old for the installed models.
+  required: true
   exe: envs/conjscan/bin/macsyfinder
   # The release the calls are stamped with; the stage fails if the installed models differ.
   version: "2.1.0"

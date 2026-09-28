@@ -38,7 +38,10 @@
 # its subset from five plasmids sampled with seed 20260922 (data/bench/test5_unresolved.faa,
 # plasmid ids in test5_plasmids.ids).
 set -u
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Slurm runs a copy of this script from its spool directory, so the repository root is the
+# directory the job was submitted from: submit from the repository root.
+ROOT=${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+[ -f "$ROOT/workflow/Snakefile" ] || { echo "submit from the repository root (no $ROOT/workflow/Snakefile)" >&2; exit 1; }
 export PATH=$ROOT/envs/plasmidann/bin:$PATH
 # The query sets must live on the shared filesystem: /scratch is node-local, so a query
 # file there is not found on the compute node.

@@ -38,11 +38,11 @@ evolution:
   max_members_aligned: 50
 orthology:
   data_dir: data/refs/eggnog
-  required: false
+  required: true
 defence:
-  required: false
+  required: true
 conjugation:
-  required: false
+  required: true
   exe: envs/conjscan/bin/macsyfinder
   version: "2.1.0"
 context:

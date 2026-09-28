@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH -A uppmax2025-2-42
+#SBATCH -A uppmax2025-2-422
 #SBATCH -p pelle
 #SBATCH -n 1
 #SBATCH -c 96
@@ -67,9 +67,10 @@ if [ -n "${STRUCTURE_ON_GPU:-}" ] && [ ! -e results/12_context_and_structure/str
     OMIT=(--omit-from structure_search)
 fi
 
-# The repository root is derived from this script's own location, so the pipeline runs
-# from wherever it is checked out rather than from one person's home directory.
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Slurm runs a copy of this script from its spool directory, so the repository root is the
+# directory the job was submitted from: submit from the repository root.
+ROOT=${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+[ -f "$ROOT/workflow/Snakefile" ] || { echo "submit from the repository root (no $ROOT/workflow/Snakefile)" >&2; exit 1; }
 cd "$ROOT"
 
 # Snakemake runs a `script:` directive with the interpreter running Snakemake, not with the

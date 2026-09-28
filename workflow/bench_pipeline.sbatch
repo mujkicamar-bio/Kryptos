@@ -58,7 +58,10 @@
 # single rule that consumes the structural hits; it is minutes, not hours.
 set -euo pipefail
 
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Slurm runs a copy of this script from its spool directory, so the repository root is the
+# directory the job was submitted from: submit from the repository root.
+ROOT=${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+[ -f "$ROOT/workflow/Snakefile" ] || { echo "submit from the repository root (no $ROOT/workflow/Snakefile)" >&2; exit 1; }
 cd "$ROOT"
 # Snakemake runs a `script:` directive with the interpreter running Snakemake, not with
 # the first python on PATH, so the environment holding the tools must also run Snakemake.
