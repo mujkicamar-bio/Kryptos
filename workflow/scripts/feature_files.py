@@ -105,7 +105,8 @@ with open(snakemake.output.gff3, "w") as gff, open(snakemake.output.genbank, "w"
         gbk.write(f"     source          1..{L}\n")
         gbk.write('                     /mol_type="genomic DNA"\n')
         for r in rows:
-            loc = genbank_location(int(r["start"]), int(r["end"]), r["strand"], L)
+            loc = genbank_location(int(r["start"]), int(r["end"]), r["strand"], L,
+                                   r["partial_begin"] == "1", r["partial_end"] == "1")
             gbk.write(f"     CDS             {loc}\n")
             gbk.write(f'                     /locus_tag={quoted(r["orf_id"])}\n')
             if r.get("annot_label"):

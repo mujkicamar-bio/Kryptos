@@ -83,3 +83,12 @@ def test_a_pipe_in_an_identifier_is_not_escaped():
     """GFF3 reserves only tab, newline, carriage return, %, control characters and ; = & ,
     in column 9. The ORF id keeps the same spelling as in every other table."""
     assert gff3_attributes({"ID": "p1|3"}) == "ID=p1|3"
+
+
+def test_a_partial_gene_is_marked_at_the_coordinate_where_it_runs_off():
+    """'<' before the start coordinate and '>' before the end coordinate, whatever the
+    strand, inside a join() too."""
+    assert genbank_location(1, 400, strand=-1, length=5000, partial_begin=True) == (
+        "complement(<1..400)")
+    assert genbank_location(4900, 120, strand=1, length=5000, partial_end=True) == (
+        "join(4900..5000,1..>120)")

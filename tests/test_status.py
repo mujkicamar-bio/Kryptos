@@ -3,7 +3,7 @@ from darkorf import status
 
 
 def test_the_lineage_count_statuses_use_the_central_spelling():
-    """Synteny (Stage 9) and the context terms (S8c) both report a measurement over too few
+    """Synteny and the context terms (rule context_features) both report a measurement over too few
     independent lineages. They must write the one string the vocabulary declares, or a
     reader filtering on the status would see two different statements."""
     from plasmidann import context_terms, synteny
@@ -14,7 +14,7 @@ def test_the_lineage_count_statuses_use_the_central_spelling():
 
 
 def test_synteny_without_named_neighbours_writes_the_central_no_context():
-    """Synteny (Stage 9) reports NO_CONTEXT when no occurrence has a named neighbour. The
+    """Synteny reports NO_CONTEXT when no occurrence has a named neighbour. The
     string must be one the vocabulary declares."""
     from plasmidann import synteny
 

@@ -286,7 +286,7 @@ def test_dark_cooccurrence_writes_the_pairs_of_dark_sequences(fixture_dir):
 
 
 def _run_rarity(fixture_dir, small_plasmids, lineages=None, recurrence_rows=None):
-    """One dark family d, on small plasmid S1 and large plasmid L1. Each plasmid is its own
+    """One dark family d, on small plasmid Sp1 and large plasmid L1. Each plasmid is its own
     lineage unless `lineages` maps it to another."""
     recurrence = fixture_dir / "recurrence.tsv"
     write_tsv(recurrence, ["family_id", "family_resolution",
@@ -295,7 +295,7 @@ def _run_rarity(fixture_dir, small_plasmids, lineages=None, recurrence_rows=None
     fams = fixture_dir / "dark_families.tsv"
     write_tsv(fams, ["family_id", "members", "small_members"], [["broad:d", "d", "d"]])
     mapping = fixture_dir / "protein_map.tsv"
-    mapping.write_text("d\tS1|1,L1|4\n")
+    mapping.write_text("d\tSp1|1,L1|4\n")
     small_ids = fixture_dir / "small_plasmids.txt"
     small_ids.write_text("".join(f"{p}\n" for p in small_plasmids))
     lineage = fixture_dir / "plasmid_lineage.tsv"
@@ -318,7 +318,7 @@ def _run_rarity(fixture_dir, small_plasmids, lineages=None, recurrence_rows=None
 def test_rarefaction_samples_every_lineage_with_a_small_plasmid(fixture_dir):
     """The x-axis is the lineages holding a small plasmid, with a dark family or without; a
     dark family's copies on large plasmids do not put those lineages on the axis."""
-    final = _run_rarity(fixture_dir, ["S1", "S2", "S3", "S4"])[-1]
+    final = _run_rarity(fixture_dir, ["Sp1", "Sp2", "Sp3", "Sp4"])[-1]
 
     assert final["n_lineages"] == "4"
     assert final["mean_families"] == "1.0"
@@ -327,7 +327,7 @@ def test_rarefaction_samples_every_lineage_with_a_small_plasmid(fixture_dir):
 def test_the_log_reports_the_saturation_ratio_without_a_verdict(fixture_dir, capsys):
     """Ten lineages, one with the dark family: the ratio is printed, and nothing says
     whether the curve is climbing or flat."""
-    _run_rarity(fixture_dir, [f"S{i}" for i in range(1, 11)])
+    _run_rarity(fixture_dir, [f"Sp{i}" for i in range(1, 11)])
 
     log = capsys.readouterr().out
     assert "of the initial slope" in log
@@ -335,8 +335,8 @@ def test_the_log_reports_the_saturation_ratio_without_a_verdict(fixture_dir, cap
 
 
 def test_rarefaction_counts_redeposited_plasmids_of_one_lineage_once(fixture_dir):
-    """S1 and S2 are one lineage, so four small plasmids give three sampling units."""
-    final = _run_rarity(fixture_dir, ["S1", "S2", "S3", "S4"], lineages={"S2": "S1"})[-1]
+    """Sp1 and Sp2 are one lineage, so four small plasmids give three sampling units."""
+    final = _run_rarity(fixture_dir, ["Sp1", "Sp2", "Sp3", "Sp4"], lineages={"Sp2": "Sp1"})[-1]
 
     assert final["n_lineages"] == "3"
     assert final["mean_families"] == "1.0"
@@ -346,7 +346,7 @@ def test_family_rarity_writes_the_labels_and_the_thresholds_behind_them(fixture_
     """broad:d is in two lineages: RARE (at most 3), not LINEAGE_SPECIFIC (exactly 1). As
     the only broad family it sets the WIDESPREAD threshold at 2 lineages, and the log says
     that this threshold overlaps RARE."""
-    _run_rarity(fixture_dir, ["S1"])
+    _run_rarity(fixture_dir, ["Sp1"])
     (row,) = read_tsv(fixture_dir / "rarity.tsv")
     assert (row["family_id"], row["rarity_labels"],
             row["independent_plasmid_cluster_count"]) == ("broad:d", "RARE,WIDESPREAD", "2")
@@ -362,7 +362,7 @@ def test_the_widespread_threshold_is_measured_per_resolution(fixture_dir, capsys
     measured lineage count takes no part."""
     rows = [[f"broad:b{i}", "broad", i] for i in range(1, 101)]
     rows += [["close:c", "close", 5], ["broad:z", "broad", 0]]
-    _run_rarity(fixture_dir, ["S1"], recurrence_rows=rows)
+    _run_rarity(fixture_dir, ["Sp1"], recurrence_rows=rows)
 
     out = {r["family_id"]: r for r in read_tsv(fixture_dir / "rarity.tsv")}
     widespread = {f for f, r in out.items() if "WIDESPREAD" in r["rarity_labels"]}
@@ -376,7 +376,7 @@ def test_the_widespread_threshold_is_measured_per_resolution(fixture_dir, capsys
 
 def test_an_undefined_saturation_is_not_reported_as_flattened(fixture_dir, capsys):
     """Two small plasmids give two curve points, too few for a saturation value."""
-    assert len(_run_rarity(fixture_dir, ["S1", "S2"])) == 2
+    assert len(_run_rarity(fixture_dir, ["Sp1", "Sp2"])) == 2
 
     log = capsys.readouterr().out
     assert "saturation undefined" in log
@@ -422,18 +422,18 @@ def test_a_conserved_protein_on_many_plasmids_is_not_reported_as_a_singleton(fix
     """Clustering runs on unique sequences, so a protein identical on four plasmids is one
     member, and n_orfs shows how widely it is carried."""
     faa = fixture_dir / "unique_proteins.faa"
-    write_fasta(faa, [("S1", "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEK"),
-                      ("S2", "MQQTTLNRSDEIVWCAPGHKGGAFLNDVWRDNPHLAGCVLLTSDGKLLWQRRD")])
+    write_fasta(faa, [("Sp1", "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEK"),
+                      ("Sp2", "MQQTTLNRSDEIVWCAPGHKGGAFLNDVWRDNPHLAGCVLLTSDGKLLWQRRD")])
     pmap = fixture_dir / "protein_map.tsv"
-    # S1 is one unique sequence carried by four plasmids; S2 by one.
-    pmap.write_text("S1\tp1|1,p2|1,p3|1,p4|1\nS2\tp5|1\n")
+    # Sp1 is one unique sequence carried by four plasmids; Sp2 by one.
+    pmap.write_text("Sp1\tp1|1,p2|1,p3|1,p4|1\nSp2\tp5|1\n")
     registry = fixture_dir / "clonal_registry.tsv"
     write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "hab_top"],
               [["p1", "AA1", "E. coli", "H"], ["p2", "AA2", "E. coli", "H"],
                ["p3", "AA3", "E. coli", "H"], ["p4", "AA1", "E. coli", "H"],
                ["p5", "AA9", "E. coli", "H"]])
     dark_ids = fixture_dir / "dark_ids.txt"
-    dark_ids.write_text("S1\nS2\n")
+    dark_ids.write_text("Sp1\nSp2\n")
     out = fixture_dir / "protein_families.tsv"
 
     _run_families(fixture_dir,
@@ -448,16 +448,16 @@ def test_a_conserved_protein_on_many_plasmids_is_not_reported_as_a_singleton(fix
         threads=2)
 
     rows = {r["representative"]: r for r in read_tsv(out)}
-    assert "S1" in rows, f"S1 did not survive clustering: {list(rows)}"
-    assert rows["S1"]["family_size"] == "1", "S1 is one unique sequence"
-    assert rows["S1"]["n_orfs"] == "4", (
+    assert "Sp1" in rows, f"Sp1 did not survive clustering: {list(rows)}"
+    assert rows["Sp1"]["family_size"] == "1", "Sp1 is one unique sequence"
+    assert rows["Sp1"]["n_orfs"] == "4", (
         "the ORF count is missing, so a protein on four plasmids is indistinguishable "
         "from one seen once")
     # The distribution counts are computed once, in recurrence.tsv.
     assert not {"family_plasmid_count", "family_host_count", "family_MOB_count",
-                "family_plasmid_lineage_count", "family_habitat_count"} & set(rows["S1"])
+                "family_plasmid_lineage_count", "family_habitat_count"} & set(rows["Sp1"])
     dark = {r["representative"]: r for r in read_tsv(fixture_dir / "dark_families.tsv")}
-    assert (dark["S1"]["n_plasmids"], dark["S1"]["n_mob_clusters"]) == ("4", "3")
+    assert (dark["Sp1"]["n_plasmids"], dark["Sp1"]["n_mob_clusters"]) == ("4", "3")
 
 
 @requires("mmseqs")
@@ -521,10 +521,10 @@ def test_a_family_without_a_dark_member_is_not_dark_only(fixture_dir):
     dark_ids = fixture_dir / "dark_ids.txt"
     dark_ids.write_text("")
     mapping = fixture_dir / "protein_map.tsv"
-    mapping.write_text("af\tS1|1\nlc\tS1|2\n")
+    mapping.write_text("af\tSp1|1\nlc\tSp1|2\n")
     registry = fixture_dir / "clonal_registry.tsv"
     write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "hab_top"],
-              [["S1", "M1", "E. coli", "H"]])
+              [["Sp1", "M1", "E. coli", "H"]])
     families = fixture_dir / "protein_families.tsv"
     dark_families = fixture_dir / "dark_families.tsv"
 
@@ -566,7 +566,7 @@ def test_protein_families_calls_each_family_small_only_or_mixed_and_known_or_unk
                 ("s_dark_c", c), ("l_known", variant(c)),     # mixed_known, known on large
                 ("both", d),                                  # on a small AND a large one
                 ("l_only", f), ("l_only2", variant(f))]       # no small member: not written
-    plasmid = {"s_known": "S1", "s_dark_rel": "S2", "s_alone": "S3", "s_dark_c": "S4",
+    plasmid = {"s_known": "Sp1", "s_dark_rel": "Sp2", "s_alone": "Sp3", "s_dark_c": "Sp4",
                "l_known": "L1", "l_only": "L2", "l_only2": "L3"}
     faa = fixture_dir / "unique_proteins.faa"
     write_fasta(faa, proteins)
@@ -574,8 +574,8 @@ def test_protein_families_calls_each_family_small_only_or_mixed_and_known_or_unk
     dark_ids.write_text("s_dark_rel\ns_alone\ns_dark_c\nboth\n")
     mapping = fixture_dir / "protein_map.tsv"
     mapping.write_text("".join(f"{sid}\t{plasmid[sid]}|1\n" for sid in plasmid)
-                       + "both\tS5|1,L4|1\n")
-    plasmids = sorted(set(plasmid.values()) | {"S5", "L4"})
+                       + "both\tSp5|1,L4|1\n")
+    plasmids = sorted(set(plasmid.values()) | {"Sp5", "L4"})
     registry = fixture_dir / "clonal_registry.tsv"
     write_tsv(registry, ["plasmid_id", "mob_cluster", "species", "hab_top"],
               [[p, "M", "E. coli", "H"] for p in plasmids])
@@ -590,7 +590,7 @@ def test_protein_families_calls_each_family_small_only_or_mixed_and_known_or_unk
             "resolutions": {"broad": {"min_seq_id": 0.3, "coverage": 0.5}},
             "primary": "broad", "cov_mode": 0, "cluster_mode": 0}},
         classes={"l_only": "NOT_SEARCHED", "l_only2": "NOT_SEARCHED"},
-        small=["S1", "S2", "S3", "S4", "S5"])
+        small=["Sp1", "Sp2", "Sp3", "Sp4", "Sp5"])
 
     by_member = {m: r for r in read_tsv(families) for m in r["members"].split(",")}
     assert "l_only" not in by_member, "a family without a small-plasmid member was written"

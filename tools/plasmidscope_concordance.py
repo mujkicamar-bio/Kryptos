@@ -1,6 +1,6 @@
 """How far PlasmidScope's ORFs and annotations can stand in for ours.
 
-1. ORF concordance. Calls genes with our S1 caller (darkorf.genecall, same settings as
+1. ORF concordance. Calls genes with our gene caller (darkorf.genecall, same settings as
    config orf.min_call_length_aa) on a seeded random sample of analysis-set plasmids, and
    compares each ORF with PlasmidScope's ORFs on the same plasmid:
      IDENTICAL  same protein sequence (the join our pipeline would use)

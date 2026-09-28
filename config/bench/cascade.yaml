@@ -1,16 +1,13 @@
 # Cost-measurement cascade: five tiers, as in production, at test scale. Unlike
 # config/test/cascade.yaml it has a T5, because T5 dominates the cost.
 #
-# Differs from config/cascade.yaml in two ways:
+# Differs from config/cascade.yaml only in hmmer_z: 5297, as in config/test/cascade.yaml,
+# every unique protein of the test set. Rule check_hmmer_z accepts a 2% difference.
 #
-#   hmmer_z  5297, as in config/test/cascade.yaml: every unique protein of the test set.
-#            Rule check_hmmer_z accepts a 2% difference.
-#
-#   T5       full NCBI nr without skip_if_named_by, not ClusteredNR with it, so its cost
-#            describes a full-nr cascade. -b 16 -c 1, as in production: with DIAMOND's
-#            defaults (-b 2 -c 4) 2,000 queries did not finish against nr in 12 hours
-#            (job 6823981); with -b 16 -c 1 the same pass took 45-69 minutes on a full
-#            node (job 6928733).
+# T5 is the production T5, NCBI ClusteredNR with skip_if_named_by. -b 16 -c 1: with
+# DIAMOND's defaults (-b 2 -c 4) 2,000 queries did not finish against full nr in 12 hours
+# (job 6823981); with -b 16 -c 1 the same pass took 45-69 minutes on a full node (job
+# 6928733).
 #
 # Every other threshold is identical to production.
 narrow_at: 0.7
@@ -57,8 +54,7 @@ tiers:
     open a real sub-GA band at the cost of false positives across 3.5M queries, and
     a false positive here permanently removes a genuine dark protein from the pool.
     That trade was considered and declined: precision at the deepest tiers is worth
-    more to this project than sub-GA recall. The measurement is kept in docs/annotation_statistics.md
-    section 2 so the choice is on the record.
+    more to this project than sub-GA recall.
 
     '
 - id: T3
@@ -85,12 +81,13 @@ tiers:
 - id: T5
   method: diamond
   source: nr
-  db: /sw/data/diamond_databases/Blast/latest/nr.dmnd
+  db: data/refs/clustered_nr/clustered_nr.dmnd
   args: --very-sensitive -b 16 -c 1
   max_evalue: 1.0e-05
-  note: 'NCBI nr, 375 GB. Reaches environmental sequence nothing else has. UniRef90 was
-    dropped from the cascade after review measured it at 3-11 days for little beyond
-    what nr already provides. -b 16 -c 1 is measured, not guessed: see the file header.
+  skip_if_named_by: [pfam, swissprot]
+  expected_sequences: 545597271
+  note: 'NCBI ClusteredNR (2026-08-30), as in config/cascade.yaml. -b 16 -c 1 is
+    measured, not guessed: see the file header.
 
     '
 artefact_screen:

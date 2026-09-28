@@ -1,6 +1,6 @@
 """Streaming the plasmid FASTA.
 
-The analysis-set FASTA written at S0 is what every stage that needs sequence reads, so
+The analysis-set FASTA written by rule analysis_set is what every stage that needs sequence reads, so
 one reader serves them all and is tested once here.
 """
 import gzip

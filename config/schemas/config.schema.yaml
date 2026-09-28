@@ -9,13 +9,14 @@ properties:
   input:
     type: object
     required: [master_table, fasta, exclude_hab_top, plasmidscope_proteins,
-               max_plasmid_size_bp, host_provenance, working_set]
+               max_plasmid_size_bp, host_provenance, working_set, ncbi_taxdump]
     additionalProperties: false
     properties:
       exclude_hab_top: {type: array, items: {type: string}}
       master_table: {type: string}
       host_provenance: {type: string}
       working_set: {type: string}
+      ncbi_taxdump: {type: string}
       fasta: {type: string}
       max_plasmid_size_bp: {type: integer, minimum: 1}
       plasmidscope_proteins: {type: string}

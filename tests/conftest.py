@@ -152,7 +152,7 @@ def fixture_dir(tmp_path):
 
 # ---- Fixture helpers shared by several smoke-test files ----
 
-# PlasmidScope's per-protein table as S2p writes it. Empty unless rows are given: a stage
+# PlasmidScope's per-protein table as rule plasmidscope_import writes it. Empty unless rows are given: a stage
 # test that is not about PlasmidScope must see a run in which it resolved nothing.
 PS_COLS = ["seq_id", "ps_class", "cog_category", "cog_id", "kegg_ko", "kegg_pathways",
            "pfams", "gos", "ec", "orf_source", "n_orfs"]
@@ -164,7 +164,7 @@ def _ps_table(fixture_dir, rows=()):
     return str(path)
 
 
-# The cascade_selection table (S2s). Empty unless rows are given: a resolve test that is
+# The cascade_selection table. Empty unless rows are given: a resolve test that is
 # not about search clusters sees a run in which every searched protein is its own
 # representative.
 def _selection(fixture_dir, rows=()):
@@ -173,7 +173,7 @@ def _selection(fixture_dir, rows=()):
     return str(path)
 
 
-# ISEScan elements as S8e writes them. Empty unless rows are given.
+# ISEScan elements as rule is_elements writes them. Empty unless rows are given.
 IS_COLS = ["plasmid_id", "is_id", "family", "cluster", "start", "end", "strand",
            "complete", "evalue", "tir"]
 

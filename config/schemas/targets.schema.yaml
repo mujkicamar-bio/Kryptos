@@ -75,7 +75,7 @@ properties:
     properties:
       required:
         type: boolean
-  # S8f CONJScan (rule conjugation_systems). exe is the MacSyFinder of envs/conjscan,
+  # CONJScan (rule conjugation_systems). exe is the MacSyFinder of envs/conjscan,
   # named by path; version is the CONJScan release the calls are stamped with.
   conjugation:
     type: object
@@ -85,7 +85,7 @@ properties:
       required: {type: boolean}
       exe: {type: string}
       version: {type: string}
-  # Stage 9: the clustering levels synteny is measured at, and the lineage minimum.
+  # Rule synteny: the clustering levels synteny is measured at, and the lineage minimum.
   synteny:
     type: object
     required: [levels, min_lineages]
@@ -97,7 +97,7 @@ properties:
         uniqueItems: true
         items: {type: string}
       min_lineages: {type: integer, minimum: 2}
-  # S8g: dark sequence co-occurrence - the lineage minimum for a reported pair, and the FDR.
+  # Rule dark_cooccurrence: the lineage minimum for a reported pair, and the FDR.
   cooccurrence:
     type: object
     required: [min_lineages_together, fdr]

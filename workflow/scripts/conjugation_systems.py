@@ -70,15 +70,15 @@ if shutil.which(exe) is None:
     missing.append(f"the MacSyFinder executable {exe} is absent or not executable")
 if missing:
     if snakemake.params.required:
-        sys.exit("S8f: " + "; ".join(missing) + ".")
-    print("S8f: " + "; ".join(missing) + ". Recording NOT_RUN.")
+        sys.exit("conjugation_systems: " + "; ".join(missing) + ".")
+    print("conjugation_systems: " + "; ".join(missing) + ". Recording NOT_RUN.")
     write_tables([{"status": status.NOT_RUN}], [])
     sys.exit(0)
 
 # The version is what the methods cite. 2.1.0 added the MOBM relaxase profile and raised the
 # MOBH threshold, so a different release gives different calls.
 if version != str(snakemake.params.version):
-    sys.exit(f"S8f: CONJScan {version} is installed at {models_dir}, but config "
+    sys.exit(f"conjugation_systems: CONJScan {version} is installed at {models_dir}, but config "
              f"conjugation.version is {snakemake.params.version}.")
 
 # A rerun starts clean: results from an interrupted run would be read below.
@@ -125,7 +125,7 @@ for rec in read_best_solution(outdir / "run" / "best_solution.tsv"):
 classes = [(p, plasmid_class(types_of.get(p, ()))) for p in plasmids]
 write_tables(rows, classes)
 
-print(f"S8f: CONJScan {version}: {len({r['orf_id'] for r in rows})} ORFs in "
+print(f"conjugation_systems: CONJScan {version}: {len({r['orf_id'] for r in rows})} ORFs in "
       f"{len({r['system_id'] for r in rows})} systems across {len(types_of)} of "
       f"{len(plasmids)} plasmids; classes "
       f"{dict(collections.Counter(c for _, c in classes))}")

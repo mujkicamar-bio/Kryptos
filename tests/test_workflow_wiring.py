@@ -98,7 +98,7 @@ def test_only_s0_reads_the_configured_fasta():
             if rule != "analysis_set":
                 offenders.append(f"{path.name}: rule {rule}")
     assert not offenders, (
-        "these rules read the configured FASTA rather than the analysis-set FASTA S0 "
+        "these rules read the configured FASTA rather than the analysis-set FASTA rule analysis_set "
         "wrote, so their output covers plasmids outside the analysis scope: "
         + "; ".join(offenders))
 

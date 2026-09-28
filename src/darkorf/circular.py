@@ -17,7 +17,7 @@ MAX_OVERLAP_BP = 5000
 # Topologies that denote a closed molecule. 'direct terminal repeat' is a circular molecule
 # an assembler reported linearly with the overlap between its two ends left in the record:
 # measured on 400 such records, every one begins with an exact copy of its own last >= 20
-# bp, and in 76% the copy is not a multiple of 3 long, so S0 removes one copy before gene
+# bp, and in 76% the copy is not a multiple of 3 long, so one copy is removed before gene
 # calling (terminal_repeat_length, rule analysis_set).
 #
 # 'inverted terminal repeat' is not listed: it marks a genuinely linear replicon with
@@ -61,6 +61,12 @@ def overlap_for(length):
     return min(MAX_OVERLAP_BP, length)
 
 
+# The calls still depend somewhat on where the circle was cut: pyrodigal's meta mode picks
+# one of its models per call, and the appended copy can change which model wins, and with
+# it start sites or the translation table. Measured on the first 3,000 circular plasmids
+# < 20 kb of the analysis set, each called at rotations 0, L/3 and 2L/3 after the terminal
+# repeat is trimmed: 595 plasmids (19.8%) give a different protein set at some rotation,
+# and 1,779 of 16,232 distinct proteins (11.0%) depend on the rotation.
 def resolve_origin_genes(genes, original_length, extended_length):
     """Map genes called on the extended sequence back onto the record.
 
@@ -76,10 +82,14 @@ def resolve_origin_genes(genes, original_length, extended_length):
     part of the gene's context and truncates the gene there (a partial call). This drops
     the head fragment of a gene called whole across the cut, keeps the whole copy of a gene
     whose record copy was truncated at position 1, and leaves a gene longer than the
-    appended copy partial. A call with no twin is dropped if it lies in the appended copy,
-    whose bases the record's own calls already cover, or if it is partial: a circle has no
-    end to run off, and a partial call without a twin is one the caller made only because
-    edge genes need no start codon.
+    appended copy partial. A partial call with no twin is dropped: a circle has no end to
+    run off, and such a call is one the caller made only because edge genes need no start
+    codon. A complete call with no twin that starts in the appended copy is kept when no
+    kept call overlaps it: the caller then found a gene there that its record calls miss,
+    such as a gene near position 1 that the record calls only as a partial on the other
+    strand. Otherwise the record's call stands. On 3,000 small circular plasmids of the
+    analysis set this keeps 14 genes that would otherwise be lost, and no gene that
+    overlaps another.
     """
     length = original_length
 
@@ -100,8 +110,19 @@ def resolve_origin_genes(genes, original_length, extended_length):
             if twins(a, b):
                 twinned |= {i, j}
                 dropped.add(i if margin(b) > margin(a) else j)
-    dropped |= {i for i, g in enumerate(genes)
-                if i not in twinned and (g["start"] > length or g["partial"])}
+    dropped |= {i for i, g in enumerate(genes) if i not in twinned and g["partial"]}
+    in_copy = {i for i, g in enumerate(genes)
+               if i not in twinned and i not in dropped and g["start"] > length}
+
+    def overlaps_kept(c):
+        # Against each other kept call, at its own coordinates and one molecule length back.
+        start, end = c["start"] - length, c["end"] - length
+        return any(g["start"] - shift <= end
+                   and start <= g["end"] - shift
+                   for i, g in enumerate(genes) if i not in dropped and i not in in_copy
+                   for shift in (0, length))
+
+    dropped |= {i for i in in_copy if overlaps_kept(genes[i])}
 
     kept = []
     for i, g in enumerate(genes):

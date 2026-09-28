@@ -33,10 +33,21 @@ def _artefact_flags(fixture_dir, rows=()):
 
 
 def _s4d_params(fixture_dir, labels_required=False, amr_required=False,
-                conj_required=False, conj_exe=None, conj_models=None, labels_dir=None):
-    """Pre-flight params for the label databases, AMRFinderPlus and CONJScan. By default
-    none is installed and none is required, so a test not about them sees them skipped."""
-    return {"labels": {"dir": str(labels_dir or fixture_dir / "no_labels"),
+                conj_required=False, conj_exe=None, conj_models=None, labels_dir=None,
+                defence_required=False, genomad_db=None):
+    """Pre-flight params for the label databases, AMRFinderPlus, CONJScan, the
+    DefenseFinder models and geNomad. By default none of the first four is installed and
+    none is required, so a test not about them sees them skipped; geNomad, which always
+    runs, is installed as a stub."""
+    genomad = fixture_dir / "genomad"
+    (genomad / "genomad_db").mkdir(parents=True, exist_ok=True)
+    (genomad / "genomad").write_text("#!/bin/sh\n")
+    (genomad / "genomad").chmod(0o755)
+    return {"defence": {"required": defence_required},
+            "macsyfinder_models": str(fixture_dir / "no_models"),
+            "genomad": {"executable": str(genomad / "genomad"),
+                        "database": str(genomad_db or genomad / "genomad_db")},
+            "labels": {"dir": str(labels_dir or fixture_dir / "no_labels"),
                        "required": labels_required},
             "amrfinder": {"executable": str(fixture_dir / "no_amr" / "amrfinder"),
                           "database": str(fixture_dir / "no_amr_db"),
@@ -181,6 +192,19 @@ def test_preflight_fails_when_amrfinder_is_required_and_absent(fixture_dir):
     with pytest.raises(SystemExit, match="AMRFinderPlus executable"):
         _preflight_s4d(fixture_dir, amr_required=True)
     _preflight_s4d(fixture_dir, amr_required=False)
+
+
+@every_tool
+def test_preflight_names_missing_defence_models_only_when_defence_is_required(fixture_dir):
+    with pytest.raises(SystemExit, match="DefenseFinder models are missing"):
+        _preflight_s4d(fixture_dir, defence_required=True)
+    _preflight_s4d(fixture_dir, defence_required=False)
+
+
+@every_tool
+def test_preflight_fails_when_the_genomad_database_is_missing(fixture_dir):
+    with pytest.raises(SystemExit, match="geNomad database not found"):
+        _preflight_s4d(fixture_dir, genomad_db=fixture_dir / "no_genomad_db")
 
 
 def _conjscan_install(fixture_dir, grammar, reported):

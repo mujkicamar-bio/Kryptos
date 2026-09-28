@@ -29,6 +29,9 @@ rule preflight:
         amrfinder=config["amrfinder"],
         conjugation=targets["conjugation"],
         conjscan_models=config["references"]["conjscan_models"],
+        defence=targets["defence"],
+        macsyfinder_models=config["references"]["macsyfinder_models"],
+        genomad=config["genomad"],
     conda:
         "../envs/plasmidann.yaml"
     resources:
@@ -148,7 +151,7 @@ rule cascade_resolve:
 
 
 rule annotate_plasmids:
-    """S4: the primary deliverable - every ORF with its annotation and provenance."""
+    """The primary deliverable - every ORF with its annotation and provenance."""
     input:
         prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
         index=f"{OUT}/02_orf_calling/orf_index.tsv",
@@ -170,7 +173,7 @@ rule annotate_plasmids:
 
 
 rule orthology:
-    """S4b: COG and KEGG terms (eggNOG-mapper) for the proteins the cascade named, so
+    """COG and KEGG terms (eggNOG-mapper) for the proteins the cascade named, so
     that a dark ORF's neighbours can be described in aggregatable terms."""
     input:
         prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
@@ -196,7 +199,7 @@ rule orthology:
 
 
 rule feature_files:
-    """S4: GFF3 and GenBank of the analysis set; origin-spanning genes are written in
+    """GFF3 and GenBank of the analysis set; origin-spanning genes are written in
     each format's own way (plasmidann.features)."""
     input:
         annotation=f"{OUT}/06_annotation_tables/plasmid_annotation.tsv",
@@ -219,7 +222,7 @@ rule feature_files:
 
 
 rule label_databases:
-    """S4d: every unique protein against the plasmid-specific label databases.
+    """Every unique protein against the plasmid-specific label databases.
 
     TADB, BacMet, oriTDB, mobileOG-db, dbAPIS and Anti-CRISPRdb by DIAMOND at PlasAnn's
     identity and coverage tiers (thresholds from the paper; PlasAnn's database and labels

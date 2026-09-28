@@ -7,8 +7,9 @@ input:
   # recorded here: it is counted at run time, so it cannot go stale.
   master_table: data/plasmidscope_primary/analysis_set.tsv
   # The plasmid sequences, ONE FILE, plain or gzipped. Records outside the analysis set
-  # (the exclusion below) are dropped at S0, so this may be the whole working set: the
-  # analysis scope is the master table's filter, not the content of this file.
+  # (the exclusion below) are dropped by rule analysis_set, so this may be the whole
+  # working set: the analysis scope is the master table's filter, not the content of this
+  # file.
   fasta: data/plasmidscope_primary/provenance/working_set.fna.gz
   # Plasmids whose hab_top is listed here are excluded from every analysis (rule
   # analysis_set). "Simulated communities" is a PlasmidScope ecosystem artefact, not an
@@ -35,6 +36,9 @@ input:
   # PLSDB alone (plasmidann.hosts, rule clonal_registry).
   host_provenance: data/plasmidscope_primary/provenance/complete_provenance.tsv
   working_set: data/plasmidscope_primary/provenance/working_set.tsv
+  # The NCBI taxdump (names.dmp, nodes.dmp; release of 2026-04-05) that decides which host
+  # names are eukaryotic; rule analysis_set excludes those plasmids.
+  ncbi_taxdump: /sw/data/ncbi_taxonomy/latest
 
 outdir: results
 

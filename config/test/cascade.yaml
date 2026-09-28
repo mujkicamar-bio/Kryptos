@@ -59,8 +59,7 @@ tiers:
     open a real sub-GA band at the cost of false positives across 3.5M queries, and
     a false positive here permanently removes a genuine dark protein from the pool.
     That trade was considered and declined: precision at the deepest tiers is worth
-    more to this project than sub-GA recall. The measurement is kept in docs/annotation_statistics.md
-    section 2 so the choice is on the record.
+    more to this project than sub-GA recall.
 
     '
 - id: T3

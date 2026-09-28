@@ -52,8 +52,8 @@ fragments the cut created were reconstructed. The two linear topologies produce 
 origin-spanning genes and keep their real edge partials.
 
 Size bands matter for the same reason: on a small cryptic plasmid a plus or minus three
-neighbourhood is the entire molecule, which is the statistical trap S8 exists to avoid, and
-a sample of only large plasmids would never reach it.
+neighbourhood is the entire molecule, which is the statistical trap the context rules exist
+to avoid, and a sample of only large plasmids would never reach it.
 
 ## How this configuration differs from production
 

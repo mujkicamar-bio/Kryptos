@@ -4,9 +4,6 @@
 # Every threshold the cascade uses is declared here, none in Python. Each is checked
 # against config/schemas/cascade.schema.yaml and plasmidann.cascade.check_thresholds(),
 # and written into the output rows it governs.
-#
-# The rationale for the specific values, and for -Z and --cut_ga, is in
-# docs/annotation_statistics.md.
 # =====================================================================================
 
 # --- Narrowing -------------------------------------------------------------------------
@@ -49,8 +46,8 @@ partial_at: 0.5
 # larger -Z is the conservative choice for the dark set.
 #   9,317,050 ORFs -> 3,497,616 unique proteins
 #   (results/03_dereplication/unique_proteins.faa)
-# Recompute and update this if S1/S2 are re-run on a different analysis set; rule
-# check_hmmer_z stops the run after dereplication if the count differs by more than 2%,
+# Recompute and update this if orf_call and dereplicate run on a different analysis set;
+# rule check_hmmer_z stops the run after dereplication if the count differs by more than 2%,
 # and names the value.
 hmmer_z: 3497616
 
@@ -82,9 +79,8 @@ search_clustering:
 
 # --- Tiers ---------------------------------------------------------------------------
 # Tier order IS authority order: annot_label comes from the shallowest tier that named
-# the protein (cascade.classify), and homology_depth is
-# the tier's position in this list. mmseqs2 is reserved for S6; the cascade uses native
-# tools only.
+# the protein (cascade.classify), and homology_depth is the tier's position in this list.
+# mmseqs2 is reserved for protein_clustering; the cascade uses native tools only.
 #
 # max_evalue is the significance floor applied at PARSE time, before a hit may contribute
 # a span, a label or a row. null means "this tier has no E-value criterion".
@@ -124,9 +120,7 @@ tiers:
       the remaining 3.5%. Loosening it would open a real sub-GA band at the cost of false
       positives across 3.5M queries, and a false positive here permanently removes a
       genuine dark protein from the pool. That trade was considered and declined: precision
-      at the deepest tiers is worth more to this project than sub-GA recall. The
-      measurement is kept in docs/annotation_statistics.md section 2 so the choice is on
-      the record.
+      at the deepest tiers is worth more to this project than sub-GA recall.
 
   - id: T3
     method: pharokka
@@ -179,14 +173,14 @@ tiers:
       about 0.64x the residues to search. Reaches environmental sequence nothing else
       has. UniRef90 is not a tier: it was measured at 3-11 days for little beyond what nr
       provides. -b 16 -c 1 as benchmarked on full nr
-      (config/bench/cascade.yaml, workflow/bench_nr.sbatch, job 6928733): 1.7 s per query
+      (job 6928733): 1.7 s per query
       and ~45 min fixed per pass there; ClusteredNR is not benchmarked, and is expected
       at about 0.64x of both. DIAMOND scales E-values by the database size, and
       ClusteredNR is 0.64x the letters of nr: the same 1e-5 is ~0.65 bits more permissive
       than on full nr, so E-values here are not comparable with the full-nr benchmark
       (results_bench). The size is not pinned with --dbsize; the methods state it.
 
-# --- Artefact screen (S2b) -----------------------------------------------------------
+# --- Artefact screen (rule artefact_screen) ----------------------------------------------
 # AntiFam is Pfam's companion database of profiles built to match sequences that are NOT
 # proteins: shadow ORFs on the reverse-complement strand of real genes, translated rRNA
 # and tRNA, and repeat-derived ORFs.
@@ -213,5 +207,10 @@ artefact_screen:
   # null means "the curated threshold decided this" - no further floor. Same convention and
   # same code path as a cascade tier's max_evalue.
   antifam_max_evalue: null
-  # tantan masks low-complexity regions; a protein masked beyond this fraction is flagged.
+  # tantan (Frith 2011, Nucleic Acids Res. 39:e23) masks low-complexity regions; a protein
+  # masked beyond this fraction is flagged. No published protein-level cut-off was found,
+  # so the value is measured: over the 482,697 proteins of the Swiss-Prot DIAMOND database
+  # used by tier T4 (tantan 51, -p, 2026-09-28), the masked fraction has median 0, 90th
+  # percentile 0.138 and 99th percentile 0.516; 5,223 proteins (1.08%) exceed 0.5. The
+  # cut-off therefore flags about 1% of manually reviewed proteins.
   max_low_complexity_fraction: 0.5

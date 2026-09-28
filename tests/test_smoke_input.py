@@ -17,6 +17,45 @@ from conftest import (
 
 from plasmidann.fasta import iter_fasta
 
+TAXDUMP = str(pathlib.Path(__file__).parent / "data" / "taxdump")
+
+
+def _host_sources(fixture_dir, ps_hosts=(), organisms=()):
+    """analysis_set's host inputs: PlasmidScope hosts [(plasmid_id, host)] and working-set
+    rows [(plasmid_id, lifestyle, organism)]."""
+    ps = fixture_dir / "ps_hosts.tsv"
+    write_tsv(ps, ["plasmid_id", "host"], list(ps_hosts))
+    ws = fixture_dir / "working_set.tsv"
+    write_tsv(ws, ["plasmid_id", "lifestyle", "organism"], list(organisms))
+    return {"ps_hosts": str(ps), "working_set": str(ws)}
+
+
+def test_analysis_set_excludes_plasmids_with_a_eukaryotic_host(fixture_dir):
+    """A yeast host is excluded and counted; a bacterial host, a genus name that is also an
+    animal genus, and the sampled human of a metagenomic record are not."""
+    ids = ["yeast", "coli", "bacillus", "human_gut"]
+    master = fixture_dir / "master.tsv"
+    write_tsv(master, ["plasmid_id", "hab_top", "size_bp", "plsdb_species"],
+              [[p, "Unknown", 4, "Escherichia_coli" if p == "coli" else ""] for p in ids])
+    fasta = fixture_dir / "in.fna"
+    write_fasta(fasta, [(p, "ATGC") for p in ids])
+    out = {k: str(fixture_dir / f"{k}.out")
+           for k in ("ids", "fasta", "small_ids", "repeats", "lengths")}
+    log = fixture_dir / "analysis_set.log"
+
+    run_script("analysis_set.py", FakeSnakemake(
+        input={"master": str(master), "fasta": str(fasta), **_host_sources(
+            fixture_dir, ps_hosts=[("yeast", "Saccharomyces cerevisiae S288C"),
+                                   ("bacillus", "Bacillus sp. X1")],
+            organisms=[("human_gut", "metagenomic", "Homo sapiens")])},
+        output=out, log=[str(log)],
+        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20,
+                "taxdump": TAXDUMP}))
+
+    assert open(out["ids"]).read().split() == ["coli", "bacillus", "human_gut"]
+    assert "1 plasmids with a eukaryotic host excluded: Saccharomyces cerevisiae 1" \
+        in log.read_text()
+
 
 def test_a_scripts_output_reaches_its_declared_log(fixture_dir):
     """Snakemake does not redirect a script's stdout to the rule's `log:`; _ctx does, so
@@ -29,12 +68,13 @@ def test_a_scripts_output_reaches_its_declared_log(fixture_dir):
     log = fixture_dir / "logs" / "analysis_set.log"
 
     run_script("analysis_set.py", FakeSnakemake(
-        input={"master": str(master), "fasta": str(fasta)},
+        input={"master": str(master), "fasta": str(fasta), **_host_sources(fixture_dir)},
         output={"ids": str(fixture_dir / "ids.txt"), "fasta": str(fixture_dir / "out.fna"),
                 "small_ids": str(fixture_dir / "small.txt"),
                 "repeats": str(fixture_dir / "repeats.tsv"),
                 "lengths": str(fixture_dir / "lengths.tsv")},
-        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20},
+        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20,
+                "taxdump": TAXDUMP},
         log=[str(log)]))
 
     assert log.exists(), "the declared log file was never created"
@@ -57,9 +97,10 @@ def test_analysis_set_keeps_every_plasmid_and_lists_the_small_ones(fixture_dir):
            "lengths": str(fixture_dir / "lengths.tsv")}
 
     run_script("analysis_set.py", FakeSnakemake(
-        input={"master": str(master), "fasta": str(fasta)}, output=out,
+        input={"master": str(master), "fasta": str(fasta), **_host_sources(fixture_dir)}, output=out,
         params={"exclude": ["Simulated-artifact"], "max_size_bp": 20000,
-                "min_terminal_repeat_bp": 20}))
+                "min_terminal_repeat_bp": 20,
+                "taxdump": TAXDUMP}))
 
     assert open(out["ids"]).read().split() == ["small", "edge", "large"]
     assert [l[1:].strip() for l in open(out["fasta"]) if l.startswith(">")] == [
@@ -77,8 +118,9 @@ def test_analysis_set_lists_only_plasmids_with_a_sequence(fixture_dir):
     out = {k: str(fixture_dir / f"{k}.out")
            for k in ("ids", "fasta", "small_ids", "repeats", "lengths")}
     snake = FakeSnakemake(
-        input={"master": str(master), "fasta": str(fasta)}, output=out,
-        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20})
+        input={"master": str(master), "fasta": str(fasta), **_host_sources(fixture_dir)}, output=out,
+        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20,
+                "taxdump": TAXDUMP})
 
     write_fasta(fasta, [("p1", "ATGC")])
     run_script("analysis_set.py", snake)
@@ -91,7 +133,7 @@ def test_analysis_set_lists_only_plasmids_with_a_sequence(fixture_dir):
 
 
 def test_a_circular_records_terminal_repeat_is_written_once(fixture_dir):
-    """A 'direct terminal repeat' record starts with a copy of its own last bases. S0
+    """A 'direct terminal repeat' record starts with a copy of its own last bases. Rule analysis_set
     writes the molecule with the last copy removed; a linear record with the same ends is
     a genuinely linear molecule and is written as it is."""
     import random
@@ -111,8 +153,9 @@ def test_a_circular_records_terminal_repeat_is_written_once(fixture_dir):
            "lengths": str(fixture_dir / "lengths.tsv")}
 
     run_script("analysis_set.py", FakeSnakemake(
-        input={"master": str(master), "fasta": str(fasta)}, output=out,
-        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20}))
+        input={"master": str(master), "fasta": str(fasta), **_host_sources(fixture_dir)}, output=out,
+        params={"exclude": [], "max_size_bp": 20000, "min_terminal_repeat_bp": 20,
+                "taxdump": TAXDUMP}))
 
     written = dict(iter_fasta([out["fasta"]]))
     assert written["dtr"] == repeat + core

@@ -19,8 +19,8 @@
 #
 # It is NOT the smoke run. config/test/ checks that the pipeline is correct; this measures
 # what it costs, and the two need different tier sets. config/bench/cascade.yaml therefore
-# carries five tiers including full nr (see its header for how its T5 differs from
-# production), which config/test/cascade.yaml omits. Output goes to results_bench, so
+# carries five tiers including the production T5 on ClusteredNR, which
+# config/test/cascade.yaml omits. Output goes to results_bench, so
 # neither run can overwrite the other. The Slurm log is written to the submit directory.
 #
 # WHAT THE NUMBERS SUPPORT, AND WHAT THEY DO NOT
@@ -40,17 +40,18 @@
 #   2. Several stages are superlinear in the protein count by construction - clustering,
 #      orthology and synteny all compare proteins to each other, not to a database. A
 #      per-protein cost measured at 5,304 proteins does not hold at 3.5 million.
-#   3. The dark set drives S6 to S8, and its SIZE is a result of the cascade, not an input
-#      to it. Adding nr changes how many proteins survive to be clustered.
+#   3. The dark set drives clustering, evolution and context, and its SIZE is a result of
+#      the cascade, not an input to it. Adding nr changes how many proteins survive to be
+#      clustered.
 #
 # So: read mem_mb off these files directly; treat wall time as a lower bound and a ranking
 # of which stages deserve attention, not as a figure to multiply by 1,435.
 #
 # HOW TO RUN IT
 #
-#   sbatch workflow/bench_pipeline.sbatch                                  # 1. CPU, S0-S8c
+#   sbatch workflow/bench_pipeline.sbatch                                  # 1. CPU
 #   sbatch --export=CONFIGFILE=config/bench/config.yaml \
-#          workflow/structure_gpu.sbatch                                   # 2. GPU, S8d
+#          workflow/structure_gpu.sbatch                                   # 2. GPU
 #   sbatch --export=PHASE=finish workflow/bench_pipeline.sbatch            # 3. CPU, report
 #
 # Step 2 is on the GPU partition because ProstT5 on CPU dominates every other stage and
@@ -88,8 +89,9 @@ case "${PHASE:-cpu}" in
     # --forceall because a benchmark of a stage Snakemake skipped is an empty file. Every
     # rule must actually execute for its cost to be measured.
     #
-    # --omit-from structure_search holds back S8d and the one rule downstream of it
-    # (annotation_report), which is what leaves them for the GPU job and for PHASE=finish.
+    # --omit-from structure_search holds back structure_search and the one rule downstream
+    # of it (annotation_report), which is what leaves them for the GPU job and for
+    # PHASE=finish.
     #
     # No --keep-going: unlike a production run, a failed stage here invalidates the
     # measurement of everything that would have followed it, so stopping is more useful.

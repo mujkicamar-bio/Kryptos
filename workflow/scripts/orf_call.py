@@ -1,4 +1,4 @@
-"""S1: call ORFs with pyrodigal (meta mode) on every analysis-set record, with
+"""Rule orf_call: call ORFs with pyrodigal (meta mode) on every analysis-set record, with
 circular-origin repair (darkorf.circular) for closed molecules; writes orfs.tsv."""
 import csv
 import multiprocessing
@@ -25,8 +25,8 @@ with open(snakemake.output.tsv, "w", newline="") as tsv, \
         multiprocessing.Pool(snakemake.threads, initializer=genecall.configure,
                              initargs=(min_gene_nt,)) as pool:
     writer = csv.writer(tsv, delimiter="\t")
-    writer.writerow(["plasmid_id", "start", "end", "strand", "partial",
-                     "spans_origin", "translation_table", "seq"])
+    writer.writerow(["plasmid_id", "start", "end", "strand", "partial", "partial_begin",
+                     "partial_end", "spans_origin", "translation_table", "seq"])
     # imap keeps input order, so the output is deterministic whatever the pool size.
     for plasmid_id, genes, dropped in pool.imap(genecall.call_record, records, chunksize=64):
         n_records += 1
@@ -37,7 +37,8 @@ with open(snakemake.output.tsv, "w", newline="") as tsv, \
             n_origin += g["origin_spanning"]
             n_table4 += g["translation_table"] == 4
             writer.writerow([plasmid_id, g["start"], g["end"], g["strand"],
-                             g["partial"], int(g["origin_spanning"]),
+                             g["partial"], g["partial_begin"], g["partial_end"],
+                             int(g["origin_spanning"]),
                              g["translation_table"], g["seq"]])
 
 # An empty output is never a legitimate result: every plasmid contains genes.

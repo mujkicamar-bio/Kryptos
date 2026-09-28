@@ -59,8 +59,8 @@ def write_table(rows):
 models_dir = pathlib.Path(snakemake.params.models_dir)
 if not (models_dir.is_dir() and any(models_dir.iterdir())):
     if snakemake.params.get("required", False):
-        sys.exit(f"S8a phase 2: DefenseFinder models are not installed at {models_dir}.")
-    print(f"S8a phase 2: models absent at {models_dir}; recording NOT_RUN.")
+        sys.exit(f"defence_systems: DefenseFinder models are not installed at {models_dir}.")
+    print(f"defence_systems: models absent at {models_dir}; recording NOT_RUN.")
     write_table([{"status": status.NOT_RUN}])
     sys.exit(0)
 

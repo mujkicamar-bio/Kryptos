@@ -1,14 +1,15 @@
 # =====================================================================================
-# S5-S8 and the report: the evidence recorded for every dark family. Nothing here ranks or
+# The evidence recorded for every dark family, and the report. Nothing here ranks or
 # selects proteins; the 1,000 for experimental follow-up are chosen by hand from these
 # tables.
 #
-# S5  target eligibility  unnamed, searched, not artefact-flagged
-# S6  dark set, families  MMseqs2 deep-homology clustering, family network, lineages
-# S7  evolutionary        recurrence, CDS recovery, codon alignments, dN/dS, RNAcode
-# S8  context, structure  DefenseFinder, CONJScan, IntegronFinder, ISEScan, directons,
-#                         context terms, Foldseek
-# S9+ synteny, rarity, report
+# 09_target_eligibility           unnamed, searched, not artefact-flagged
+# 10_clustering                   dark set, MMseqs2 deep-homology clustering, family
+#                                 network, lineages
+# 11_distribution_and_evolution   recurrence, CDS recovery, codon alignments, dN/dS, RNAcode
+# 12_context_and_structure        DefenseFinder, CONJScan, IntegronFinder, ISEScan,
+#                                 directons, context terms, Foldseek
+# 13_synteny, 14_rarity, 15_report
 # =====================================================================================
 
 rule clonal_registry:
@@ -37,7 +38,7 @@ rule clonal_registry:
 
 
 rule target_eligibility:
-    """S5: which proteins are screening candidates: unnamed, searched, not artefacts."""
+    """Which proteins are screening candidates: unnamed, searched, not artefacts."""
     input:
         prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",
         artefact=f"{OUT}/04_orf_qc/artefact_flags.tsv",
@@ -59,7 +60,7 @@ rule target_eligibility:
 
 
 rule dark_set:
-    """S6a: the proteins that are screening candidates at all."""
+    """The proteins that are screening candidates at all."""
     input:
         flags=f"{OUT}/09_target_eligibility/target_eligibility.tsv",
         faa=f"{OUT}/03_dereplication/unique_proteins.faa",
@@ -706,7 +707,7 @@ rule annotation_report:
         recheck=f"{OUT}/11_distribution_and_evolution/consensus_recheck.tsv",
         context=f"{OUT}/12_context_and_structure/family_context.tsv",
         structure=f"{OUT}/12_context_and_structure/structure_hits.tsv",
-        # Stages 7, 9 and 14: distribution counts, synteny and rarity labels.
+        # Distribution counts, synteny and rarity labels.
         recurrence=f"{OUT}/11_distribution_and_evolution/recurrence.tsv",
         synteny=f"{OUT}/13_synteny/synteny.tsv",
         rarity=f"{OUT}/14_rarity/family_rarity.tsv",
@@ -714,12 +715,12 @@ rule annotation_report:
         registry=f"{OUT}/01_analysis_set/clonal_registry.tsv",
         # Per ORF: the close-level synteny row of the ORF's close cluster.
         clusters_close=f"{OUT}/10_clustering/families_close_cluster.tsv",
-        # Per ORF: the plasmid label databases (S4d) and the CONJScan calls (S8f).
+        # Per ORF: the plasmid label databases and the CONJScan calls.
         labels_plasmid=f"{OUT}/08_protein_labels/protein_labels_plasmid.tsv",
         conjugation=f"{OUT}/12_context_and_structure/conjugation_systems.tsv",
         conjugation_class=f"{OUT}/12_context_and_structure/conjugation_plasmid_class.tsv",
         phage_plasmids=f"{OUT}/12_context_and_structure/phage_plasmids.tsv",
-        # Per family: partners it travels with (S8g).
+        # Per family: partners it travels with (dark_cooccurrence).
         cooccurrence=f"{OUT}/12_context_and_structure/dark_cooccurrence.tsv",
         # Per family: the measured fields the evidence dimensions are counted from.
         prot=f"{OUT}/05_annotation_cascade/protein_annotation.tsv",

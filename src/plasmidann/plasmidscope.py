@@ -32,7 +32,7 @@ NO_VALUE = "-"
 CLASSES = ("ANNOTATED", "UNKNOWN_ORTHOLOG", "NONE")
 RANK = {c: i for i, c in enumerate(CLASSES)}
 
-# PlasmidScope column -> our column. KEGG_Pathway and GOs are carried for S4b orthology.
+# PlasmidScope column -> our column. KEGG_Pathway and GOs are carried for rule orthology.
 FIELDS = {"COG_category": "cog_category", "COG_id": "cog_id", "KEGG_ko": "kegg_ko",
           "KEGG_Pathway": "kegg_pathways", "PFAMs": "pfams", "GOs": "gos",
           "EC_number": "ec"}
