@@ -90,6 +90,24 @@ def test_a_gene_near_the_record_start_called_as_an_edge_partial_is_not_lost():
         (46, 351, 0), (348, 1_757, 0)]
 
 
+def test_a_whole_gene_called_only_in_the_appended_copy_is_kept():
+    """Raw calls near position 1 of COMPASS_NC_007960.1 (188,318 bp, circular, 5,000 bases
+    appended): the record gives only a left-edge partial on the + strand (2..628); the
+    appended copy calls a complete 184-residue gene on the - strand (188488..189042) that
+    has no twin in the record. The complete gene is kept at 170..724; a complete copy call
+    that overlaps a kept record call is not."""
+    length = 188_318
+    genes = [
+        {"start": 2, "end": 628, "strand": 1, "partial": 1},
+        {"start": 1_000, "end": 1_600, "strand": 1, "partial": 0},
+        {"start": 188_488, "end": 189_042, "strand": -1, "partial": 0},
+        {"start": 189_200, "end": 189_500, "strand": -1, "partial": 0},
+    ]
+    resolved = circular.resolve_origin_genes(genes, length, length + 5_000)
+    assert sorted((g["start"], g["end"], g["strand"]) for g in resolved) == [
+        (170, 724, -1), (1_000, 1_600, 1)]
+
+
 def test_a_partial_call_with_no_twin_is_dropped():
     """A left-edge partial with no call in the same frame in the appended copy exists only
     because edge genes need no start codon (COMPASS_EU999782.1, 1,549 bp)."""
