@@ -4,9 +4,9 @@ A Snakemake pipeline that takes a collection of complete bacterial plasmids and 
 complete, evidence-rich annotation of every plasmid ORF and of its dark subset — the
 proteins that no database names.
 
-The reference collection is 143,503 complete plasmids (PlasmidScope and IMG/PR, with
-simulated and lab-artifact ecosystems excluded), giving 9,317,050 called ORFs and 3,497,616
-unique protein sequences.
+The reference collection is 143,396 complete plasmids (PlasmidScope and IMG/PR, with
+simulated and lab-artifact ecosystems and plasmids of eukaryotic hosts excluded), giving
+9,249,985 called ORFs and 3,401,393 unique protein sequences.
 
 ---
 
