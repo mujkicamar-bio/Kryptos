@@ -2,9 +2,10 @@
 
 A join, not a decision: nothing is classified or filtered here. The per-protein cascade
 annotation and the ORF QC artefact flags are expanded over every ORF that shares the
-protein sequence; the ORF index supplies position, strand, partial and spans_origin (an ORF
-reconstructed across the origin runs start..plasmid length, then 1..end). Artefact-flagged
-proteins are kept and flagged. Each row carries the coverage, explained-fraction and
+protein sequence; the ORF index supplies position, strand, partial (with partial_begin and
+partial_end, the edge it runs off) and spans_origin (an ORF reconstructed across the
+origin runs start..plasmid length, then 1..end). Artefact-flagged proteins are kept and
+flagged. Each row carries the coverage, explained-fraction and
 narrow-hit thresholds of its classification.
 """
 import csv
