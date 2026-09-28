@@ -19,8 +19,8 @@
 #
 # It is NOT the smoke run. config/test/ checks that the pipeline is correct; this measures
 # what it costs, and the two need different tier sets. config/bench/cascade.yaml therefore
-# carries five tiers including full nr (see its header for how its T5 differs from
-# production), which config/test/cascade.yaml omits. Output goes to results_bench, so
+# carries five tiers including the production T5 on ClusteredNR, which
+# config/test/cascade.yaml omits. Output goes to results_bench, so
 # neither run can overwrite the other. The Slurm log is written to the submit directory.
 #
 # WHAT THE NUMBERS SUPPORT, AND WHAT THEY DO NOT

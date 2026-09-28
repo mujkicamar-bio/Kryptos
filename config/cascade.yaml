@@ -179,7 +179,7 @@ tiers:
       about 0.64x the residues to search. Reaches environmental sequence nothing else
       has. UniRef90 is not a tier: it was measured at 3-11 days for little beyond what nr
       provides. -b 16 -c 1 as benchmarked on full nr
-      (config/bench/cascade.yaml, workflow/bench_nr.sbatch, job 6928733): 1.7 s per query
+      (job 6928733): 1.7 s per query
       and ~45 min fixed per pass there; ClusteredNR is not benchmarked, and is expected
       at about 0.64x of both. DIAMOND scales E-values by the database size, and
       ClusteredNR is 0.64x the letters of nr: the same 1e-5 is ~0.65 bits more permissive

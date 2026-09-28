@@ -7,8 +7,8 @@
 # "what will the production run cost", and the two questions need different tier sets.
 # The smoke set omits nr because nr would make a correctness check cost a production run
 # (config/test/README.md). A cost measurement that omits nr measures everything except
-# the stage that dominates, so here the cascade has five tiers, T5 on full nr
-# (config/bench/cascade.yaml).
+# the stage that dominates, so here the cascade has five tiers, T5 on ClusteredNR as in
+# production (config/bench/cascade.yaml).
 #
 # Overrides config/config.yaml, which the Snakefile always loads first; keys not set here
 # are the production values. Against config/test/config.yaml it sets:
