@@ -185,3 +185,15 @@ def test_a_trimmed_terminal_repeat_record_calls_the_same_proteins_as_its_circle(
     truth = proteins(rotate(molecule, 2_345))
     assert proteins(record[:-k], "direct terminal repeat") == truth
     assert proteins(record, "direct terminal repeat") != truth
+
+
+def test_a_gene_running_off_the_left_edge_is_partial_at_its_begin_only():
+    """A linear record that starts inside a 300-codon open reading frame with no ATG: the
+    call is partial at its begin (position 1), complete at its end, and says which."""
+    genecall.configure(63)
+    rng = random.Random(3)
+    body = "".join(rng.choice([c for c in SENSE if c != "ATG"]) for _ in range(300))
+    seq = body + "TAA" + "".join(rng.choice("ACGT") for _ in range(300))
+    (gene,) = genecall.call_genes("p", seq, "linear")[1]
+    assert (gene["start"], gene["partial"], gene["partial_begin"], gene["partial_end"]) == (
+        1, 1, 1, 0)

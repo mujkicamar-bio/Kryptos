@@ -35,7 +35,9 @@ def call_genes(plasmid_id, sequence, topology):
     search_seq = sequence + sequence[:overlap_for(length)] if circular else sequence
 
     raw = [{"start": g.begin, "end": g.end, "strand": g.strand,
+            # The call runs off the left (begin) or right (end) edge of the sequence.
             "partial": int(g.partial_begin or g.partial_end),
+            "partial_begin": int(g.partial_begin), "partial_end": int(g.partial_end),
             # Meta mode picks one model per call, and some models use table 4 (TGA = Trp).
             "translation_table": g.translation_table,
             "seq": g.translate().rstrip("*")}

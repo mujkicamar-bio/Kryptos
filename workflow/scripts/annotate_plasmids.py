@@ -33,7 +33,8 @@ for line in open(snakemake.input.map):
 
 cols = [
     # where the ORF is
-    "orf_id", "plasmid_id", "start", "end", "strand", "partial", "spans_origin",
+    "orf_id", "plasmid_id", "start", "end", "strand", "partial", "partial_begin",
+    "partial_end", "spans_origin",
     # 11, or 4 where pyrodigal's meta mode chose the Mycoplasma code
     "translation_table",
     # what it is, and where that came from (self, representative, plasmidscope,

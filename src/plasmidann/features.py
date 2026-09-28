@@ -26,16 +26,20 @@ def gff3_attributes(attributes):
                     for k, v in attributes.items() if v not in (None, ""))
 
 
-def genbank_location(start, end, strand, length):
+def genbank_location(start, end, strand, length, partial_begin=False, partial_end=False):
     """A GenBank location string; `start > end` means the feature runs start..length, 1..end.
 
     The complement wrapper encloses the entire join: complement(join(a,b)) reads b then a,
     reverse-complemented, which is the gene; join(complement(a),complement(b)) is not.
+    A feature that runs off the sequence at its start or end coordinate is marked with '<'
+    or '>' there, whatever its strand (INSDC Feature Table Definition, location syntax).
     """
+    first = f"<{start}" if partial_begin else str(start)
+    last = f">{end}" if partial_end else str(end)
     if start <= end:
-        span = f"{start}..{end}"
+        span = f"{first}..{last}"
     else:
-        span = f"join({start}..{length},1..{end})"
+        span = f"join({first}..{length},1..{last})"
     return f"complement({span})" if strand in (-1, "-", "-1") else span
 
 
