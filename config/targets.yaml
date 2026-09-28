@@ -16,10 +16,10 @@
 # in plasmid records: a family on four hundred redepositions of one plasmid is one
 # observation.
 rarity:
-  # At or below this many independent lineages a family is RARE. 3 is the smallest count
-  # that can distinguish a repeated observation from a single one; it is a descriptive
-  # boundary and nothing selects on it.
-  rare_max_lineages: 3
+  # At or below this many independent lineages a family is RARE: seen in one lineage, or
+  # repeated in exactly one other. A descriptive boundary chosen by the user; nothing
+  # selects on it.
+  rare_max_lineages: 2
   # WIDESPREAD: a lineage count at or above this percentile (nearest rank) of the lineage
   # counts of the families at the same resolution, measured on the run and written with
   # the computed threshold to family_rarity.tsv and the log. 99 names the upper 1% of
