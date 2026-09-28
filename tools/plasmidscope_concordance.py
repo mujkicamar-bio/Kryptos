@@ -1,8 +1,8 @@
 """How far PlasmidScope's ORFs and annotations can stand in for ours.
 
 1. ORF concordance. Calls genes with our gene caller (darkorf.genecall, same settings as
-   config orf.min_call_length_aa) on a seeded random sample of analysis-set plasmids, and
-   compares each ORF with PlasmidScope's ORFs on the same plasmid:
+   config orf.min_call_length_aa) on a seeded random sample of analysis-set plasmids, read
+   from rule analysis_set's FASTA, whose terminal repeats are already trimmed, and compares each ORF with PlasmidScope's ORFs on the same plasmid:
      IDENTICAL  same protein sequence (the join our pipeline would use)
      SAME_STOP  same strand and stop codon, different start
      ABSENT     no PlasmidScope ORF on that strand and stop
@@ -12,7 +12,7 @@
 Usage:
   python tools/plasmidscope_concordance.py \
       data/PlasmidScope/annotation/analysis_set_orfs.tsv.gz \
-      data/plasmidscope_primary/provenance/working_set.fna.gz \
+      results/01_analysis_set/analysis_set.fna \
       data/plasmidscope_primary/analysis_set.tsv \
       results_test/05_annotation_cascade/protein_annotation.tsv \
       <n_sample> <seed>

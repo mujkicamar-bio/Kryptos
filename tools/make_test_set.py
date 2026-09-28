@@ -1,24 +1,5 @@
-"""Build a small, representative plasmid set for exercising the pipeline end to end.
-
-WHY A SEEDED STRATIFIED SAMPLE RATHER THAN THE FIRST N RECORDS
-
-The first N records of the working set are whatever order the FASTA happens to be in,
-which is neither representative nor stable. This selects a STRATIFIED sample so that the
-properties the pipeline branches on are all present:
-
-  * topology       circular and linear both appear, because origin repair runs on one and
-                   must not run on the other;
-  * size           small cryptic plasmids and large ones both appear, because the plus or
-                   minus three neighbourhood on a six-gene plasmid is the whole molecule
-                   and that is the statistical trap the context rules exist to avoid;
-  * the locked exclusion is applied, so the sample cannot contain a simulated record.
-
-The selection is seeded, so the same command reproduces the same sample.
-
-OUTPUT
-
-One FASTA, ready for config.input.fasta.
-"""
+"""Seeded, stratified sample (topology x size band) of the analysis set, excluding
+simulated records; writes one FASTA for config input.fasta."""
 import argparse
 import collections
 import gzip

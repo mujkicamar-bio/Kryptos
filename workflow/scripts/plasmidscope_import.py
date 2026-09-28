@@ -6,7 +6,8 @@ the join is identical sequence. The whole `ALL` table is read, not only the anal
 plasmids: an identical sequence has the same eggNOG result wherever it occurs.
 
 Output: one row per unique protein of ours that has an identical PlasmidScope protein.
-Proteins with no row here are not in PlasmidScope and go through the whole cascade.
+Proteins with no row here are not in PlasmidScope; rule cascade_selection decides whether
+they are searched.
 """
 import csv
 import gzip

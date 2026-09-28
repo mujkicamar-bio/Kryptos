@@ -12,8 +12,8 @@ joins to our results without relying on coordinates.
 
 ps_class is plasmidann.plasmidscope.ps_class (eggNOG fields only), the rule the pipeline
 itself uses at S2p.
-product_named is 1 when the product is anything but "hypothetical protein"; what that
-means depends on orf_source.
+product_named is 1 when the product is informative by the pipeline's own rule
+(plasmidann.cascade.is_informative); what that means depends on orf_source.
 
 Per unique protein, ps_class is the most informative class over its occurrences and
 product_named is 1 if any occurrence is named.
@@ -33,6 +33,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
+from plasmidann.cascade import is_informative  # noqa: E402
 from plasmidann.dereplicate import sequence_id  # noqa: E402  (the identity our proteins carry)
 from plasmidann.plasmidscope import CLASSES, RANK, ps_class  # noqa: E402
 
@@ -64,7 +65,7 @@ with gzip.open(ps_table, "rt", newline="") as fh, \
         seq = r["Sequence"].rstrip("*")     # our ORFs are stored without the stop, too
         sid = sequence_id(seq)
         cls = ps_class(r)
-        named = int(not r["Product"].startswith("hypothetical protein"))
+        named = int(is_informative(r["Product"]))
         orf_classes[cls] += 1
         p = proteins.get(sid)
         if p is None:

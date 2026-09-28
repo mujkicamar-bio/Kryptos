@@ -3,9 +3,9 @@
 PlasmidScope (Li et al., Nucleic Acids Res. 2025, 53:D179) ran eggNOG-mapper 2.1.12 on
 every protein of every plasmid in its `ALL` set. A protein of ours whose sequence is
 identical to one of theirs has, by construction, the same eggNOG result, so re-searching
-it through our cascade repeats published work. Proteins it annotates skip the cascade;
-everything else - proteins it leaves dark, and proteins it does not contain - is searched
-by all five tiers.
+it through our cascade repeats published work. Proteins it annotates are excluded from
+cascade selection (rule cascade_selection); the others are searched when their family is
+selected.
 
 WHY THE CLASS IGNORES THE PRODUCT NAME
 
